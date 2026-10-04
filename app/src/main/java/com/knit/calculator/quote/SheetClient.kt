@@ -18,7 +18,14 @@ class SheetException(message: String) : IOException(message)
 /** Логотип из папки Диска: [data] есть, только если версия изменилась. */
 data class RemoteLogo(val version: String, val data: ByteArray?)
 
-data class RemoteCatalog(val name: String, val url: String, val sheets: CatalogSheets, val logo: RemoteLogo? = null)
+data class RemoteCatalog(
+    val name: String,
+    val url: String,
+    val sheets: CatalogSheets,
+    val logo: RemoteLogo? = null,
+    /** Лист «Договор»: текст договора поставки (если лист есть). */
+    val contract: List<List<String>> = emptyList(),
+)
 
 data class RemoteQuote(
     val number: Int,
@@ -59,6 +66,7 @@ class SheetClient(private val config: SyncConfig) {
                 yarns = rows(sheets.optJSONArray("yarns")),
                 clients = rows(sheets.optJSONArray("clients")),
             ),
+            contract = rows(sheets.optJSONArray("contract")),
             logo = o.optJSONObject("logo")?.let { l ->
                 RemoteLogo(l.optString("version"), l.optString("data").takeIf { it.isNotBlank() }?.let { android.util.Base64.decode(it, android.util.Base64.DEFAULT) })
             },
@@ -93,12 +101,15 @@ class SheetClient(private val config: SyncConfig) {
         return number
     }
 
-    /** Загружает фото образца или PDF КП в папку Диска; возвращает id файла. */
-    suspend fun uploadFile(kind: String, name: String, bytes: ByteArray, mime: String, quoteId: String? = null): String {
+    /** Загружает фото образца, PDF КП или документ (kind = "doc") в папку Диска; возвращает id файла. */
+    suspend fun uploadFile(
+        kind: String, name: String, bytes: ByteArray, mime: String, quoteId: String? = null, invoiceNumber: Int? = null,
+    ): String {
         val body = JSONObject().put("action", "uploadFile").put("key", config.key)
             .put("kind", kind).put("name", name).put("mime", mime)
             .put("data", android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP))
         if (quoteId != null) body.put("quoteId", quoteId)
+        if (invoiceNumber != null) body.put("invoiceNumber", invoiceNumber)
         val id = request(URL(config.url.trim()), body.toString()).optJSONObject("file")?.optString("id").orEmpty()
         if (id.isBlank()) throw SheetException("Диск не вернул файл")
         return id
@@ -108,12 +119,39 @@ class SheetClient(private val config: SyncConfig) {
      * Письмо клиенту с PDF — с аккаунта Google владельца таблицы (ответ и копия — на e-mail фабрики).
      * PDF заодно сохраняется в папку «КП (PDF)».
      */
-    suspend fun sendEmail(quoteId: String, to: String, subject: String, text: String, fileName: String, pdf: ByteArray) {
+    suspend fun sendEmail(
+        quoteId: String, to: String, subject: String, text: String, fileName: String, pdf: ByteArray,
+        kind: String = "quote", invoiceNumber: Int? = null,
+    ) {
         val body = JSONObject().put("action", "sendEmail").put("key", config.key)
             .put("quoteId", quoteId).put("to", to).put("subject", subject).put("body", text).put("name", fileName)
+            .put("kind", kind)
             .put("data", android.util.Base64.encodeToString(pdf, android.util.Base64.NO_WRAP))
+        if (invoiceNumber != null) body.put("invoiceNumber", invoiceNumber)
         request(URL(config.url.trim()), body.toString())
     }
+
+    // ---------- Учёт: счета, оплаты, заказы, склад пряжи ----------
+
+    suspend fun ops(): JSONObject = get("ops").optJSONObject("ops") ?: JSONObject()
+
+    /** Новый счёт; возвращает его номер. */
+    suspend fun addInvoice(invoice: JSONObject): Int {
+        val number = post("addInvoice", "invoice", invoice).optInt("number", 0)
+        if (number <= 0) throw SheetException("Таблица не выдала номер счёта")
+        return number
+    }
+
+    suspend fun addPayment(payment: JSONObject) { post("addPayment", "payment", payment) }
+
+    suspend fun deletePayment(id: String) { post("deletePayment", "id", id) }
+
+    suspend fun saveOrder(order: JSONObject) { post("saveOrder", "order", order) }
+
+    suspend fun addYarnMoves(moves: JSONArray) { post("addYarnMoves", "moves", moves) }
+
+    private suspend fun post(action: String, field: String, value: Any): JSONObject =
+        request(URL(config.url.trim()), JSONObject().put("action", action).put("key", config.key).put(field, value).toString())
 
     /** Скачивает фото образца из папки Диска. */
     suspend fun getFile(fileId: String): ByteArray {

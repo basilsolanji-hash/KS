@@ -33,7 +33,7 @@ class YarnUiTest {
     private fun field(label: String) = compose.onNode(hasSetTextAction() and hasText(label))
 
     @Test fun multiColorWithSpandexAndWaste() {
-        compose.onNodeWithText("Расход пряжи").performClick()
+        compose.onNodeWithText("Расход пряжи").performScrollTo().performClick()
         field("Вес одного изделия, г").performTextInput("300")
         field("Количество, шт").performTextInput("1000")
         field("Брак и отходы, %").performTextClearance()

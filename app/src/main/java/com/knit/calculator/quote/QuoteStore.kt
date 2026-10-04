@@ -18,7 +18,7 @@ data class SyncConfig(val url: String = "", val key: String = "", val manager: S
 }
 
 /** Последняя загруженная из таблицы копия справочников — для работы без интернета. */
-data class SheetCache(val sheets: CatalogSheets, val sheetUrl: String, val loadedAt: Long)
+data class SheetCache(val sheets: CatalogSheets, val sheetUrl: String, val loadedAt: Long, val contract: List<List<String>> = emptyList())
 
 /**
  * Локальное хранилище: свой ассортимент (без таблицы), реквизиты, черновик КП,
@@ -56,6 +56,7 @@ class QuoteStore(context: Context) {
                 city = o.optString("city", d.city),
                 legalName = o.optString("legalName", d.legalName),
                 inn = o.optString("inn", d.inn),
+                legalFullName = o.optString("legalFullName", d.legalFullName),
                 kpp = o.optString("kpp", d.kpp),
                 ogrn = o.optString("ogrn", d.ogrn),
                 legalAddress = o.optString("legalAddress", d.legalAddress),
@@ -91,6 +92,8 @@ class QuoteStore(context: Context) {
                 reminderDays = o.optString("reminderDays", d.reminderDays),
                 yarnWastePercent = o.optString("yarnWastePercent", d.yarnWastePercent),
                 shopUrl = o.optString("shopUrl", d.shopUrl),
+                prepayPercent = o.optString("prepayPercent", d.prepayPercent),
+                directorPin = o.optString("directorPin", d.directorPin),
             )
         } catch (e: Exception) {
             CompanySettings()
@@ -100,7 +103,7 @@ class QuoteStore(context: Context) {
     fun saveSettings(s: CompanySettings) {
         val o = JSONObject()
             .put("brand", s.brand).put("city", s.city).put("legalName", s.legalName).put("inn", s.inn)
-            .put("kpp", s.kpp).put("ogrn", s.ogrn).put("legalAddress", s.legalAddress).put("factAddress", s.factAddress).put("director", s.director).put("bank", s.bank).put("account", s.account).put("bik", s.bik).put("corrAccount", s.corrAccount).put("deliveryArea", s.deliveryArea)
+            .put("legalFullName", s.legalFullName).put("kpp", s.kpp).put("ogrn", s.ogrn).put("legalAddress", s.legalAddress).put("factAddress", s.factAddress).put("director", s.director).put("bank", s.bank).put("account", s.account).put("bik", s.bik).put("corrAccount", s.corrAccount).put("deliveryArea", s.deliveryArea)
             .put("termOffer", s.termOffer).put("termPayment", s.termPayment).put("termQuality", s.termQuality).put("termRights", s.termRights).put("termConfidential", s.termConfidential).put("termPersonal", s.termPersonal).put("emailDisclaimer", s.emailDisclaimer)
             .put("phone", s.phone).put("email", s.email).put("website", s.website)
             .put("vatRate", s.vatRate).put("vatIncluded", s.vatIncluded)
@@ -111,6 +114,7 @@ class QuoteStore(context: Context) {
             .put("commissionPercent", s.commissionPercent).put("targetMarginPercent", s.targetMarginPercent)
             .put("maxDiscountPercent", s.maxDiscountPercent).put("reminderDays", s.reminderDays)
             .put("yarnWastePercent", s.yarnWastePercent).put("shopUrl", s.shopUrl)
+            .put("prepayPercent", s.prepayPercent).put("directorPin", s.directorPin)
         prefs.edit().putString(KEY_SETTINGS, o.toString()).apply()
     }
 
@@ -138,6 +142,11 @@ class QuoteStore(context: Context) {
             .apply()
     }
 
+    /** PIN, которым на этом телефоне открыт режим директора. */
+    var directorPin: String
+        get() = prefs.getString("director_pin", "").orEmpty()
+        set(value) = prefs.edit().putString("director_pin", value).apply()
+
     var logoVersion: String
         get() = prefs.getString(KEY_LOGO_VERSION, "").orEmpty()
         set(value) = prefs.edit().putString(KEY_LOGO_VERSION, value).apply()
@@ -146,7 +155,7 @@ class QuoteStore(context: Context) {
         val raw = prefs.getString(KEY_SHEET_CACHE, null) ?: return null
         return try {
             val o = JSONObject(raw)
-            SheetCache(sheetsFromJson(o.getJSONObject("sheets")), o.optString("url"), o.optLong("loadedAt"))
+            SheetCache(sheetsFromJson(o.getJSONObject("sheets")), o.optString("url"), o.optLong("loadedAt"), rowsFromJson(o.optJSONArray("contract")))
         } catch (e: Exception) {
             null
         }
@@ -158,6 +167,7 @@ class QuoteStore(context: Context) {
             return
         }
         val o = JSONObject().put("sheets", sheetsToJson(cache.sheets)).put("url", cache.sheetUrl).put("loadedAt", cache.loadedAt)
+            .put("contract", rowsToJson(cache.contract))
         prefs.edit().putString(KEY_SHEET_CACHE, o.toString()).apply()
     }
 
@@ -328,6 +338,17 @@ class QuoteStore(context: Context) {
                 .put("clientCompany", d.clientCompany).put("clientContact", d.clientContact)
                 .put("clientEmail", d.clientEmail).put("clientPhone", d.clientPhone).put("clientInn", d.clientInn)
                 .put("comment", d.comment).put("lines", lines)
+                .put(
+                    "snapshot",
+                    JSONArray().apply {
+                        d.snapshot.forEach { s ->
+                            put(
+                                JSONObject().put("name", s.name).put("qty", s.quantity.toPlainString()).put("unit", s.unit)
+                                    .put("price", s.price.toPlainString()).put("total", s.total.toPlainString()),
+                            )
+                        }
+                    },
+                )
                 .toString()
         }
 
@@ -355,6 +376,17 @@ class QuoteStore(context: Context) {
                         photoPath = l.optString("photo").ifBlank { null },
                         photoFileId = l.optString("photoFileId").ifBlank { null },
                     )
+                },
+                snapshot = (o.optJSONArray("snapshot") ?: JSONArray()).let { a ->
+                    (0 until a.length()).mapNotNull { a.optJSONObject(it) }.map { s ->
+                        SnapshotLine(
+                            name = s.optString("name"),
+                            quantity = java.math.BigDecimal(s.optString("qty", "0")),
+                            unit = s.optString("unit"),
+                            price = java.math.BigDecimal(s.optString("price", "0")),
+                            total = java.math.BigDecimal(s.optString("total", "0")),
+                        )
+                    }
                 },
             )
         } catch (e: Exception) {

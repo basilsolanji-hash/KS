@@ -114,6 +114,7 @@ fun QuoteScreen(
     val scope = rememberCoroutineScope()
     val copiedMessage = stringResource(R.string.quote_copied)
     var showEconomics by rememberSaveable { mutableStateOf(false) }
+    val director by viewModel.director.collectAsStateWithLifecycle()
     var photoLineId by rememberSaveable { mutableStateOf<Long?>(null) }
     val photoError = stringResource(R.string.quote_photo_error)
 
@@ -318,7 +319,8 @@ fun QuoteScreen(
             SectionTitle(R.string.quote_section_total)
             TotalsCard(totals, settings)
             if (views.any { it.line != null }) {
-                EconomicsToggle(showEconomics, views, settings) { showEconomics = it }
+                // Себестоимость и прибыль — только в режиме директора.
+                if (director) EconomicsToggle(showEconomics, views, settings) { showEconomics = it }
                 OutlinedButton(onClick = onOpenOrderYarn, modifier = Modifier.fillMaxWidth()) {
                     Icon(painterResource(R.drawable.ic_yarn), null, Modifier.size(18.dp), tint = colors.textPrimary)
                     Spacer(Modifier.width(8.dp))

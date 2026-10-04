@@ -42,11 +42,11 @@ import java.util.Date
 import java.util.Locale
 
 /** Разделы, доступные с главного экрана. */
-enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS }
+enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK }
 
 /** Главный экран: логотип и крупные кнопки разделов. */
 @Composable
-fun HomeScreen(sync: SyncStatus, themeMode: ThemeMode, onTheme: () -> Unit, onAction: (HomeAction) -> Unit) {
+fun HomeScreen(sync: SyncStatus, themeMode: ThemeMode, director: Boolean, onTheme: () -> Unit, onAction: (HomeAction) -> Unit) {
     val colors = LocalKnitColors.current
     Column(
         Modifier
@@ -101,11 +101,14 @@ fun HomeScreen(sync: SyncStatus, themeMode: ThemeMode, onTheme: () -> Unit, onAc
             }
         }
         val tiles = listOf(
-            Triple(HomeAction.YARN, R.string.home_yarn, R.drawable.ic_yarn),
-            Triple(HomeAction.CALCULATOR, R.string.home_calculator, R.drawable.ic_calculator),
             Triple(HomeAction.HISTORY, R.string.home_history, R.drawable.ic_history),
+            Triple(HomeAction.PAYMENTS, R.string.home_payments, R.drawable.ic_payments),
+            Triple(HomeAction.PRODUCTION, R.string.home_production, R.drawable.ic_factory),
+            Triple(HomeAction.STOCK, R.string.home_stock, R.drawable.ic_inventory),
+            Triple(HomeAction.YARN, R.string.home_yarn, R.drawable.ic_yarn),
             Triple(HomeAction.REPORT, R.string.home_report, R.drawable.ic_report),
             Triple(HomeAction.SHOP, R.string.home_shop, R.drawable.ic_web),
+            Triple(HomeAction.CALCULATOR, R.string.home_calculator, R.drawable.ic_calculator),
             Triple(HomeAction.SETTINGS, R.string.home_settings, R.drawable.ic_settings),
         )
         tiles.chunked(2).forEach { row ->
@@ -113,9 +116,14 @@ fun HomeScreen(sync: SyncStatus, themeMode: ThemeMode, onTheme: () -> Unit, onAc
                 row.forEach { (action, label, icon) ->
                     Tile(label, icon, Modifier.weight(1f)) { onAction(action) }
                 }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
             }
         }
         SyncLine(sync)
+        Text(
+            stringResource(if (director) R.string.role_director else R.string.role_manager),
+            color = colors.textSecondary, fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 

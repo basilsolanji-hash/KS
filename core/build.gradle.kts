@@ -16,5 +16,7 @@ kotlin {
 }
 
 dependencies {
+    // QR-код для прайс-листа (чистая Java, без Android).
+    implementation(libs.zxing.core)
     testImplementation(libs.junit)
 }

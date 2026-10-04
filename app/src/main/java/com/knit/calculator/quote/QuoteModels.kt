@@ -21,6 +21,7 @@ data class CompanySettings(
     val brand: String = "Фабрика \"KS\"",
     val city: String = "г. Электросталь",
     val legalName: String = "ООО «Солвер»",
+    val legalFullName: String = "Общество с ограниченной ответственностью «Солвер»",
     val inn: String = "9705239429",
     val kpp: String = "770501001",
     val ogrn: String = "1257700099832",
@@ -67,7 +68,14 @@ data class CompanySettings(
     val reminderDays: String = "1",
     val yarnWastePercent: String = "3",
     val shopUrl: String = "https://fabrika-ks.ru/shop",
+    /** Предоплата для счёта и договора, %. */
+    val prepayPercent: String = "50",
+    /** PIN режима директора; пусто — все видят себестоимость и прибыль. */
+    val directorPin: String = "",
 ) {
+    val prepay: BigDecimal
+        get() = YarnCalculator.parseDecimal(prepayPercent)?.coerceIn(BigDecimal.ZERO, BigDecimal(100)) ?: BigDecimal(50)
+
     /** Юридические условия по порядку; пустые не печатаются. */
     val legalTerms: List<String>
         get() = listOf(termOffer, termPayment, termQuality, termRights, termConfidential, termPersonal).map { it.trim() }.filter { it.isNotEmpty() }
@@ -98,6 +106,7 @@ data class CompanySettings(
         const val S_CITY = "Город"
         const val S_LEGAL = "Юр. лицо"
         const val S_INN = "ИНН"
+        const val S_LEGAL_FULL = "Полное наименование"
         const val S_KPP = "КПП"
         const val S_OGRN = "ОГРН"
         const val S_LEGAL_ADDRESS = "Юридический адрес"
@@ -133,6 +142,8 @@ data class CompanySettings(
         const val S_REMINDER = "Напоминание за, дней"
         const val S_YARN_WASTE = "Брак пряжи, %"
         const val S_SHOP = "Сайт каталога"
+        const val S_PREPAY = "Предоплата, %"
+        const val S_PIN = "PIN директора"
 
         /** Реквизиты из листа «Настройки»; отсутствующие строки берутся из [fallback]. */
         fun fromSheet(values: Map<String, String>, fallback: CompanySettings = CompanySettings()): CompanySettings {
@@ -142,6 +153,7 @@ data class CompanySettings(
                 city = v(S_CITY, fallback.city),
                 legalName = v(S_LEGAL, fallback.legalName),
                 inn = v(S_INN, fallback.inn),
+                legalFullName = v(S_LEGAL_FULL, fallback.legalFullName),
                 kpp = v(S_KPP, fallback.kpp),
                 ogrn = v(S_OGRN, fallback.ogrn),
                 legalAddress = v(S_LEGAL_ADDRESS, fallback.legalAddress),
@@ -178,6 +190,8 @@ data class CompanySettings(
                 reminderDays = v(S_REMINDER, fallback.reminderDays),
                 yarnWastePercent = v(S_YARN_WASTE, fallback.yarnWastePercent),
                 shopUrl = v(S_SHOP, fallback.shopUrl),
+                prepayPercent = v(S_PREPAY, fallback.prepayPercent),
+                directorPin = v(S_PIN, fallback.directorPin),
             )
         }
     }
@@ -213,6 +227,17 @@ data class QuoteDraft(
     val clientInn: String = "",
     val comment: String = "",
     val lines: List<DraftLine> = emptyList(),
+    /** Позиции с ценами на момент сохранения — для счёта и договора (прайс может измениться). */
+    val snapshot: List<SnapshotLine> = emptyList(),
+)
+
+/** Позиция сохранённого КП: как в PDF клиенту. */
+data class SnapshotLine(
+    val name: String,
+    val quantity: BigDecimal,
+    val unit: String,
+    val price: BigDecimal,
+    val total: BigDecimal,
 )
 
 // ---------- Редактируемая форма изделия (строки, как в полях ввода) ----------

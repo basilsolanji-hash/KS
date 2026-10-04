@@ -6,6 +6,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Before
 import org.junit.Rule
@@ -21,7 +22,7 @@ class CalculatorUiTest {
     val rules: RuleChain = RuleChain.outerRule(ResetAppRule()).around(compose)
 
     @Before fun openCalculator() {
-        compose.onNodeWithText("Калькулятор").performClick()
+        compose.onNodeWithText("Калькулятор").performScrollTo().performClick()
     }
 
     private fun press(keys: String) = keys.forEach { k ->

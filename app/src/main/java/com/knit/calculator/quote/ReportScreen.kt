@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.Spacer
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.knit.calculator.R
 import com.knit.calculator.core.QuoteCalculator
@@ -45,6 +46,7 @@ import java.util.Locale
 fun ReportScreen(viewModel: QuoteViewModel, onBack: () -> Unit) {
     val history by viewModel.history.collectAsStateWithLifecycle()
     val error by viewModel.historyError.collectAsStateWithLifecycle()
+    val director by viewModel.director.collectAsStateWithLifecycle()
     val colors = LocalKnitColors.current
     var offset by rememberSaveable { mutableStateOf(0) }
     val month = Calendar.getInstance().apply { add(Calendar.MONTH, offset) }
@@ -79,7 +81,8 @@ fun ReportScreen(viewModel: QuoteViewModel, onBack: () -> Unit) {
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Stat(stringResource(R.string.report_conversion), "${YarnCalculator.formatCompact(r.conversionPercent, 1)} %", null, Modifier.weight(1f))
-                    Stat(stringResource(R.string.report_profit), money(r.profit), null, Modifier.weight(1f))
+                    if (director) Stat(stringResource(R.string.report_profit), money(r.profit), null, Modifier.weight(1f))
+                    else Spacer(Modifier.weight(1f))
                 }
                 Rows(stringResource(R.string.report_by_manager), r.byManager)
                 Rows(stringResource(R.string.report_by_product), r.byProduct)

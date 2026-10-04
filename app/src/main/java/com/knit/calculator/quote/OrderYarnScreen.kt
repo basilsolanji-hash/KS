@@ -36,7 +36,7 @@ import com.knit.calculator.ui.theme.LocalKnitColors
 
 /** Пряжа на весь заказ из текущего КП: по нитям, в кг, с браком и стоимостью. */
 @Composable
-fun OrderYarnScreen(viewModel: QuoteViewModel, onBack: () -> Unit) {
+fun OrderYarnScreen(viewModel: QuoteViewModel, opsViewModel: OpsViewModel, onBack: () -> Unit) {
     val draft by viewModel.draft.collectAsStateWithLifecycle()
     val catalog by viewModel.catalog.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
@@ -46,6 +46,9 @@ fun OrderYarnScreen(viewModel: QuoteViewModel, onBack: () -> Unit) {
     val copied = stringResource(R.string.order_yarn_copied)
     val result = remember(draft, catalog, settings) { viewModel.orderYarn(viewModel.lineViews(draft, catalog, settings)) }
     val waste = YarnCalculator.formatCompact(settings.yarnWaste, 2)
+    val ops by opsViewModel.data.collectAsStateWithLifecycle()
+    val stock = remember(ops) { com.knit.calculator.core.YarnStock.balances(ops.moves) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { opsViewModel.load() }
 
     BackHandler(onBack = onBack)
     Column(Modifier.fillMaxSize().background(colors.background).safeDrawingPadding()) {
@@ -68,6 +71,16 @@ fun OrderYarnScreen(viewModel: QuoteViewModel, onBack: () -> Unit) {
                                 color = colors.textSecondary,
                                 fontSize = 14.sp,
                             )
+                            // Остаток на складе пряжи (если склад ведётся).
+                            if (stock.isNotEmpty()) {
+                                val s = com.knit.calculator.core.YarnStock.shortages(listOf(com.knit.calculator.core.YarnAmount(n.yarn, n.totalKg)), stock).first()
+                                Text(
+                                    if (s.missing.signum() > 0) stringResource(R.string.order_yarn_stock_short, YarnCalculator.format(s.have, 3), YarnCalculator.format(s.missing, 3))
+                                    else stringResource(R.string.order_yarn_stock_ok, YarnCalculator.format(s.have, 3)),
+                                    color = if (s.missing.signum() > 0) androidx.compose.ui.graphics.Color(0xFFD93B3B) else colors.textSecondary,
+                                    fontSize = 14.sp,
+                                )
+                            }
                         }
                         n.cost?.let { Text(stringResource(R.string.order_yarn_cost, QuoteCalculator.formatMoney(it)), color = colors.textPrimary, fontWeight = FontWeight.SemiBold) }
                     }

@@ -25,6 +25,7 @@ import com.knit.calculator.core.YarnCalculator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.json.JSONArray
@@ -109,6 +110,27 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
     private val _historyError = MutableStateFlow<String?>(null)
     val historyError: StateFlow<String?> = _historyError.asStateFlow()
 
+    private val _unlockedPin = MutableStateFlow(store.directorPin)
+
+    /** Режим директора: себестоимость, прибыль и экономика видны; PIN не задан — режим у всех. */
+    val director: StateFlow<Boolean> = kotlinx.coroutines.flow.combine(_settings, _unlockedPin) { s, pin ->
+        s.directorPin.isBlank() || pin == s.directorPin
+    }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, true)
+
+    fun unlockDirector(pin: String): Boolean {
+        val ok = pin.trim().isNotEmpty() && pin.trim() == _settings.value.directorPin
+        if (ok) {
+            store.directorPin = pin.trim()
+            _unlockedPin.value = pin.trim()
+        }
+        return ok
+    }
+
+    fun lockDirector() {
+        store.directorPin = ""
+        _unlockedPin.value = ""
+    }
+
     init {
         applySources()
         if (_syncConfig.value.enabled) refresh()
@@ -144,7 +166,7 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val remote = SheetClient(config).catalog(store.logoVersion)
                 applyLogo(remote.logo)
-                val newCache = SheetCache(remote.sheets, remote.url, System.currentTimeMillis())
+                val newCache = SheetCache(remote.sheets, remote.url, System.currentTimeMillis(), remote.contract)
                 cache = newCache
                 store.saveSheetCache(newCache)
                 applySources()
@@ -169,7 +191,7 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
                 applyLogo(remote.logo)
                 _syncConfig.value = config
                 store.saveSyncConfig(config)
-                cache = SheetCache(remote.sheets, remote.url, System.currentTimeMillis()).also(store::saveSheetCache)
+                cache = SheetCache(remote.sheets, remote.url, System.currentTimeMillis(), remote.contract).also(store::saveSheetCache)
                 applySources()
                 _sync.update { it.copy(loading = false) }
                 dropMissingLines()
@@ -296,6 +318,9 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         val products = linkedMapOf<String, BigDecimal>()
         views.forEach { v -> v.line?.let { products[v.product.name] = (products[v.product.name] ?: BigDecimal.ZERO) + it.total } }
         rememberClient()
+        updateDraft { d ->
+            d.copy(snapshot = views.mapNotNull { v -> v.line?.let { SnapshotLine(it.description, it.quantity, v.product.unit, it.unitPrice, it.total) } })
+        }
 
         var number = _draft.value.number
         var result: SaveResult = SaveResult.Local
@@ -465,6 +490,7 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
                 number = if (local) (store.loadArchive().maxOfOrNull { a -> a.number } ?: it.number) + 1 else 0,
                 saved = false,
                 lines = draft.lines.map { l -> l.copy(id = newId()) },
+                snapshot = emptyList(),
             )
         }
         downloadMissingPhotos()
@@ -488,6 +514,77 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         updateDraft { draft.copy(id = item.id.ifBlank { draft.id }, number = item.number, saved = true) }
         downloadMissingPhotos()
         return true
+    }
+
+    // ---------- Документы по сделке ----------
+
+    /** Сделка из истории: позиции с ценами на момент сохранения (у старых КП — по текущему прайсу). */
+    fun deal(item: HistoryItem): DealDoc? {
+        val draft = QuoteStore.draftFromJson(item.data) ?: return null
+        val settings = _settings.value
+        val lines = draft.snapshot.ifEmpty {
+            lineViews(draft, _catalog.value, settings).mapNotNull { v ->
+                v.line?.let { SnapshotLine(it.description, it.quantity, v.product.unit, it.unitPrice, it.total) }
+            }
+        }
+        val total = item.total
+        return DealDoc(
+            quoteId = item.id,
+            quoteNumber = item.number,
+            quoteDate = item.date.substringBefore(' '),
+            client = item.client.ifBlank { draft.clientCompany },
+            clientInn = draft.clientInn,
+            clientEmail = draft.clientEmail,
+            lines = lines,
+            total = total,
+            vat = DocPdf.vatIn(total, settings),
+        )
+    }
+
+    /** Изделия и пряжа заказа на производство (пряжа — с учётом брака, по весу и составу изделий). */
+    fun orderContent(item: HistoryItem): Pair<String, List<com.knit.calculator.core.YarnAmount>> {
+        val draft = QuoteStore.draftFromJson(item.data) ?: return "" to emptyList()
+        val views = lineViews(draft, _catalog.value, _settings.value)
+        val items = draft.snapshot.ifEmpty {
+            views.mapNotNull { v -> v.line?.let { SnapshotLine(it.description, it.quantity, v.product.unit, it.unitPrice, it.total) } }
+        }.joinToString("\n") { "${it.name} — ${QuoteCalculator.formatQuantity(it.quantity)} ${it.unit}" }
+        val yarn = orderYarn(views).needs.map { com.knit.calculator.core.YarnAmount(it.yarn, it.totalKg) }
+        return items to yarn
+    }
+
+    /** Текст договора: лист «Договор» таблицы или текст по умолчанию. */
+    fun contractParagraphs(): List<String> {
+        val c = cache
+        return if (_syncConfig.value.enabled && c != null) com.knit.calculator.core.ContractTemplate.fromSheet(c.contract)
+        else com.knit.calculator.core.ContractTemplate.DEFAULT
+    }
+
+    /** Названия пряжи из листа «Пряжа» — подсказки для склада. */
+    fun yarnNames(): List<String> = parsedExtras.yarnPrices.keys.map { k -> k.replaceFirstChar { it.uppercaseChar() } }
+
+    /** Документ (счёт, договор, прайс-лист) — клиенту письмом через Google: `null` — отправлено. */
+    suspend fun sendDocument(file: java.io.File, to: String, subject: String, text: String, kind: String, quoteId: String, invoiceNumber: Int?): String? {
+        val config = _syncConfig.value
+        if (!config.enabled) return "Google Таблица не подключена"
+        return try {
+            val bytes = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { file.readBytes() }
+            SheetClient(config).sendEmail(quoteId, to, subject, text, file.name, bytes, kind, invoiceNumber)
+            null
+        } catch (e: Exception) {
+            e.message ?: "Нет связи с Google"
+        }
+    }
+
+    /** Копия документа в папку «Документы» Диска (в фоне). */
+    fun uploadDocument(file: java.io.File, invoiceNumber: Int?) {
+        val config = _syncConfig.value
+        if (!config.enabled) return
+        viewModelScope.launch {
+            runCatching {
+                val bytes = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { file.readBytes() }
+                SheetClient(config).uploadFile("doc", file.name, bytes, "application/pdf", invoiceNumber = invoiceNumber)
+            }
+        }
     }
 
     // ---------- Расчёт ----------

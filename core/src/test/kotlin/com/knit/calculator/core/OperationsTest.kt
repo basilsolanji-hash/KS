@@ -76,3 +76,25 @@ class OperationsTest {
         assertEquals(OrderStage.FINISHING, OrderStage.from("вто"))
     }
 }
+
+class QrCodeTest {
+    @Test fun shopLinkQr() {
+        val m = QrCode.matrix("https://fabrika-ks.ru/shop")
+        // Версия 2 (25×25) или больше; квадрат; угловые метки на месте.
+        assertTrue(m.size >= 25)
+        assertTrue(m.all { it.size == m.size })
+        assertTrue(m[0][0] && m[0][6] && m[6][0] && !m[1][1])
+    }
+}
+
+class ContractTemplateTest {
+    @Test fun fillsPlaceholders() {
+        val text = ContractTemplate.fill(listOf("Договор № {номер} на {сумма}, {неизвестно}"), mapOf("номер" to "12", "сумма" to "100 ₽"))
+        assertEquals("Договор № 12 на 100 ₽, {неизвестно}", text[0])
+        assertEquals(ContractTemplate.DEFAULT, ContractTemplate.fromSheet(listOf(listOf("Текст договора"))))
+        assertEquals(listOf("# Заголовок", "Абзац"), ContractTemplate.fromSheet(listOf(listOf("Текст"), listOf("# Заголовок"), listOf(""), listOf("Абзац"))))
+        // Все ключи шаблона по умолчанию известны приложению.
+        val keys = ContractTemplate.DEFAULT.flatMap { Regex("\\{([^{}]+)}").findAll(it).map { m -> m.groupValues[1] } }.toSet()
+        assertEquals(setOf("номер", "город", "дата", "поставщик", "директор", "покупатель", "сумма", "сумма_прописью", "ставка_ндс", "ндс", "предоплата", "срок", "доставка"), keys)
+    }
+}

@@ -41,6 +41,8 @@ fun WebCatalogScreen(startUrl: String, onBack: () -> Unit) {
     var title by remember { mutableStateOf("") }
     var progress by remember { mutableIntStateOf(0) }
     val shareTitle = stringResource(R.string.shop_share_title)
+    var qrUrl by remember { mutableStateOf<String?>(null) }
+    qrUrl?.let { com.knit.calculator.quote.QrDialog(it) { qrUrl = null } }
 
     BackHandler {
         val w = webView
@@ -55,6 +57,7 @@ fun WebCatalogScreen(startUrl: String, onBack: () -> Unit) {
                 val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
                 context.startActivity(Intent.createChooser(send, shareTitle))
             })
+            KnitIconButton(R.drawable.ic_qr, stringResource(R.string.qr_title), { qrUrl = webView?.url ?: startUrl })
             KnitIconButton(R.drawable.ic_web, stringResource(R.string.shop_open_browser), { openUrl(context, webView?.url ?: startUrl) })
         }
         if (progress in 1..99) LinearProgressIndicator(progress = { progress / 100f }, modifier = Modifier.fillMaxWidth(), color = colors.accent)

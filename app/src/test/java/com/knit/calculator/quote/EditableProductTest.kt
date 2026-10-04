@@ -92,6 +92,7 @@ class EditableProductTest {
         val d = QuoteDraft(
             number = 7, saved = true, clientCompany = "ООО Ромашка",
             lines = listOf(DraftLine(1, 2, mapOf(3L to 4L), "150")),
+            snapshot = listOf(SnapshotLine("Подвяз 115×14", BigDecimal(150), "шт", BigDecimal("178.00"), BigDecimal("26700.00"))),
         )
         assertEquals(d, QuoteStore.draftFromJson(QuoteStore.draftToJson(d)))
     }

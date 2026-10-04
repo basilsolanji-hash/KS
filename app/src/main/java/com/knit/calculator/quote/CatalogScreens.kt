@@ -27,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -53,7 +54,7 @@ import com.knit.calculator.ui.theme.LocalKnitColors
 
 /** Общая обёртка экрана: фон, отступы под системные панели и клавиатуру, прокрутка. */
 @Composable
-private fun FormScreen(
+internal fun FormScreen(
     title: String,
     onBack: () -> Unit,
     actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
@@ -102,9 +103,32 @@ fun CatalogScreen(viewModel: QuoteViewModel, onBack: () -> Unit, onEdit: (Long?)
     val colors = LocalKnitColors.current
     val context = LocalContext.current
     var confirmReset by rememberSaveable { mutableStateOf(false) }
+    var showQr by rememberSaveable { mutableStateOf(false) }
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     val fromSheet = sync.connected
 
     FormScreen(stringResource(R.string.catalog_title), onBack) {
+        // Прайс-лист для клиента и QR-код на каталог сайта.
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            ActionButton(R.string.price_list_pdf, R.drawable.ic_doc, primary = false, Modifier.weight(1f)) {
+                scope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                    val file = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        runCatching { DocPdf.priceList(context, settings, catalog) }.getOrNull()
+                    }
+                    if (file == null) {
+                        android.widget.Toast.makeText(context, R.string.yarn_pdf_error, android.widget.Toast.LENGTH_LONG).show()
+                    } else {
+                        viewModel.uploadDocument(file, null)
+                        com.knit.calculator.report.ReportSharing.share(
+                            context, file, context.getString(R.string.price_list_subject, settings.brand),
+                            context.getString(R.string.price_list_text, settings.shopUrl, settings.signature, settings.phone, settings.email),
+                        )
+                    }
+                }
+            }
+            ActionButton(R.string.qr_title, R.drawable.ic_qr, primary = false, Modifier.weight(1f)) { showQr = true }
+        }
         if (fromSheet) {
             Text(stringResource(R.string.catalog_from_sheet), color = colors.textSecondary, fontSize = 14.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -137,6 +161,8 @@ fun CatalogScreen(viewModel: QuoteViewModel, onBack: () -> Unit, onEdit: (Long?)
             }
         }
     }
+
+    if (showQr) QrDialog(settings.shopUrl) { showQr = false }
 
     if (confirmReset) {
         ConfirmDialog(
@@ -320,7 +346,9 @@ fun CompanyScreen(viewModel: QuoteViewModel, onBack: () -> Unit) {
     val sync by viewModel.sync.collectAsStateWithLifecycle()
     val colors = LocalKnitColors.current
     val context = LocalContext.current
-    val editable = !config.enabled
+    val director by viewModel.director.collectAsStateWithLifecycle()
+    // Без таблицы реквизиты правятся здесь; менеджер (при заданном PIN) их не меняет.
+    val editable = !config.enabled && director
     fun set(transform: (CompanySettings) -> CompanySettings) = viewModel.updateSettings(transform)
 
     var url by rememberSaveable { mutableStateOf(config.url) }
@@ -365,6 +393,7 @@ fun CompanyScreen(viewModel: QuoteViewModel, onBack: () -> Unit) {
         KnitField(s.phone, { v -> set { it.copy(phone = v) } }, R.string.company_phone, enabled = editable, text = true, keyboardType = KeyboardType.Phone)
         KnitField(s.email, { v -> set { it.copy(email = v.trim()) } }, R.string.company_email, enabled = editable, text = true, keyboardType = KeyboardType.Email, maxLength = 100)
         KnitField(s.website, { v -> set { it.copy(website = v.trim()) } }, R.string.company_site, enabled = editable, text = true, keyboardType = KeyboardType.Uri, maxLength = 100)
+        KnitField(s.legalFullName, { v -> set { it.copy(legalFullName = v) } }, R.string.company_legal_full, enabled = editable, text = true, singleLine = false, maxLength = 200)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             KnitField(s.kpp, { v -> set { it.copy(kpp = v) } }, R.string.company_kpp, enabled = editable, text = true, keyboardType = KeyboardType.Number, maxLength = 25, modifier = Modifier.weight(1f))
             KnitField(s.ogrn, { v -> set { it.copy(ogrn = v) } }, R.string.company_ogrn, enabled = editable, text = true, keyboardType = KeyboardType.Number, maxLength = 25, modifier = Modifier.weight(1f))
@@ -384,6 +413,7 @@ fun CompanyScreen(viewModel: QuoteViewModel, onBack: () -> Unit) {
             KnitField(s.vatRate, { v -> set { it.copy(vatRate = v) } }, R.string.company_vat_rate, enabled = editable, modifier = Modifier.weight(1f))
             KnitField(s.validityDays, { v -> set { it.copy(validityDays = v.filter(Char::isDigit).take(3)) } }, R.string.company_validity, enabled = editable, modifier = Modifier.weight(1f))
         }
+        KnitField(s.prepayPercent, { v -> set { it.copy(prepayPercent = v) } }, R.string.company_prepay, enabled = editable)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(stringResource(R.string.company_vat_included), color = colors.textPrimary, fontSize = 16.sp)
@@ -415,21 +445,24 @@ fun CompanyScreen(viewModel: QuoteViewModel, onBack: () -> Unit) {
         KnitField(s.termPersonal, { v -> set { it.copy(termPersonal = v) } }, R.string.company_term_personal, enabled = editable, text = true, singleLine = false, maxLength = 600)
         KnitField(s.emailDisclaimer, { v -> set { it.copy(emailDisclaimer = v) } }, R.string.company_email_disclaimer, enabled = editable, text = true, singleLine = false, maxLength = 600)
 
-        SectionTitle(R.string.company_section_economics)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionTitle(R.string.company_section_role)
+        DirectorSection(viewModel, s, director, editable)
+
+        if (director) SectionTitle(R.string.company_section_economics)
+        if (director) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             KnitField(s.fixedMonthly, { v -> set { it.copy(fixedMonthly = v) } }, R.string.company_fixed, enabled = editable, modifier = Modifier.weight(1f))
             KnitField(s.planQuantity, { v -> set { it.copy(planQuantity = v) } }, R.string.company_plan, enabled = editable, modifier = Modifier.weight(1f))
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (director) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             KnitField(s.commissionPercent, { v -> set { it.copy(commissionPercent = v) } }, R.string.company_commission, enabled = editable, modifier = Modifier.weight(1f))
             KnitField(s.targetMarginPercent, { v -> set { it.copy(targetMarginPercent = v) } }, R.string.company_target, enabled = editable, modifier = Modifier.weight(1f))
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (director) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             KnitField(s.maxDiscountPercent, { v -> set { it.copy(maxDiscountPercent = v) } }, R.string.company_max_discount, enabled = editable, modifier = Modifier.weight(1f))
             KnitField(s.reminderDays, { v -> set { it.copy(reminderDays = v) } }, R.string.company_reminder, enabled = editable, modifier = Modifier.weight(1f))
         }
-        KnitField(s.yarnWastePercent, { v -> set { it.copy(yarnWastePercent = v) } }, R.string.company_yarn_waste, enabled = editable)
-        if (editable) {
+        if (director) KnitField(s.yarnWastePercent, { v -> set { it.copy(yarnWastePercent = v) } }, R.string.company_yarn_waste, enabled = editable)
+        if (editable && director) {
             TextButton(onClick = viewModel::resetSettings, modifier = Modifier.align(Alignment.CenterHorizontally)) {
                 Text(stringResource(R.string.company_reset), color = colors.textSecondary)
             }
@@ -438,6 +471,33 @@ fun CompanyScreen(viewModel: QuoteViewModel, onBack: () -> Unit) {
 }
 
 /** Открывает ссылку (Google Таблицу) в браузере или приложении «Таблицы». */
+/** Режим директора: вход по PIN, выход; без таблицы PIN задаётся здесь. */
+@Composable
+private fun DirectorSection(viewModel: QuoteViewModel, s: CompanySettings, director: Boolean, editable: Boolean) {
+    val colors = LocalKnitColors.current
+    val context = LocalContext.current
+    var pin by rememberSaveable { mutableStateOf("") }
+    val wrongPin = stringResource(R.string.director_wrong_pin)
+    when {
+        s.directorPin.isBlank() -> Text(stringResource(R.string.director_no_pin), color = colors.textSecondary, fontSize = 14.sp)
+        director -> {
+            Text(stringResource(R.string.director_on), color = colors.textSecondary, fontSize = 14.sp)
+            ActionButton(R.string.director_logout, R.drawable.ic_lock, primary = false, Modifier.fillMaxWidth()) { viewModel.lockDirector() }
+        }
+        else -> {
+            Text(stringResource(R.string.director_off), color = colors.textSecondary, fontSize = 14.sp)
+            KnitField(pin, { pin = it.filter(Char::isDigit).take(8) }, R.string.director_pin, text = true, keyboardType = KeyboardType.NumberPassword, maxLength = 8)
+            ActionButton(R.string.director_login, R.drawable.ic_lock, primary = true, Modifier.fillMaxWidth()) {
+                if (viewModel.unlockDirector(pin)) pin = "" else android.widget.Toast.makeText(context, wrongPin, android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    // Без таблицы PIN задаёт директор на своём телефоне; с таблицей — строка «PIN директора» в листе «Настройки».
+    if (editable) {
+        KnitField(s.directorPin, { v -> viewModel.updateSettings { it.copy(directorPin = v.filter(Char::isDigit).take(8)) } }, R.string.director_set_pin, text = true, keyboardType = KeyboardType.NumberPassword, maxLength = 8)
+    }
+}
+
 fun openUrl(context: android.content.Context, url: String) {
     if (url.isBlank()) return
     try {

@@ -48,7 +48,13 @@ import kotlinx.coroutines.launch
  * Статус меняется прямо в списке; «Открыть» — изменить и отправить снова, «Повторить» — новое КП по образцу.
  */
 @Composable
-fun QuoteHistoryScreen(viewModel: QuoteViewModel, onBack: () -> Unit, onOpened: () -> Unit) {
+fun QuoteHistoryScreen(
+    viewModel: QuoteViewModel,
+    opsViewModel: OpsViewModel,
+    onBack: () -> Unit,
+    onOpenProduction: () -> Unit,
+    onOpened: () -> Unit,
+) {
     val history by viewModel.history.collectAsStateWithLifecycle()
     val error by viewModel.historyError.collectAsStateWithLifecycle()
     val sync by viewModel.sync.collectAsStateWithLifecycle()
@@ -58,8 +64,13 @@ fun QuoteHistoryScreen(viewModel: QuoteViewModel, onBack: () -> Unit, onOpened: 
     val openError = stringResource(R.string.history_open_error)
     val repeated = stringResource(R.string.history_repeated)
 
+    var request by remember { mutableStateOf<Pair<HistoryItem, DealAction>?>(null) }
+
     BackHandler(onBack = onBack)
-    LaunchedEffect(Unit) { viewModel.loadHistory() }
+    LaunchedEffect(Unit) {
+        viewModel.loadHistory()
+        opsViewModel.load()
+    }
 
     Column(Modifier.fillMaxSize().background(colors.background).safeDrawingPadding()) {
         ScreenTopBar(stringResource(R.string.history_quotes), onBack) {
@@ -87,6 +98,7 @@ fun QuoteHistoryScreen(viewModel: QuoteViewModel, onBack: () -> Unit, onOpened: 
                                 Toast.makeText(context, openError, Toast.LENGTH_LONG).show()
                             }
                         },
+                        onDeal = { action -> request = q to action },
                         onStatus = { status ->
                             scope.launch(Dispatchers.Main) {
                                 viewModel.setStatus(q, status)?.let {
@@ -99,12 +111,20 @@ fun QuoteHistoryScreen(viewModel: QuoteViewModel, onBack: () -> Unit, onOpened: 
             }
         }
     }
+    DealActionHost(request, viewModel, opsViewModel, onDismiss = { request = null }, onOpenProduction = onOpenProduction)
 }
 
 @Composable
-private fun HistoryCard(item: HistoryItem, onOpen: () -> Unit, onRepeat: () -> Unit, onStatus: (QuoteStatus) -> Unit) {
+private fun HistoryCard(
+    item: HistoryItem,
+    onOpen: () -> Unit,
+    onRepeat: () -> Unit,
+    onDeal: (DealAction) -> Unit,
+    onStatus: (QuoteStatus) -> Unit,
+) {
     val colors = LocalKnitColors.current
     var menu by remember { mutableStateOf(false) }
+    var dealMenu by remember { mutableStateOf(false) }
     Surface(shape = RoundedCornerShape(18.dp), color = colors.panel, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -140,9 +160,28 @@ private fun HistoryCard(item: HistoryItem, onOpen: () -> Unit, onRepeat: () -> U
                         }
                     }
                 }
-                androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+            }
+            // Действия — отдельной строкой: на узком экране всё не помещается рядом со статусом.
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onOpen) { Text(stringResource(R.string.history_open_action), color = colors.textPrimary) }
                 TextButton(onClick = onRepeat) { Text(stringResource(R.string.history_repeat_action), color = colors.textPrimary) }
+                androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+                Box {
+                    KnitIconButton(R.drawable.ic_more, stringResource(R.string.deal_menu), { dealMenu = true })
+                    DropdownMenu(expanded = dealMenu, onDismissRequest = { dealMenu = false }, containerColor = colors.panel) {
+                        listOf(
+                            DealAction.INVOICE to R.string.deal_invoice,
+                            DealAction.CONTRACT to R.string.deal_contract,
+                            DealAction.ORDER to R.string.deal_order,
+                            DealAction.PAYMENT to R.string.deal_payment,
+                        ).forEach { (action, label) ->
+                            DropdownMenuItem(
+                                text = { Text(stringResource(label), color = colors.textPrimary) },
+                                onClick = { dealMenu = false; onDeal(action) },
+                            )
+                        }
+                    }
+                }
             }
         }
     }
