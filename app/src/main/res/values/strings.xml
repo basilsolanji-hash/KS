@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Калькулятор Knit ERP</string>
+
+    <string name="history">История</string>
+    <string name="history_open">Открыть историю вычислений</string>
+    <string name="history_empty">История пуста.\nЗдесь появятся ваши вычисления.</string>
+    <string name="history_clear">Очистить</string>
+    <string name="history_clear_title">Очистить историю?</string>
+    <string name="history_clear_text">Все сохранённые вычисления будут удалены с устройства.</string>
+    <string name="history_restore">Вернуть в калькулятор</string>
+    <string name="cancel">Отмена</string>
+    <string name="close">Закрыть</string>
+
+    <string name="copy_result">Скопировать результат</string>
+    <string name="copied">Результат скопирован</string>
+    <string name="theme_toggle">Сменить тему: %1$s</string>
+    <string name="theme_system">как в системе</string>
+    <string name="theme_light">светлая</string>
+    <string name="theme_dark">тёмная</string>
+
+    <string name="error_division_by_zero">Деление на ноль невозможно</string>
+    <string name="error_invalid">Некорректное выражение</string>
+    <string name="error_overflow">Слишком большое число</string>
+
+    <string name="display_expression">Выражение</string>
+    <string name="display_result">Результат</string>
+    <string name="display_hint">Удерживайте, чтобы скопировать</string>
+
+    <string name="key_clear">Очистить всё</string>
+    <string name="key_backspace">Удалить последний символ</string>
+    <string name="key_parentheses">Скобки</string>
+    <string name="key_percent">Процент</string>
+    <string name="key_divide">Разделить</string>
+    <string name="key_multiply">Умножить</string>
+    <string name="key_minus">Минус</string>
+    <string name="key_plus">Плюс</string>
+    <string name="key_equals">Равно</string>
+    <string name="key_sign">Сменить знак</string>
+    <string name="key_decimal">Десятичная запятая</string>
+</resources>

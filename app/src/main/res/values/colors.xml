@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Палитра Knit ERP -->
+    <color name="knit_dark">#1E1E20</color>
+    <color name="knit_panel">#2A2A2E</color>
+    <color name="knit_turquoise">#30D5C8</color>
+    <color name="knit_white">#FFFFFF</color>
+    <color name="knit_gray">#D1D5DB</color>
+</resources>
