@@ -77,6 +77,17 @@ class QuoteUiTest {
         compose.onAllNodes(hasText("Себестоимость заказа", substring = true)).onFirst().performScrollTo().assertExists()
         Shots.take("35_quote_economics", compose)
 
+        // Сохранить КП (без таблицы — в архив телефона), затем история → статус → отчёт.
+        compose.onNodeWithText("Сохранить КП").performScrollTo().performClick()
+        Thread.sleep(3_000) // сохранение и PDF — в фоне
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("История КП").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodes(hasText("Статус: Отправлено", substring = true)).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Статус: Отправлено", substring = true).performClick()
+        compose.onNodeWithText("Оплачено").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodes(hasText("Статус: Оплачено", substring = true)).fetchSemanticsNodes().isNotEmpty() }
+        Shots.take("38_history_status", compose)
+        compose.onNodeWithContentDescription("Назад").performClick()
 
         compose.onNodeWithContentDescription("Ассортимент и цены").performClick()
         Shots.take("32_catalog", compose)
@@ -89,6 +100,7 @@ class QuoteUiTest {
         // Главный экран → отчёт и каталог на сайте.
         compose.onNodeWithText("Отчёт").performClick()
         compose.onNodeWithText("Отчёт за месяц").assertExists()
+        compose.waitUntil(10_000) { compose.onAllNodes(hasText(money(106_800))).fetchSemanticsNodes().isNotEmpty() }
         Shots.take("36_report", compose)
         compose.onNodeWithContentDescription("Назад").performClick()
         compose.onNodeWithText("Каталог на сайте").performClick()

@@ -228,6 +228,19 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Копия PDF КП сразу (кнопка «Сохранить в облако»): `null` — успех, иначе текст ошибки. */
+    suspend fun uploadPdfNow(file: java.io.File): String? {
+        val config = _syncConfig.value
+        if (!config.enabled) return null
+        return try {
+            val bytes = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { file.readBytes() }
+            SheetClient(config).uploadFile("pdf", file.name, bytes, "application/pdf", _draft.value.id)
+            null
+        } catch (e: Exception) {
+            e.message ?: "Нет связи с Google Диском"
+        }
+    }
+
     /** Копия PDF КП — в папку «КП (PDF)» Диска, ссылка — в лист «КП». В фоне, ошибки не мешают отправке. */
     fun uploadPdf(file: java.io.File) {
         val config = _syncConfig.value

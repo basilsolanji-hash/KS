@@ -90,7 +90,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private enum class QuoteAction { SHARE, EMAIL, PRINT }
+private enum class QuoteAction { SHARE, EMAIL, PRINT, SAVE }
 
 @Composable
 fun QuoteScreen(
@@ -155,6 +155,16 @@ fun QuoteScreen(
                 Toast.makeText(context, R.string.yarn_pdf_error, Toast.LENGTH_LONG).show()
                 return@launch
             }
+            if (action == QuoteAction.SAVE) {
+                val error = viewModel.uploadPdfNow(file)
+                val message = when {
+                    error != null -> context.getString(R.string.cloud_saved_pdf_error, error)
+                    sync.connected -> context.getString(R.string.cloud_saved, viewModel.draft.value.number)
+                    else -> context.getString(R.string.cloud_saved_local, viewModel.draft.value.number)
+                }
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                return@launch
+            }
             viewModel.uploadPdf(file)
             val subject = QuotePdf.subject(context, doc)
             val text = QuotePdf.emailText(context, doc)
@@ -165,6 +175,7 @@ fun QuoteScreen(
                     listOf(doc.draft.clientEmail.trim()).filter { it.isNotEmpty() }.toTypedArray(),
                 )
                 QuoteAction.PRINT -> ReportSharing.print(context, file, subject)
+                QuoteAction.SAVE -> Unit
             }
         }
     }
@@ -307,8 +318,12 @@ fun QuoteScreen(
                 Text(stringResource(R.string.sync_saving), color = colors.textSecondary, fontSize = 14.sp)
             }
             if (totals.lines.isNotEmpty()) {
+                ActionButton(
+                    if (sync.connected) R.string.cloud_save else R.string.cloud_save_local,
+                    R.drawable.ic_cloud, primary = true, Modifier.fillMaxWidth(),
+                ) { run(QuoteAction.SAVE) }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    ActionButton(R.string.yarn_pdf, R.drawable.ic_share, primary = true, Modifier.weight(1f)) { run(QuoteAction.SHARE) }
+                    ActionButton(R.string.yarn_pdf, R.drawable.ic_share, primary = false, Modifier.weight(1f)) { run(QuoteAction.SHARE) }
                     ActionButton(R.string.yarn_email, R.drawable.ic_email, primary = false, Modifier.weight(1f)) { run(QuoteAction.EMAIL) }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
