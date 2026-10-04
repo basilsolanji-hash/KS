@@ -14,9 +14,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,6 +50,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import androidx.compose.ui.unit.sp
@@ -63,7 +68,7 @@ import com.knit.calculator.ui.components.Keypad
 import com.knit.calculator.ui.theme.LocalKnitColors
 
 @Composable
-fun CalculatorScreen(viewModel: CalculatorViewModel, themeMode: ThemeMode) {
+fun CalculatorScreen(viewModel: CalculatorViewModel, themeMode: ThemeMode, onOpenYarn: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val history by viewModel.history.collectAsStateWithLifecycle()
     var showHistory by rememberSaveable { mutableStateOf(false) }
@@ -105,6 +110,7 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, themeMode: ThemeMode) {
                 themeMode = themeMode,
                 onThemeClick = viewModel::cycleTheme,
                 onHistoryClick = { showHistory = true },
+                onYarnClick = onOpenYarn,
             )
         }
         val display = @Composable { modifier: Modifier ->
@@ -114,7 +120,11 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, themeMode: ThemeMode) {
                     onCopy = { copy(state.copyableValue()) },
                     modifier = Modifier.fillMaxWidth().weight(1f),
                 )
-                BackspaceRow(onBackspace = { viewModel.onKey(CalcKey.Backspace) })
+                BackspaceRow(
+                    canCopy = state.copyableValue().isNotEmpty(),
+                    onCopy = { copy(state.copyableValue()) },
+                    onBackspace = { viewModel.onKey(CalcKey.Backspace) },
+                )
             }
         }
 
@@ -155,7 +165,7 @@ private fun CalculatorState.copyableValue(): String =
     if (evaluated) expression else preview ?: expression
 
 @Composable
-private fun TopBar(themeMode: ThemeMode, onThemeClick: () -> Unit, onHistoryClick: () -> Unit) {
+private fun TopBar(themeMode: ThemeMode, onThemeClick: () -> Unit, onHistoryClick: () -> Unit, onYarnClick: () -> Unit) {
     val colors = LocalKnitColors.current
     val themeName = stringResource(
         when (themeMode) {
@@ -170,8 +180,17 @@ private fun TopBar(themeMode: ThemeMode, onThemeClick: () -> Unit, onHistoryClic
             color = colors.textSecondary,
             fontSize = 18.sp,
             fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f).padding(start = 8.dp).semantics { heading() },
         )
+        IconButton(onClick = onYarnClick) {
+            Icon(
+                painter = painterResource(R.drawable.ic_yarn),
+                contentDescription = stringResource(R.string.yarn_open),
+                tint = colors.accent.takeIf { colors.isDark } ?: colors.textPrimary,
+            )
+        }
         IconButton(onClick = onThemeClick) {
             Icon(
                 painter = painterResource(
@@ -196,9 +215,28 @@ private fun TopBar(themeMode: ThemeMode, onThemeClick: () -> Unit, onHistoryClic
 }
 
 @Composable
-private fun BackspaceRow(onBackspace: () -> Unit) {
+private fun BackspaceRow(canCopy: Boolean, onCopy: () -> Unit, onBackspace: () -> Unit) {
     val colors = LocalKnitColors.current
-    Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.End) {
+    Row(
+        Modifier.fillMaxWidth().padding(bottom = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // Кнопка «Скопировать результат»: копирует результат или предварительный итог.
+        TextButton(onClick = onCopy, enabled = canCopy) {
+            Icon(
+                painter = painterResource(R.drawable.ic_copy),
+                contentDescription = null,
+                tint = if (canCopy) colors.textSecondary else colors.textSecondary.copy(alpha = 0.4f),
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                stringResource(R.string.copy_result),
+                color = if (canCopy) colors.textSecondary else colors.textSecondary.copy(alpha = 0.4f),
+                fontSize = 15.sp,
+            )
+        }
         IconButton(onClick = onBackspace, modifier = Modifier.padding(end = 4.dp)) {
             Icon(
                 painter = painterResource(R.drawable.ic_backspace),
