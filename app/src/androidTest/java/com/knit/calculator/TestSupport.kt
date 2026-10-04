@@ -22,9 +22,9 @@ class ResetAppRule(private val theme: String = "LIGHT") : TestWatcher() {
     }
 }
 
-/** Скриншоты для проверки интерфейса: /sdcard/Android/data/com.knit.calculator/files/screenshots. */
+/** Скриншоты для проверки интерфейса: files/screenshots приложения (забираются через `adb exec-out run-as`). */
 object Shots {
-    private val dir: File get() = File(targetContext.getExternalFilesDir(null), "screenshots").apply { mkdirs() }
+    private val dir: File get() = File(targetContext.filesDir, "screenshots").apply { mkdirs() }
 
     fun take(name: String) {
         InstrumentationRegistry.getInstrumentation().waitForIdleSync()

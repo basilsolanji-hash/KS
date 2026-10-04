@@ -103,7 +103,7 @@ jobs:
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
             adb shell am instrument -w -r com.knit.calculator.test/androidx.test.runner.AndroidJUnitRunner | tee ui-tests.txt
-            mkdir -p screenshots && adb pull /sdcard/Android/data/com.knit.calculator/files/screenshots screenshots || true
+            mkdir -p screenshots && (adb exec-out run-as com.knit.calculator tar cf - files/screenshots > screenshots.tar; tar xf screenshots.tar -C screenshots) || true
 
       - name: Check results
         run: |

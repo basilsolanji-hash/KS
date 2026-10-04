@@ -42,7 +42,7 @@ class QuoteUiTest {
         compose.onNodeWithContentDescription("Коммерческое предложение").performClick()
         compose.onNodeWithText("Компания клиента").performTextInput("ООО «Пример»")
         compose.onNodeWithText("Добавить позицию").performScrollTo().performClick()
-        compose.onNodeWithText("Подвяз 115×ширина").performClick()
+        compose.onNodeWithText("Подвяз трикотажный").performClick()
         val qty = compose.onNode(hasSetTextAction() and hasText("Количество"))
         qty.performTextClearance()
         qty.performTextInput("600")

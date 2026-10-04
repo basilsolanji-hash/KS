@@ -59,7 +59,7 @@ class QuoteCalculatorTest {
         val l = QuoteCalculator.line(QuoteLineInput(podv, emptyMap(), bd("600")))
         assertBd("158", l.unitPrice) // по умолчанию первые варианты: 115×13, полиэстер 1×1
         assertBd("94800", l.total)
-        assertEquals("Подвяз 115×ширина (Размер: 115×13; Тип: Полиэстер 1×1)", l.description)
+        assertEquals("Подвяз трикотажный (Размер: 115×13; Тип: Полиэстер 1×1)", l.description)
         assertBd("1", l.volumeFactor)
     }
 
