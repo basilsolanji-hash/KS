@@ -17,14 +17,29 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Постоянный ключ фабрики: CI кладёт его из секретов репозитория (см. .github/workflows/android.yml).
+    // Без него — отладочный ключ, такой APK не обновит версию, подписанную ключом фабрики.
+    val ksFile = System.getenv("KS_KEYSTORE_FILE")?.let(::file)?.takeIf { it.exists() }
+    val ksPassword = System.getenv("KS_KEYSTORE_PASSWORD")
+    if (ksFile != null && !ksPassword.isNullOrEmpty()) {
+        signingConfigs.create("ks") {
+            storeFile = ksFile
+            storePassword = ksPassword
+            keyAlias = "ks"
+            keyPassword = ksPassword
+        }
+    }
+    val signing = signingConfigs.findByName("ks") ?: signingConfigs.getByName("debug")
+
     buildTypes {
+        debug {
+            signingConfig = signing
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Тестовая подпись отладочным ключом, чтобы APK можно было сразу установить.
-            // Для публикации в магазине замените на собственный ключ.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signing
         }
     }
 

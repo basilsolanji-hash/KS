@@ -22,6 +22,21 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      # Постоянный ключ подписи из секретов репозитория (KS_KEYSTORE_BASE64, KS_KEYSTORE_PASSWORD):
+      # с ним новые версии ставятся поверх старых. Без секретов — одноразовый отладочный ключ.
+      - name: Signing key
+        env:
+          KS_KEYSTORE_BASE64: ${{ secrets.KS_KEYSTORE_BASE64 }}
+          KS_KEYSTORE_PASSWORD: ${{ secrets.KS_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KS_KEYSTORE_BASE64" ] && [ -n "$KS_KEYSTORE_PASSWORD" ]; then
+            echo "$KS_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/ks.jks"
+            echo "KS_KEYSTORE_FILE=$RUNNER_TEMP/ks.jks" >> "$GITHUB_ENV"
+            echo "Подпись: постоянный ключ из секретов"
+          else
+            echo "::warning::Секреты KS_KEYSTORE_BASE64 / KS_KEYSTORE_PASSWORD не заданы — APK подписан одноразовым ключом и не обновит прежнюю версию"
+          fi
+
       - name: Unit tests
         run: ./gradlew --no-daemon test
 
@@ -32,6 +47,8 @@ jobs:
         run: ./gradlew --no-daemon :app:lintDebug
 
       - name: Build APK (+ UI tests APK)
+        env:
+          KS_KEYSTORE_PASSWORD: ${{ secrets.KS_KEYSTORE_PASSWORD }}
         run: ./gradlew --no-daemon assembleDebug assembleRelease assembleDebugAndroidTest
 
       - name: Collect APKs
@@ -62,10 +79,10 @@ jobs:
         with:
           tag_name: build-${{ github.run_number }}
           target_commitish: ${{ github.sha }}
-          name: Калькулятор Knit ERP — сборка ${{ github.run_number }}
+          name: Фабрика "KS" — сборка ${{ github.run_number }}
           body: |
-            APK для тестирования (подписан отладочным ключом).
-            Рекомендуется KnitCalculator-release.apk.
+            Устанавливайте KnitCalculator-release.apk.
+            Подпись — постоянным ключом фабрики (если заданы секреты репозитория), новые версии ставятся поверх.
           prerelease: true
           files: dist/*.apk
 
