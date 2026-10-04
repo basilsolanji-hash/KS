@@ -59,6 +59,11 @@ import com.knit.calculator.core.YarnCalculator
 import com.knit.calculator.core.YarnIssue
 import com.knit.calculator.core.YarnOutcome
 import com.knit.calculator.core.YarnResult
+import com.knit.calculator.report.ReportSharing
+import com.knit.calculator.ui.components.ActionButton
+import com.knit.calculator.ui.components.KnitField
+import com.knit.calculator.ui.components.SectionTitle
+import com.knit.calculator.ui.components.toastIfNeeded
 import com.knit.calculator.ui.theme.LocalKnitColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -99,7 +104,7 @@ fun YarnScreen(viewModel: YarnViewModel, onBack: () -> Unit) {
             val text = YarnReport.summaryText(context, data)
             when (action) {
                 ReportAction.SHARE -> ReportSharing.share(context, file, subject, text)
-                ReportAction.EMAIL -> ReportSharing.email(context, file, subject, text)
+                ReportAction.EMAIL -> ReportSharing.email(context, file, subject, text, arrayOf(context.getString(R.string.report_email)))
                 ReportAction.PRINT -> ReportSharing.print(context, file, subject)
             }
         }
@@ -228,62 +233,8 @@ fun YarnScreen(viewModel: YarnViewModel, onBack: () -> Unit) {
     }
 }
 
-private fun toastIfNeeded(context: Context, message: String) {
-    // Начиная с Android 13 система сама сообщает о копировании.
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-    }
-}
 
-@Composable
-private fun SectionTitle(@StringRes title: Int) {
-    Text(
-        stringResource(title),
-        color = LocalKnitColors.current.textSecondary,
-        fontSize = 15.sp,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(top = 8.dp).semantics { heading() },
-    )
-}
 
-@Composable
-private fun KnitField(
-    value: String,
-    onChange: (String) -> Unit,
-    @StringRes label: Int,
-    modifier: Modifier = Modifier.fillMaxWidth(),
-    text: Boolean = false,
-    placeholder: String? = null,
-) {
-    val colors = LocalKnitColors.current
-    val focus = if (colors.isDark) colors.accent else colors.textPrimary
-    OutlinedTextField(
-        value = value,
-        onValueChange = { v ->
-            onChange(if (text) v.take(60) else v.filter { it.isDigit() || it == ',' || it == '.' }.take(12))
-        },
-        label = { Text(stringResource(label)) },
-        placeholder = if (placeholder != null) { { Text(placeholder) } } else null,
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(
-            keyboardType = if (text) KeyboardType.Text else KeyboardType.Decimal,
-            capitalization = if (text) KeyboardCapitalization.Sentences else KeyboardCapitalization.None,
-            imeAction = ImeAction.Next,
-        ),
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedTextColor = colors.textPrimary,
-            unfocusedTextColor = colors.textPrimary,
-            focusedBorderColor = focus,
-            unfocusedBorderColor = colors.textSecondary.copy(alpha = 0.5f),
-            focusedLabelColor = focus,
-            unfocusedLabelColor = colors.textSecondary,
-            cursorColor = focus,
-            focusedPlaceholderColor = colors.textSecondary,
-            unfocusedPlaceholderColor = colors.textSecondary,
-        ),
-        modifier = modifier,
-    )
-}
 
 @Composable
 private fun UnitSelector(selected: OrderUnit, onSelect: (OrderUnit) -> Unit) {
@@ -378,26 +329,3 @@ private fun ResultContent(result: YarnResult) {
     )
 }
 
-@Composable
-private fun ActionButton(
-    @StringRes label: Int,
-    @DrawableRes icon: Int,
-    primary: Boolean,
-    modifier: Modifier,
-    onClick: () -> Unit,
-) {
-    val colors = LocalKnitColors.current
-    FilledTonalButton(
-        onClick = onClick,
-        modifier = modifier.height(52.dp),
-        shape = RoundedCornerShape(16.dp),
-        colors = ButtonDefaults.filledTonalButtonColors(
-            containerColor = if (primary) colors.equalsKey else colors.panel,
-            contentColor = if (primary) colors.equalsKeyText else colors.textPrimary,
-        ),
-    ) {
-        Icon(painterResource(icon), null, Modifier.size(20.dp))
-        Spacer(Modifier.width(8.dp))
-        Text(stringResource(label), fontWeight = FontWeight.SemiBold)
-    }
-}

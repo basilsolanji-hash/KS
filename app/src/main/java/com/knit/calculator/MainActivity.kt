@@ -15,15 +15,24 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.knit.calculator.data.ThemeMode
+import com.knit.calculator.quote.CatalogScreen
+import com.knit.calculator.quote.CompanyScreen
+import com.knit.calculator.quote.ProductEditorScreen
+import com.knit.calculator.quote.QuoteScreen
+import com.knit.calculator.quote.QuoteViewModel
 import com.knit.calculator.ui.CalculatorScreen
 import com.knit.calculator.ui.theme.KnitTheme
 import com.knit.calculator.yarn.YarnScreen
 import com.knit.calculator.yarn.YarnViewModel
 
+/** Экраны приложения; переход «назад» описан у каждого экрана. */
+private enum class Screen { CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY }
+
 class MainActivity : ComponentActivity() {
 
     private val viewModel: CalculatorViewModel by viewModels()
     private val yarnViewModel: YarnViewModel by viewModels()
+    private val quoteViewModel: QuoteViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,12 +49,32 @@ class MainActivity : ComponentActivity() {
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
                 onDispose {}
             }
-            var showYarn by rememberSaveable { mutableStateOf(false) }
+            var screen by rememberSaveable { mutableStateOf(Screen.CALCULATOR) }
             KnitTheme(darkTheme = darkTheme) {
-                if (showYarn) {
-                    YarnScreen(viewModel = yarnViewModel, onBack = { showYarn = false })
-                } else {
-                    CalculatorScreen(viewModel = viewModel, themeMode = themeMode, onOpenYarn = { showYarn = true })
+                when (screen) {
+                    Screen.CALCULATOR -> CalculatorScreen(
+                        viewModel = viewModel,
+                        themeMode = themeMode,
+                        onOpenYarn = { screen = Screen.YARN },
+                        onOpenQuote = { screen = Screen.QUOTE },
+                    )
+                    Screen.YARN -> YarnScreen(viewModel = yarnViewModel, onBack = { screen = Screen.CALCULATOR })
+                    Screen.QUOTE -> QuoteScreen(
+                        viewModel = quoteViewModel,
+                        onBack = { screen = Screen.CALCULATOR },
+                        onOpenCatalog = { screen = Screen.CATALOG },
+                        onOpenCompany = { screen = Screen.COMPANY },
+                    )
+                    Screen.CATALOG -> CatalogScreen(
+                        viewModel = quoteViewModel,
+                        onBack = { screen = Screen.QUOTE },
+                        onEdit = { id ->
+                            quoteViewModel.startEditing(id)
+                            screen = Screen.PRODUCT
+                        },
+                    )
+                    Screen.PRODUCT -> ProductEditorScreen(viewModel = quoteViewModel, onDone = { screen = Screen.CATALOG })
+                    Screen.COMPANY -> CompanyScreen(viewModel = quoteViewModel, onBack = { screen = Screen.QUOTE })
                 }
             }
         }

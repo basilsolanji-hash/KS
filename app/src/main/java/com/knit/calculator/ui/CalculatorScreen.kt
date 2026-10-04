@@ -68,7 +68,7 @@ import com.knit.calculator.ui.components.Keypad
 import com.knit.calculator.ui.theme.LocalKnitColors
 
 @Composable
-fun CalculatorScreen(viewModel: CalculatorViewModel, themeMode: ThemeMode, onOpenYarn: () -> Unit) {
+fun CalculatorScreen(viewModel: CalculatorViewModel, themeMode: ThemeMode, onOpenYarn: () -> Unit, onOpenQuote: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val history by viewModel.history.collectAsStateWithLifecycle()
     var showHistory by rememberSaveable { mutableStateOf(false) }
@@ -111,6 +111,7 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, themeMode: ThemeMode, onOpe
                 onThemeClick = viewModel::cycleTheme,
                 onHistoryClick = { showHistory = true },
                 onYarnClick = onOpenYarn,
+                onQuoteClick = onOpenQuote,
             )
         }
         val display = @Composable { modifier: Modifier ->
@@ -165,7 +166,7 @@ private fun CalculatorState.copyableValue(): String =
     if (evaluated) expression else preview ?: expression
 
 @Composable
-private fun TopBar(themeMode: ThemeMode, onThemeClick: () -> Unit, onHistoryClick: () -> Unit, onYarnClick: () -> Unit) {
+private fun TopBar(themeMode: ThemeMode, onThemeClick: () -> Unit, onHistoryClick: () -> Unit, onYarnClick: () -> Unit, onQuoteClick: () -> Unit) {
     val colors = LocalKnitColors.current
     val themeName = stringResource(
         when (themeMode) {
@@ -178,12 +179,19 @@ private fun TopBar(themeMode: ThemeMode, onThemeClick: () -> Unit, onHistoryClic
         Text(
             text = stringResource(R.string.app_name),
             color = colors.textSecondary,
-            fontSize = 18.sp,
+            fontSize = 16.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f).padding(start = 8.dp).semantics { heading() },
         )
+        IconButton(onClick = onQuoteClick) {
+            Icon(
+                painter = painterResource(R.drawable.ic_quote),
+                contentDescription = stringResource(R.string.quote_open),
+                tint = colors.accent.takeIf { colors.isDark } ?: colors.textPrimary,
+            )
+        }
         IconButton(onClick = onYarnClick) {
             Icon(
                 painter = painterResource(R.drawable.ic_yarn),

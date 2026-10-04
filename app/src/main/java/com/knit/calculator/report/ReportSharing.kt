@@ -1,4 +1,4 @@
-package com.knit.calculator.yarn
+package com.knit.calculator.report
 
 import android.content.ActivityNotFoundException
 import android.content.ClipData
@@ -39,12 +39,12 @@ object ReportSharing {
         start(context, Intent.createChooser(intent, context.getString(R.string.yarn_share_title)))
     }
 
-    /** Письмо с PDF во вложении на адрес по умолчанию; адрес можно изменить в почтовом приложении. */
-    fun email(context: Context, file: File, subject: String, text: String) {
+    /** Письмо с PDF во вложении; адресатов можно изменить в почтовом приложении. */
+    fun email(context: Context, file: File, subject: String, text: String, recipients: Array<String>) {
         val uri = uriFor(context, file)
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "application/pdf"
-            putExtra(Intent.EXTRA_EMAIL, arrayOf(context.getString(R.string.report_email)))
+            putExtra(Intent.EXTRA_EMAIL, recipients)
             putExtra(Intent.EXTRA_SUBJECT, subject)
             putExtra(Intent.EXTRA_TEXT, text)
             putExtra(Intent.EXTRA_STREAM, uri)
