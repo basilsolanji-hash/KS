@@ -83,12 +83,16 @@ object QuotePdf {
         appendLine()
         appendLine("${context.getString(R.string.quote_total)}: ${QuoteCalculator.formatMoney(t.total)} ₽ (${vatLabel(context, doc)}: ${QuoteCalculator.formatMoney(t.vat)} ₽)")
         if (s.leadTime.isNotBlank()) appendLine(context.getString(R.string.kp_lead_time, s.leadTime))
-        deliveryText(t, s).takeIf { it.isNotBlank() }?.let { appendLine(context.getString(R.string.kp_delivery, it.lowercase())) }
+        deliveryText(t, s).takeIf { it.isNotBlank() }?.let { appendLine(context.getString(R.string.kp_delivery, it.replaceFirstChar(Char::lowercaseChar))) }
         validUntil(doc)?.let { appendLine(context.getString(R.string.kp_validity, s.validityDays, date(it))) }
         appendLine()
         appendLine(s.signature)
         // Название уже в подписи — добавляем только город и контакты.
         appendLine(listOf(s.city, s.phone, s.email, s.website).filter { it.isNotBlank() }.joinToString(" · "))
+        if (s.emailDisclaimer.isNotBlank()) {
+            appendLine()
+            appendLine(s.emailDisclaimer.trim())
+        }
     }
 
     fun create(context: Context, doc: QuoteDocument): File {
@@ -139,6 +143,8 @@ object QuotePdf {
             table()
             totals()
             conditions()
+            legal()
+            requisites()
             signature()
             pdf.finishPage(page)
         }
@@ -173,18 +179,25 @@ object QuotePdf {
                 ry += 13f
             }
             y += 16f
-            val legal = listOf(
-                s.legalName,
-                s.inn.takeIf { it.isNotBlank() }?.let { context.getString(R.string.kp_inn, it) },
-            ).filter { !it.isNullOrBlank() }.joinToString(", ")
-            if (legal.isNotBlank()) {
-                canvas.drawText(fit(legal, width * 0.6f - (textLeft - MARGIN), muted), textLeft, y, muted)
+            // Строки под контактами справа могут занимать всю ширину.
+            val contactsBottom = ry - 13f
+            fun headerLine(text: String) {
+                if (text.isBlank()) return
+                val available = if (y > contactsBottom + 4f) PAGE_WIDTH - MARGIN - textLeft else width * 0.6f - (textLeft - MARGIN)
+                canvas.drawText(fit(text, available, muted), textLeft, y, muted)
                 y += 13f
             }
-            if (s.city.isNotBlank()) {
-                canvas.drawText(s.city, textLeft, y, muted)
-                y += 13f
-            }
+            headerLine(
+                listOf(s.legalName, s.inn.takeIf { it.isNotBlank() }?.let { context.getString(R.string.kp_inn, it) })
+                    .filter { !it.isNullOrBlank() }.joinToString(", "),
+            )
+            headerLine(
+                listOf(
+                    s.kpp.takeIf { it.isNotBlank() }?.let { context.getString(R.string.kp_kpp, it) },
+                    s.ogrn.takeIf { it.isNotBlank() }?.let { context.getString(R.string.kp_ogrn, it) },
+                ).filterNotNull().joinToString(", "),
+            )
+            headerLine(if (s.factAddress.isNotBlank()) context.getString(R.string.kp_fact_address, s.factAddress) else s.city)
             y = maxOf(y, ry, MARGIN + 44f) + 8f
             canvas.drawLine(MARGIN, y, PAGE_WIDTH - MARGIN, y, rule)
             y += 28f
@@ -300,7 +313,7 @@ object QuotePdf {
             val s = doc.settings
             val lines = buildList {
                 if (s.leadTime.isNotBlank()) add(context.getString(R.string.kp_lead_time, s.leadTime))
-                deliveryText(doc.totals, s).takeIf { it.isNotBlank() }?.let { add(context.getString(R.string.kp_delivery, it.lowercase())) }
+                deliveryText(doc.totals, s).takeIf { it.isNotBlank() }?.let { add(context.getString(R.string.kp_delivery, it.replaceFirstChar(Char::lowercaseChar))) }
                 validUntil(doc)?.let { add(context.getString(R.string.kp_validity, s.validityDays.trim(), date(it))) }
                 if (s.terms.isNotBlank()) add(s.terms)
                 if (doc.draft.comment.isNotBlank()) add(doc.draft.comment)
@@ -315,12 +328,64 @@ object QuotePdf {
             y += 20f
         }
 
+        /** Юридические условия — мелким шрифтом, по пунктам. */
+        private fun legal() {
+            val terms = doc.settings.legalTerms
+            if (terms.isEmpty()) return
+            ensure(40f)
+            canvas.drawText(context.getString(R.string.kp_legal_title), MARGIN, y, bold)
+            y += 14f
+            terms.forEachIndexed { i, term ->
+                val prefix = "${i + 1}. "
+                val indent = small.measureText(prefix)
+                wrap(term, width - indent, small).forEachIndexed { li, line ->
+                    ensure(11f)
+                    if (li == 0) canvas.drawText(prefix, MARGIN, y, small)
+                    canvas.drawText(line, MARGIN + indent, y, small)
+                    y += 11f
+                }
+                y += 2f
+            }
+            y += 12f
+        }
+
+        /** Реквизиты для договора и счёта. ИНН, КПП и ОГРН — уже в шапке. */
+        private fun requisites() {
+            val s = doc.settings
+            val lines = listOfNotNull(
+                s.legalAddress.takeIf { it.isNotBlank() }?.let { context.getString(R.string.kp_legal_address, it) },
+                s.account.takeIf { it.isNotBlank() }?.let {
+                    listOf(
+                        context.getString(R.string.kp_account, it, s.bank),
+                        s.bik.takeIf { b -> b.isNotBlank() }?.let { b -> context.getString(R.string.kp_bik, b) },
+                        s.corrAccount.takeIf { c -> c.isNotBlank() }?.let { c -> context.getString(R.string.kp_corr, c) },
+                    ).filterNotNull().joinToString(", ")
+                },
+            )
+            if (lines.isEmpty()) return
+            ensure(40f)
+            canvas.drawText(context.getString(R.string.kp_requisites_title), MARGIN, y, bold)
+            y += 14f
+            lines.forEach { text ->
+                wrap(text, width, small).forEach {
+                    ensure(11f)
+                    canvas.drawText(it, MARGIN, y, small)
+                    y += 11f
+                }
+            }
+            y += 16f
+        }
+
         private fun signature() {
             val s = doc.settings
             ensure(60f)
             // Контакты не повторяем: они в шапке КП.
             canvas.drawText(fit(s.signature, width, bold), MARGIN, y, bold)
             y += 15f
+            if (s.director.isNotBlank()) {
+                canvas.drawText(fit(context.getString(R.string.kp_director, s.legalName, s.director), width, normal), MARGIN, y, normal)
+                y += 14f
+            }
         }
 
         /** Ячейки строки: первая колонка «№» и название — слева, числа — справа. */

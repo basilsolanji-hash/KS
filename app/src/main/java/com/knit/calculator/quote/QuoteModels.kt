@@ -20,8 +20,17 @@ fun newId(): Long = Random.nextLong(1, Long.MAX_VALUE)
 data class CompanySettings(
     val brand: String = "Фабрика \"KS\"",
     val city: String = "г. Электросталь",
-    val legalName: String = "ООО «СОЛВЕР»",
+    val legalName: String = "ООО «Солвер»",
     val inn: String = "9705239429",
+    val kpp: String = "770501001",
+    val ogrn: String = "1257700099832",
+    val legalAddress: String = "109380, г. Москва, м.о. Люблино, ул. Чагинская, д. 4, стр. 13, пом. 9/3",
+    val factAddress: String = "144010, Московская обл., г. Электросталь, ул. Ялагина, 3",
+    val director: String = "Соланджи Басил",
+    val bank: String = "ПАО Сбербанк",
+    val account: String = "40702810538710009446",
+    val bik: String = "044525225",
+    val corrAccount: String = "30101810400000000225",
     val phone: String = "+7 985 000-79-92",
     val email: String = "Sale@fabrika-ks.ru",
     val website: String = "fabrika-ks.ru",
@@ -31,6 +40,23 @@ data class CompanySettings(
     val leadTime: String = "5–15 рабочих дней",
     val freeDeliveryFrom: String = "50000",
     val terms: String = "Цены указаны в рублях.",
+    val deliveryArea: String = "по Москве и Московской области",
+    // Юридические условия КП (печатаются мелким шрифтом в конце).
+    val termOffer: String = "Предложение носит информационный характер и не является публичной офертой (ст. 437 ГК РФ). " +
+        "Договор заключается путём подписания договора поставки или оплаты счёта. " +
+        "После окончания срока действия цены могут быть изменены в связи с изменением стоимости сырья.",
+    val termPayment: String = "Оплата: предоплата 50 %, остаток — перед отгрузкой.",
+    val termQuality: String = "Цвет изделий может незначительно отличаться от изображения на экране. " +
+        "Допустимое отклонение количества — ±5 %, размеров — ±1 см. " +
+        "После письменного утверждения образца (макета) претензии по дизайну не принимаются.",
+    val termRights: String = "Заказчик гарантирует наличие прав на логотипы и изображения, переданные для изготовления, " +
+        "и самостоятельно несёт ответственность за их использование.",
+    val termConfidential: String = "Условия и цены настоящего предложения конфиденциальны и предназначены только для адресата. " +
+        "Передача третьим лицам без согласия ООО «Солвер» не допускается.",
+    val termPersonal: String = "Контактные данные получателя используются только для подготовки и исполнения заказа " +
+        "(Федеральный закон № 152-ФЗ «О персональных данных»).",
+    val emailDisclaimer: String = "Письмо и вложения предназначены только для адресата. " +
+        "Если вы получили его по ошибке, сообщите отправителю и удалите письмо.",
     val signature: String = "С уважением, команда Фабрики \"KS\"",
     // Экономика (модель «База КП»).
     val fixedMonthly: String = "954000",
@@ -42,6 +68,10 @@ data class CompanySettings(
     val yarnWastePercent: String = "3",
     val shopUrl: String = "https://fabrika-ks.ru/shop",
 ) {
+    /** Юридические условия по порядку; пустые не печатаются. */
+    val legalTerms: List<String>
+        get() = listOf(termOffer, termPayment, termQuality, termRights, termConfidential, termPersonal).map { it.trim() }.filter { it.isNotEmpty() }
+
     val freeDeliveryThreshold: BigDecimal?
         get() = YarnCalculator.parseDecimal(freeDeliveryFrom)?.takeIf { it.signum() > 0 }
 
@@ -68,6 +98,23 @@ data class CompanySettings(
         const val S_CITY = "Город"
         const val S_LEGAL = "Юр. лицо"
         const val S_INN = "ИНН"
+        const val S_KPP = "КПП"
+        const val S_OGRN = "ОГРН"
+        const val S_LEGAL_ADDRESS = "Юридический адрес"
+        const val S_FACT_ADDRESS = "Адрес производства"
+        const val S_DIRECTOR = "Генеральный директор"
+        const val S_BANK = "Банк"
+        const val S_ACCOUNT = "Расчётный счёт"
+        const val S_BIK = "БИК"
+        const val S_CORR = "Корр. счёт"
+        const val S_DELIVERY_AREA = "Зона бесплатной доставки"
+        const val S_TERM_OFFER = "Условие: не оферта"
+        const val S_TERM_PAYMENT = "Условие: оплата"
+        const val S_TERM_QUALITY = "Условие: образец и допуски"
+        const val S_TERM_RIGHTS = "Условие: логотипы клиента"
+        const val S_TERM_CONFIDENTIAL = "Условие: конфиденциальность"
+        const val S_TERM_PERSONAL = "Условие: персональные данные"
+        const val S_EMAIL_DISCLAIMER = "Подпись письма: оговорка"
         const val S_PHONE = "Телефон"
         const val S_EMAIL = "E-mail"
         const val S_SITE = "Сайт"
@@ -95,6 +142,23 @@ data class CompanySettings(
                 city = v(S_CITY, fallback.city),
                 legalName = v(S_LEGAL, fallback.legalName),
                 inn = v(S_INN, fallback.inn),
+                kpp = v(S_KPP, fallback.kpp),
+                ogrn = v(S_OGRN, fallback.ogrn),
+                legalAddress = v(S_LEGAL_ADDRESS, fallback.legalAddress),
+                factAddress = v(S_FACT_ADDRESS, fallback.factAddress),
+                director = v(S_DIRECTOR, fallback.director),
+                bank = v(S_BANK, fallback.bank),
+                account = v(S_ACCOUNT, fallback.account),
+                bik = v(S_BIK, fallback.bik),
+                corrAccount = v(S_CORR, fallback.corrAccount),
+                deliveryArea = v(S_DELIVERY_AREA, fallback.deliveryArea),
+                termOffer = v(S_TERM_OFFER, fallback.termOffer),
+                termPayment = v(S_TERM_PAYMENT, fallback.termPayment),
+                termQuality = v(S_TERM_QUALITY, fallback.termQuality),
+                termRights = v(S_TERM_RIGHTS, fallback.termRights),
+                termConfidential = v(S_TERM_CONFIDENTIAL, fallback.termConfidential),
+                termPersonal = v(S_TERM_PERSONAL, fallback.termPersonal),
+                emailDisclaimer = v(S_EMAIL_DISCLAIMER, fallback.emailDisclaimer),
                 phone = v(S_PHONE, fallback.phone),
                 email = v(S_EMAIL, fallback.email),
                 website = v(S_SITE, fallback.website),

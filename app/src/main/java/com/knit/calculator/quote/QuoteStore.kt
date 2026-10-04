@@ -56,6 +56,23 @@ class QuoteStore(context: Context) {
                 city = o.optString("city", d.city),
                 legalName = o.optString("legalName", d.legalName),
                 inn = o.optString("inn", d.inn),
+                kpp = o.optString("kpp", d.kpp),
+                ogrn = o.optString("ogrn", d.ogrn),
+                legalAddress = o.optString("legalAddress", d.legalAddress),
+                factAddress = o.optString("factAddress", d.factAddress),
+                director = o.optString("director", d.director),
+                bank = o.optString("bank", d.bank),
+                account = o.optString("account", d.account),
+                bik = o.optString("bik", d.bik),
+                corrAccount = o.optString("corrAccount", d.corrAccount),
+                deliveryArea = o.optString("deliveryArea", d.deliveryArea),
+                termOffer = o.optString("termOffer", d.termOffer),
+                termPayment = o.optString("termPayment", d.termPayment),
+                termQuality = o.optString("termQuality", d.termQuality),
+                termRights = o.optString("termRights", d.termRights),
+                termConfidential = o.optString("termConfidential", d.termConfidential),
+                termPersonal = o.optString("termPersonal", d.termPersonal),
+                emailDisclaimer = o.optString("emailDisclaimer", d.emailDisclaimer),
                 phone = o.optString("phone", d.phone),
                 email = o.optString("email", d.email),
                 website = o.optString("website", d.website),
@@ -83,6 +100,8 @@ class QuoteStore(context: Context) {
     fun saveSettings(s: CompanySettings) {
         val o = JSONObject()
             .put("brand", s.brand).put("city", s.city).put("legalName", s.legalName).put("inn", s.inn)
+            .put("kpp", s.kpp).put("ogrn", s.ogrn).put("legalAddress", s.legalAddress).put("factAddress", s.factAddress).put("director", s.director).put("bank", s.bank).put("account", s.account).put("bik", s.bik).put("corrAccount", s.corrAccount).put("deliveryArea", s.deliveryArea)
+            .put("termOffer", s.termOffer).put("termPayment", s.termPayment).put("termQuality", s.termQuality).put("termRights", s.termRights).put("termConfidential", s.termConfidential).put("termPersonal", s.termPersonal).put("emailDisclaimer", s.emailDisclaimer)
             .put("phone", s.phone).put("email", s.email).put("website", s.website)
             .put("vatRate", s.vatRate).put("vatIncluded", s.vatIncluded)
             .put("validityDays", s.validityDays).put("leadTime", s.leadTime)

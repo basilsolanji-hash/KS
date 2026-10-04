@@ -4,11 +4,13 @@
  * Установка (один раз, с компьютера):
  *  1. В таблице: Расширения → Apps Script. Удалите пример кода и вставьте этот файл целиком. Сохраните.
  *  2. Развернуть → Новое развертывание → Тип: «Веб-приложение».
- *     Выполнять от имени: «Я». У кого есть доступ: «Все». Нажмите «Развернуть» и разрешите доступ к таблице и Диску.
+ *     Выполнять от имени: «Я». У кого есть доступ: «Все». Нажмите «Развернуть» и разрешите доступ к таблице,
+ *     Диску и отправке почты (письма клиентам уходят с вашего аккаунта Google).
  *  3. Скопируйте URL веб-приложения (…/exec) и вставьте его в приложении:
  *     Настройки → «Google Таблица». Там же введите «Ключ доступа» из листа «Настройки».
  *
  * После изменения кода: Развернуть → Управление развертываниями → ✎ → Версия «Новая версия».
+ * Если Google снова спросит разрешения (например, на отправку почты) — разрешите.
  */
 
 var SHEETS = {
@@ -29,8 +31,10 @@ var FOLDER_SETTINGS = { logo: 'Папка: логотип (ID)', photo: 'Пап�
 var Q = {
   number: 1, date: 2, client: 3, contact: 4, email: 5, subtotal: 6, vat: 7, total: 8, delivery: 9,
   lines: 10, author: 11, id: 12, data: 13, status: 14, statusDate: 15, cost: 16, profit: 17,
-  validUntil: 18, phone: 19, inn: 20, pdf: 21,
+  validUntil: 18, phone: 19, inn: 20, pdf: 21, mail: 22,
 };
+var BRAND_SETTING = 'Название для КП';
+var EMAIL_SETTING = 'E-mail';
 var STATUSES = ['Отправлено', 'Согласовано', 'В работе', 'Оплачено', 'Отказ'];
 
 function doGet(e) {
@@ -81,6 +85,8 @@ function handle_(req) {
         return json_({ ok: true, file: uploadFile_(ss, req) });
       case 'getFile':
         return json_({ ok: true, data: getFile_(ss, String(req.fileId || '')) });
+      case 'sendEmail':
+        return json_({ ok: true, mail: sendEmail_(ss, req) });
       case 'setStatus':
         setStatus_(ss, String(req.id || ''), String(req.status || ''));
         return json_({ ok: true });
@@ -289,6 +295,48 @@ function uploadFile_(ss, req) {
     }
   }
   return { id: file.getId(), url: file.getUrl() };
+}
+
+/**
+ * Письмо клиенту с PDF КП — с аккаунта владельца таблицы. Ответ клиента придёт на «E-mail» из «Настроек»,
+ * туда же — копия. PDF сохраняется в папку «КП (PDF)», в листе «КП» отмечается, когда и кому отправлено.
+ */
+function sendEmail_(ss, req) {
+  var to = String(req.to || '').trim();
+  if (!/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(to)) throw new Error('Некорректный e-mail клиента: ' + to);
+  var s = settings_(ss);
+  var own = String(s[EMAIL_SETTING] || '').trim();
+  var copy = own && own.toLowerCase() !== to.toLowerCase();
+  if (MailApp.getRemainingDailyQuota() < (copy ? 2 : 1)) {
+    throw new Error('Лимит писем Google на сегодня исчерпан — отправьте КП из почты телефона');
+  }
+  var name = String(req.name || 'КП.pdf');
+  var blob;
+  try {
+    blob = DriveApp.getFileById(uploadFile_(ss, { kind: 'pdf', name: name, data: req.data, mime: 'application/pdf', quoteId: req.quoteId }).id).getBlob();
+  } catch (err) {
+    // Папка не настроена — письмо всё равно уходит, PDF берём из запроса.
+    blob = Utilities.newBlob(Utilities.base64Decode(String(req.data || '')), 'application/pdf', name);
+  }
+  var options = { name: String(s[BRAND_SETTING] || 'Фабрика "KS"'), attachments: [blob] };
+  if (own) options.replyTo = own;
+  if (copy) options.cc = own;
+  MailApp.sendEmail(to, String(req.subject || 'Коммерческое предложение'), String(req.body || ''), options);
+
+  var sent = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'dd.MM.yyyy HH:mm') + ' → ' + to;
+  if (req.quoteId) {
+    var sheet = ss.getSheetByName(SHEETS.quotes);
+    // В старых таблицах колонки «Письмо клиенту» ещё нет.
+    if (sheet.getMaxColumns() < Q.mail) sheet.insertColumnsAfter(sheet.getMaxColumns(), Q.mail - sheet.getMaxColumns());
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][Q.id - 1]) === String(req.quoteId)) {
+        sheet.getRange(i + 1, Q.mail).setValue(text_(sent));
+        break;
+      }
+    }
+  }
+  return { to: to, sent: sent };
 }
 
 /** Фото из папки «Фото образцов» — для открытия КП на другом телефоне. */

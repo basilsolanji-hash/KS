@@ -241,6 +241,19 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Письмо клиенту через Google-скрипт: `null` — отправлено, иначе текст ошибки. */
+    suspend fun sendEmailNow(file: java.io.File, to: String, subject: String, text: String): String? {
+        val config = _syncConfig.value
+        if (!config.enabled) return "Google Таблица не подключена"
+        return try {
+            val bytes = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { file.readBytes() }
+            SheetClient(config).sendEmail(_draft.value.id, to, subject, text, file.name, bytes)
+            null
+        } catch (e: Exception) {
+            e.message ?: "Нет связи с Google"
+        }
+    }
+
     /** Копия PDF КП — в папку «КП (PDF)» Диска, ссылка — в лист «КП». В фоне, ошибки не мешают отправке. */
     fun uploadPdf(file: java.io.File) {
         val config = _syncConfig.value
@@ -599,9 +612,13 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
 fun CompanySettings.vat(): VatSettings =
     VatSettings(YarnCalculator.parseDecimal(vatRate)?.max(BigDecimal.ZERO) ?: BigDecimal.ZERO, vatIncluded)
 
-/** «Бесплатно» или «Бесплатно при заказе от 50 000,00 ₽»; пусто, если порог не задан. */
+/**
+ * «Бесплатно по Москве и Московской области» или «Бесплатно по Москве и Московской области при заказе от 50 000,00 ₽»;
+ * пусто, если порог не задан.
+ */
 fun deliveryText(totals: QuoteTotals, settings: CompanySettings): String {
     val threshold = settings.freeDeliveryThreshold ?: return ""
-    return if (totals.total >= threshold) "Бесплатно"
-    else "Бесплатно при заказе от ${QuoteCalculator.formatMoney(threshold)} ₽"
+    val free = listOf("Бесплатно", settings.deliveryArea.trim()).filter { it.isNotEmpty() }.joinToString(" ")
+    return if (totals.total >= threshold) free
+    else "$free при заказе от ${QuoteCalculator.formatMoney(threshold)} ₽"
 }

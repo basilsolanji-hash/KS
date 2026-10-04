@@ -70,7 +70,22 @@ class EditableProductTest {
         assertEquals("5–15 рабочих дней", s.leadTime)
         assertEquals(false, s.vatIncluded)
         assertEquals(0, BigDecimal(30000).compareTo(s.freeDeliveryThreshold))
-        assertEquals("ООО «СОЛВЕР»", s.legalName) // не задано в таблице — значение по умолчанию
+        assertEquals("ООО «Солвер»", s.legalName) // не задано в таблице — значение по умолчанию
+    }
+
+    @Test fun legalTermsFromSheet() {
+        val s = CompanySettings.fromSheet(
+            mapOf(
+                CompanySettings.S_TERM_PAYMENT to "Оплата: 100 % предоплата.",
+                CompanySettings.S_TERM_PERSONAL to "",
+                CompanySettings.S_KPP to "770501001",
+            ),
+        )
+        // Пустое условие не печатается; заполненное в таблице — заменяет текст по умолчанию.
+        assertEquals(5, s.legalTerms.size)
+        assertEquals("Оплата: 100 % предоплата.", s.legalTerms[1])
+        assertEquals("770501001", s.kpp)
+        assertEquals("1257700099832", s.ogrn)
     }
 
     @Test fun draftJsonRoundTrip() {

@@ -365,6 +365,19 @@ fun CompanyScreen(viewModel: QuoteViewModel, onBack: () -> Unit) {
         KnitField(s.phone, { v -> set { it.copy(phone = v) } }, R.string.company_phone, enabled = editable, text = true, keyboardType = KeyboardType.Phone)
         KnitField(s.email, { v -> set { it.copy(email = v.trim()) } }, R.string.company_email, enabled = editable, text = true, keyboardType = KeyboardType.Email, maxLength = 100)
         KnitField(s.website, { v -> set { it.copy(website = v.trim()) } }, R.string.company_site, enabled = editable, text = true, keyboardType = KeyboardType.Uri, maxLength = 100)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            KnitField(s.kpp, { v -> set { it.copy(kpp = v) } }, R.string.company_kpp, enabled = editable, text = true, keyboardType = KeyboardType.Number, maxLength = 25, modifier = Modifier.weight(1f))
+            KnitField(s.ogrn, { v -> set { it.copy(ogrn = v) } }, R.string.company_ogrn, enabled = editable, text = true, keyboardType = KeyboardType.Number, maxLength = 25, modifier = Modifier.weight(1f))
+        }
+        KnitField(s.legalAddress, { v -> set { it.copy(legalAddress = v) } }, R.string.company_legal_address, enabled = editable, text = true, singleLine = false, maxLength = 200)
+        KnitField(s.factAddress, { v -> set { it.copy(factAddress = v) } }, R.string.company_fact_address, enabled = editable, text = true, singleLine = false, maxLength = 200)
+        KnitField(s.director, { v -> set { it.copy(director = v) } }, R.string.company_director, enabled = editable, text = true, maxLength = 100)
+        KnitField(s.bank, { v -> set { it.copy(bank = v) } }, R.string.company_bank, enabled = editable, text = true, maxLength = 100)
+        KnitField(s.account, { v -> set { it.copy(account = v) } }, R.string.company_account, enabled = editable, text = true, keyboardType = KeyboardType.Number, maxLength = 25)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            KnitField(s.bik, { v -> set { it.copy(bik = v) } }, R.string.company_bik, enabled = editable, text = true, keyboardType = KeyboardType.Number, maxLength = 25, modifier = Modifier.weight(1f))
+            KnitField(s.corrAccount, { v -> set { it.copy(corrAccount = v) } }, R.string.company_corr, enabled = editable, text = true, keyboardType = KeyboardType.Number, maxLength = 25, modifier = Modifier.weight(1f))
+        }
 
         SectionTitle(R.string.company_section_terms)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -388,9 +401,19 @@ fun CompanyScreen(viewModel: QuoteViewModel, onBack: () -> Unit) {
         }
         KnitField(s.leadTime, { v -> set { it.copy(leadTime = v) } }, R.string.company_lead_time, enabled = editable, text = true, maxLength = 100)
         KnitField(s.freeDeliveryFrom, { v -> set { it.copy(freeDeliveryFrom = v) } }, R.string.company_free_delivery, enabled = editable)
+        KnitField(s.deliveryArea, { v -> set { it.copy(deliveryArea = v) } }, R.string.company_delivery_area, enabled = editable, text = true, maxLength = 150)
         KnitField(s.terms, { v -> set { it.copy(terms = v) } }, R.string.company_terms, enabled = editable, text = true, singleLine = false, maxLength = 500)
         KnitField(s.signature, { v -> set { it.copy(signature = v) } }, R.string.company_signature, enabled = editable, text = true, maxLength = 120)
         KnitField(s.shopUrl, { v -> set { it.copy(shopUrl = v.trim()) } }, R.string.company_shop, enabled = editable, text = true, keyboardType = KeyboardType.Uri, maxLength = 200)
+
+        SectionTitle(R.string.company_section_legal)
+        KnitField(s.termOffer, { v -> set { it.copy(termOffer = v) } }, R.string.company_term_offer, enabled = editable, text = true, singleLine = false, maxLength = 600)
+        KnitField(s.termPayment, { v -> set { it.copy(termPayment = v) } }, R.string.company_term_payment, enabled = editable, text = true, singleLine = false, maxLength = 600)
+        KnitField(s.termQuality, { v -> set { it.copy(termQuality = v) } }, R.string.company_term_quality, enabled = editable, text = true, singleLine = false, maxLength = 600)
+        KnitField(s.termRights, { v -> set { it.copy(termRights = v) } }, R.string.company_term_rights, enabled = editable, text = true, singleLine = false, maxLength = 600)
+        KnitField(s.termConfidential, { v -> set { it.copy(termConfidential = v) } }, R.string.company_term_confidential, enabled = editable, text = true, singleLine = false, maxLength = 600)
+        KnitField(s.termPersonal, { v -> set { it.copy(termPersonal = v) } }, R.string.company_term_personal, enabled = editable, text = true, singleLine = false, maxLength = 600)
+        KnitField(s.emailDisclaimer, { v -> set { it.copy(emailDisclaimer = v) } }, R.string.company_email_disclaimer, enabled = editable, text = true, singleLine = false, maxLength = 600)
 
         SectionTitle(R.string.company_section_economics)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

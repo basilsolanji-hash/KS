@@ -136,6 +136,7 @@ fun QuoteScreen(
     // Android 13+: разрешение на напоминания спрашиваем при первом КП.
     val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     var confirmNew by rememberSaveable { mutableStateOf(false) }
+    var confirmEmail by rememberSaveable { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf<Pair<QuoteAction, String>?>(null) }
 
@@ -165,9 +166,20 @@ fun QuoteScreen(
                 Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                 return@launch
             }
-            viewModel.uploadPdf(file)
             val subject = QuotePdf.subject(context, doc)
             val text = QuotePdf.emailText(context, doc)
+            val clientEmail = doc.draft.clientEmail.trim()
+            if (action == QuoteAction.EMAIL && sync.connected && clientEmail.isNotEmpty()) {
+                // Письмо уходит сразу с аккаунта Google фабрики; PDF сохраняется на Диск там же.
+                val error = viewModel.sendEmailNow(file, clientEmail, subject, text)
+                if (error == null) {
+                    Toast.makeText(context, context.getString(R.string.email_sent, viewModel.draft.value.number, clientEmail), Toast.LENGTH_LONG).show()
+                    return@launch
+                }
+                Toast.makeText(context, context.getString(R.string.email_send_failed, error), Toast.LENGTH_LONG).show()
+            } else {
+                viewModel.uploadPdf(file)
+            }
             when (action) {
                 QuoteAction.SHARE -> ReportSharing.share(context, file, subject, text)
                 QuoteAction.EMAIL -> ReportSharing.email(
@@ -324,7 +336,9 @@ fun QuoteScreen(
                 ) { run(QuoteAction.SAVE) }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     ActionButton(R.string.yarn_pdf, R.drawable.ic_share, primary = false, Modifier.weight(1f)) { run(QuoteAction.SHARE) }
-                    ActionButton(R.string.yarn_email, R.drawable.ic_email, primary = false, Modifier.weight(1f)) { run(QuoteAction.EMAIL) }
+                    ActionButton(R.string.yarn_email, R.drawable.ic_email, primary = false, Modifier.weight(1f)) {
+                        if (sync.connected && draft.clientEmail.isNotBlank()) confirmEmail = true else run(QuoteAction.EMAIL)
+                    }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     ActionButton(R.string.yarn_print, R.drawable.ic_print, primary = false, Modifier.weight(1f)) { run(QuoteAction.PRINT) }
@@ -360,6 +374,16 @@ fun QuoteScreen(
             containerColor = colors2.panel,
             titleContentColor = colors2.textPrimary,
             textContentColor = colors2.textSecondary,
+        )
+    }
+
+    if (confirmEmail) {
+        ConfirmDialog(
+            title = stringResource(R.string.email_confirm_title),
+            text = stringResource(R.string.email_confirm_text, draft.clientEmail.trim(), settings.email),
+            confirm = stringResource(R.string.email_confirm_send),
+            onConfirm = { confirmEmail = false; run(QuoteAction.EMAIL) },
+            onDismiss = { confirmEmail = false },
         )
     }
 
@@ -730,7 +754,7 @@ private fun TotalsCard(totals: QuoteTotals, settings: CompanySettings) {
             }
             val delivery = deliveryText(totals, settings)
             if (delivery.isNotBlank() && totals.lines.isNotEmpty()) {
-                Text(stringResource(R.string.quote_delivery, delivery.lowercase()), color = colors.textSecondary, fontSize = 15.sp)
+                Text(stringResource(R.string.quote_delivery, delivery.replaceFirstChar(Char::lowercaseChar)), color = colors.textSecondary, fontSize = 15.sp)
             }
         }
     }

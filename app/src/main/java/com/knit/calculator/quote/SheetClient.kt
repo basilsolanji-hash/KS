@@ -104,6 +104,17 @@ class SheetClient(private val config: SyncConfig) {
         return id
     }
 
+    /**
+     * Письмо клиенту с PDF — с аккаунта Google владельца таблицы (ответ и копия — на e-mail фабрики).
+     * PDF заодно сохраняется в папку «КП (PDF)».
+     */
+    suspend fun sendEmail(quoteId: String, to: String, subject: String, text: String, fileName: String, pdf: ByteArray) {
+        val body = JSONObject().put("action", "sendEmail").put("key", config.key)
+            .put("quoteId", quoteId).put("to", to).put("subject", subject).put("body", text).put("name", fileName)
+            .put("data", android.util.Base64.encodeToString(pdf, android.util.Base64.NO_WRAP))
+        request(URL(config.url.trim()), body.toString())
+    }
+
     /** Скачивает фото образца из папки Диска. */
     suspend fun getFile(fileId: String): ByteArray {
         val body = JSONObject().put("action", "getFile").put("key", config.key).put("fileId", fileId)

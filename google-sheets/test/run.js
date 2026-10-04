@@ -29,6 +29,9 @@ function makeSheet(name, rows) {
     appendRow(r) { data.push(r.map((v) => (typeof v === 'string' && v.startsWith("'") ? v.slice(1) : v))); },
     deleteRow(i) { data.splice(i - 1, 1); },
     getLastRow() { return data.length; },
+    maxColumns: 21,
+    getMaxColumns() { return this.maxColumns; },
+    insertColumnsAfter(after, n) { this.maxColumns = after + n; },
   };
 }
 
@@ -55,9 +58,22 @@ const context = {
     formatDate: (d, tz, f) => (f === 'yyyy-MM' ? d.toISOString().slice(0, 7) : d.toISOString()),
     base64Encode: (b) => Buffer.from(b).toString('base64'),
     base64Decode: (s) => Buffer.from(s, 'base64'),
+    newBlob: (bytes, mime, name) => ({ bytes, mime, name }),
   },
   ContentService: { createTextOutput: (t) => ({ text: t, setMimeType() { return this; } }), MimeType: { JSON: 'json' } },
-  DriveApp: {},
+  DriveApp: {
+    getFolderById: () => ({
+      getFilesByName: () => ({ hasNext: () => false }),
+      createFile: (blob) => ({ getId: () => 'f1', getUrl: () => 'https://drive/f1', blob }),
+    }),
+    getFileById: (id) => ({ getBlob: () => ({ id }) }),
+  },
+  MailApp: {
+    quota: 100,
+    sent: [],
+    getRemainingDailyQuota() { return this.quota; },
+    sendEmail(to, subject, body, options) { this.sent.push({ to, subject, body, options }); },
+  },
 };
 const code = fs.readFileSync(path.join(__dirname, '..', 'Code.gs'), 'utf8');
 const fn = new Function(...Object.keys(context), code + '\nreturn { doGet, doPost };');
@@ -105,5 +121,24 @@ assert.strictEqual(list[1].status, 'Согласовано');
 assert.strictEqual(list[1].products['Подвяз'], 122);
 assert.ok(/^\d{4}-\d{2}$/.test(list[1].month));
 assert.ok(list[1].validUntil > 0);
+
+// Письмо клиенту: ответ и копия — на e-mail фабрики, PDF во вложении, отметка в листе «КП».
+sheets['Настройки'].data.push(['E-mail', 'Sale@fabrika-ks.ru'], ['Название для КП', 'Фабрика "KS"'], ['Папка: КП (ID)', 'pdfFolder']);
+const mail = call({ action: 'sendEmail', quoteId: 'q1', to: 'client@example.ru', subject: 'КП № 100', body: 'Текст', name: 'KP_100.pdf', data: 'JVBERg==' });
+assert.strictEqual(mail.ok, true, mail.error);
+const sent = context.MailApp.sent[0];
+assert.strictEqual(sent.to, 'client@example.ru');
+assert.strictEqual(sent.options.replyTo, 'Sale@fabrika-ks.ru');
+assert.strictEqual(sent.options.cc, 'Sale@fabrika-ks.ru');
+assert.strictEqual(sent.options.name, 'Фабрика "KS"');
+assert.strictEqual(sent.options.attachments.length, 1);
+assert.ok(String(sheets['КП'].data[1][21]).endsWith('→ client@example.ru'));
+assert.strictEqual(sheets['КП'].data[1][20], 'https://drive/f1');
+assert.strictEqual(sheets['КП'].getMaxColumns(), 22);
+// Плохой адрес и исчерпанный лимит — понятная ошибка, письмо не уходит.
+assert.strictEqual(call({ action: 'sendEmail', to: 'не адрес', data: '' }).ok, false);
+context.MailApp.quota = 0;
+assert.ok(/Лимит/.test(call({ action: 'sendEmail', to: 'client@example.ru', data: '' }).error));
+assert.strictEqual(context.MailApp.sent.length, 1);
 
 console.log('Apps Script: все проверки пройдены');
