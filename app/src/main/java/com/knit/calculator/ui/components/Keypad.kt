@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -91,7 +92,7 @@ private fun CalculatorKey(spec: KeySpec, onKey: (CalcKey) -> Unit, modifier: Mod
             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             onKey(spec.key)
         },
-        modifier = modifier.semantics {
+        modifier = modifier.testTag("key_${spec.label}").semantics {
             role = Role.Button
             if (description != null) contentDescription = description
         },

@@ -1,0 +1,56 @@
+package com.knit.calculator
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.graphics.pdf.PdfRenderer
+import android.os.ParcelFileDescriptor
+import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.rules.TestWatcher
+import org.junit.runner.Description
+import java.io.File
+
+val targetContext: Context get() = InstrumentationRegistry.getInstrumentation().targetContext
+
+/** Сбрасывает данные приложения перед запуском экрана; [theme] — «LIGHT»/«DARK» для скриншотов. */
+class ResetAppRule(private val theme: String = "LIGHT") : TestWatcher() {
+    override fun starting(description: Description) {
+        listOf("calculator_history", "calculator_settings", "yarn_calculator", "quote").forEach {
+            targetContext.getSharedPreferences(it, Context.MODE_PRIVATE).edit().clear().commit()
+        }
+        targetContext.getSharedPreferences("calculator_settings", Context.MODE_PRIVATE).edit().putString("theme", theme).commit()
+    }
+}
+
+/** Скриншоты для проверки интерфейса: /sdcard/Android/data/com.knit.calculator/files/screenshots. */
+object Shots {
+    private val dir: File get() = File(targetContext.getExternalFilesDir(null), "screenshots").apply { mkdirs() }
+
+    fun take(name: String) {
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+        Thread.sleep(400) // завершение анимаций
+        val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot() ?: return
+        save(bitmap, name)
+    }
+
+    fun save(bitmap: Bitmap, name: String) {
+        File(dir, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    }
+
+    /** Рендерит страницы PDF в PNG; возвращает число страниц. */
+    fun renderPdf(file: File, name: String): Int {
+        ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+            PdfRenderer(fd).use { renderer ->
+                for (i in 0 until renderer.pageCount) {
+                    renderer.openPage(i).use { page ->
+                        val bitmap = Bitmap.createBitmap(page.width * 2, page.height * 2, Bitmap.Config.ARGB_8888)
+                        bitmap.eraseColor(Color.WHITE)
+                        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        save(bitmap, "${name}_p${i + 1}")
+                    }
+                }
+                return renderer.pageCount
+            }
+        }
+    }
+}
