@@ -5,16 +5,30 @@ import java.math.BigDecimal
 /**
  * Справочники в виде строк таблицы (как в Google Таблице). Первая строка каждого листа — заголовок.
  *
- * Лист «Изделия»:   Код | Название | Ед. | Базовая цена, ₽ | Мин. заказ | Подготовка, ₽ | Округление, ₽ | Активно
- * Лист «Параметры»: Код изделия | Параметр | Вариант | Коэффициент | Надбавка, ₽
- * Лист «Объём»:     Код изделия | От количества | Коэффициент | Примечание
- * Лист «Настройки»: Параметр | Значение | Описание
+ * Лист «Изделия»:       Код | Название | Ед. | Базовая цена, ₽ | Мин. заказ | Подготовка, ₽ | Округление, ₽ | Активно | Вес изделия, г | Состав нитей
+ * Лист «Параметры»:     Код изделия | Параметр | Вариант | Коэффициент | Надбавка, ₽ | Вес, г | Состав
+ * Лист «Объём»:         Код изделия | От количества | Коэффициент | Примечание
+ * Лист «Себестоимость»: Код изделия | Пряжа, ₽/шт | Вязание, мин | Цена минуты, ₽ | Ручные операции, шт | Цена операции, ₽ | ВТО, ₽ | Упаковка, ₽ | Брак, %
+ * Лист «Пряжа»:         Название | Цена за кг, ₽ | Примечание
+ * Лист «Клиенты»:       Компания | Контакт | E-mail | Телефон | ИНН | Добавлен
+ * Лист «Настройки»:     Параметр | Значение | Описание
  */
 data class CatalogSheets(
     val products: List<List<String>>,
     val parameters: List<List<String>>,
     val volume: List<List<String>>,
     val settings: List<List<String>> = emptyList(),
+    val costs: List<List<String>> = emptyList(),
+    val yarns: List<List<String>> = emptyList(),
+    val clients: List<List<String>> = emptyList(),
+)
+
+data class Client(
+    val company: String,
+    val contact: String = "",
+    val email: String = "",
+    val phone: String = "",
+    val inn: String = "",
 )
 
 data class ParsedCatalog(
@@ -23,6 +37,11 @@ data class ParsedCatalog(
     val settings: Map<String, String>,
     /** Понятные описания пропущенных строк: «Изделия, строка 4: цена не число». */
     val warnings: List<String>,
+    /** Код изделия (в нижнем регистре) → затраты. */
+    val costs: Map<String, ProductCost> = emptyMap(),
+    /** Пряжа (в нижнем регистре) → цена за кг. */
+    val yarnPrices: Map<String, BigDecimal> = emptyMap(),
+    val clients: List<Client> = emptyList(),
 )
 
 object CatalogParser {
@@ -30,6 +49,8 @@ object CatalogParser {
     const val SHEET_PARAMETERS = "Параметры"
     const val SHEET_VOLUME = "Объём"
     const val SHEET_SETTINGS = "Настройки"
+    const val SHEET_COSTS = "Себестоимость"
+    const val SHEET_YARNS = "Пряжа"
 
     /** Стабильный идентификатор из строк (FNV-1a, 64 бит): одинаков на всех телефонах. */
     fun stableId(vararg parts: String): Long {
@@ -64,13 +85,19 @@ object CatalogParser {
             val factorText = cell(row, 3)
             val factors = Coefficients.parse(factorText)
             val add = number(row, 4, BigDecimal.ZERO)
-            if (factors == null || add == null) {
-                warnings += "$SHEET_PARAMETERS, строка $line: некорректный коэффициент или надбавка"
+            val weightText = cell(row, 5)
+            val weight = if (weightText.isEmpty()) null else number(row, 5)
+            val compositionText = cell(row, 6)
+            val composition = if (compositionText.isEmpty()) null else Composition.parse(compositionText)
+            if (factors == null || add == null || (weightText.isNotEmpty() && weight == null) ||
+                (compositionText.isNotEmpty() && composition == null)
+            ) {
+                warnings += "$SHEET_PARAMETERS, строка $line: некорректный коэффициент, надбавка, вес или состав"
                 return@forEachIndexed
             }
             groups.getOrPut(code.lowercase()) { linkedMapOf() }
                 .getOrPut(group) { mutableListOf() }
-                .add(PriceChoice(stableId(code, group, name), name, add, factors, factorText))
+                .add(PriceChoice(stableId(code, group, name), name, add, factors, factorText, weight, composition))
         }
 
         val tiers = linkedMapOf<String, MutableList<PriceTier>>()
@@ -104,6 +131,9 @@ object CatalogParser {
                 return@mapIndexedNotNull null
             }
             val key = code.lowercase()
+            val weight = cell(row, 8).takeIf { it.isNotEmpty() }?.let { number(row, 8) }
+            val composition = Composition.parse(cell(row, 9))
+            if (composition == null) warnings += "$SHEET_PRODUCTS, строка $line: состав нитей пишите так: «Хлопок 95; Спандекс 5»"
             Product(
                 id = stableId(code),
                 code = code,
@@ -115,13 +145,46 @@ object CatalogParser {
                 rounding = rounding,
                 options = groups[key].orEmpty().map { (group, choices) -> OptionGroup(stableId(code, group), group, choices) },
                 tiers = tiers[key].orEmpty().sortedBy { it.fromQuantity },
+                weightGrams = weight,
+                composition = composition.orEmpty(),
             )
+        }
+
+        val costs = linkedMapOf<String, ProductCost>()
+        sheets.costs.drop(1).forEachIndexed { index, row ->
+            val code = cell(row, 0)
+            if (code.isEmpty()) return@forEachIndexed
+            val values = (1..8).map { number(row, it, BigDecimal.ZERO) }
+            if (values.any { it == null }) {
+                warnings += "$SHEET_COSTS, строка ${index + 2}: все затраты должны быть числами"
+                return@forEachIndexed
+            }
+            val v = values.map { it!! }
+            costs[code.lowercase()] = ProductCost(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7])
+        }
+
+        val yarnPrices = linkedMapOf<String, BigDecimal>()
+        sheets.yarns.drop(1).forEachIndexed { index, row ->
+            val name = cell(row, 0)
+            if (name.isEmpty()) return@forEachIndexed
+            val price = number(row, 1)
+            if (price == null) {
+                warnings += "$SHEET_YARNS, строка ${index + 2}: цена за кг должна быть числом"
+                return@forEachIndexed
+            }
+            yarnPrices[name.lowercase()] = price
+        }
+
+        val clients = sheets.clients.drop(1).mapNotNull { row ->
+            val company = cell(row, 0)
+            if (company.isEmpty()) null
+            else Client(company, cell(row, 1), cell(row, 2), cell(row, 3), cell(row, 4))
         }
 
         val settings = sheets.settings.drop(1)
             .filter { cell(it, 0).isNotEmpty() }
             .associate { cell(it, 0) to cell(it, 1) }
-        return ParsedCatalog(products, settings, warnings)
+        return ParsedCatalog(products, settings, warnings, costs, yarnPrices, clients)
     }
 }
 
@@ -180,5 +243,12 @@ object SeedCatalog {
             rotation.map { (from, kv) -> listOf(code, from, kv.first, kv.second) }
         }
 
-    val sheets = CatalogSheets(products, parameters, volume)
+    /** Затраты из таблицы «База КП» (одинаковые для всех изделий — уточните по каждому). */
+    val costs: List<List<String>> = listOf(
+        listOf("Код изделия", "Пряжа, ₽/шт", "Вязание, мин", "Цена минуты, ₽", "Ручные операции, шт", "Цена операции, ₽", "ВТО, ₽", "Упаковка, ₽", "Брак, %"),
+    ) + listOf("PODV", "POLO", "MANZH").map { listOf(it, "100", "8", "16", "1", "3", "8", "2", "3") }
+
+    val yarns: List<List<String>> = listOf(listOf("Название", "Цена за кг, ₽", "Примечание"))
+
+    val sheets = CatalogSheets(products, parameters, volume, costs = costs, yarns = yarns)
 }

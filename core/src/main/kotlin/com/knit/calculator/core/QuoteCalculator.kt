@@ -53,6 +53,10 @@ data class PriceChoice(
     val priceAdd: BigDecimal = BigDecimal.ZERO,
     val factors: List<Factor> = emptyList(),
     val factorText: String = "",
+    /** Вес изделия, г, если вариант его меняет (например, размер). */
+    val weightGrams: BigDecimal? = null,
+    /** Состав нитей, если вариант его меняет (например, «Хлопок 1×1» → хлопок 100 %). */
+    val composition: List<YarnShare>? = null,
 )
 
 /** Параметр изделия: размер, тип нити, рисунок, цвет… Порядок параметров = порядок применения. */
@@ -77,6 +81,10 @@ data class Product(
     val tiers: List<PriceTier> = emptyList(),
     /** Шаг округления цены после каждого шага расчёта: 1 — до рубля, 0,01 — до копейки. */
     val rounding: BigDecimal = BigDecimal.ONE,
+    /** Вес одного изделия, г (для расхода пряжи и себестоимости). */
+    val weightGrams: BigDecimal? = null,
+    /** Состав нитей по умолчанию. */
+    val composition: List<YarnShare> = emptyList(),
     /** Код изделия из таблицы (для связи параметров и коэффициентов). */
     val code: String = "",
 )
@@ -86,6 +94,8 @@ data class QuoteLineInput(
     val product: Product,
     val selected: Map<Long, Long>,
     val quantity: BigDecimal,
+    /** Скидка менеджера, %, применяется к цене за единицу после всех шагов. */
+    val discountPercent: BigDecimal = BigDecimal.ZERO,
 )
 
 data class QuoteLine(
@@ -94,11 +104,19 @@ data class QuoteLine(
     val quantity: BigDecimal,
     /** Применённый коэффициент объёма (1 — без изменения). */
     val volumeFactor: BigDecimal,
-    /** Цена за единицу после всех шагов расчёта. */
+    /** Цена за единицу по прайсу (до скидки менеджера). */
+    val listUnitPrice: BigDecimal,
+    /** Скидка менеджера, %. */
+    val discountPercent: BigDecimal,
+    /** Цена за единицу после всех шагов расчёта и скидки. */
     val unitPrice: BigDecimal,
     val setupFee: BigDecimal,
     val total: BigDecimal,
     val belowMinimum: Boolean,
+    /** Вес единицы с учётом выбранных вариантов, г (`null` — не задан). */
+    val weightGrams: BigDecimal? = null,
+    /** Состав нитей с учётом выбранных вариантов. */
+    val composition: List<YarnShare> = emptyList(),
 ) {
     /** «Подвязы (Размер: 115×14; Тип: Хлопок 1×1)». */
     val description: String
@@ -154,16 +172,25 @@ object QuoteCalculator {
     fun line(input: QuoteLineInput): QuoteLine {
         val product = input.product
         val (price, volume) = unitPrice(product, input.selected, input.quantity)
-        val unitPrice = money(price)
+        val step = product.rounding.takeIf { it.signum() > 0 } ?: BigDecimal("0.01")
+        val discount = input.discountPercent.coerceIn(BigDecimal.ZERO, HUNDRED)
+        val discounted = if (discount.signum() == 0) price
+        else round(price * (HUNDRED - discount), HUNDRED, step)
+        val unitPrice = money(discounted)
+        val choices = choicesFor(product, input.selected)
         return QuoteLine(
             product = product,
-            choices = choicesFor(product, input.selected),
+            choices = choices,
             quantity = input.quantity,
             volumeFactor = volume,
+            listUnitPrice = money(price),
+            discountPercent = discount,
             unitPrice = unitPrice,
             setupFee = money(product.setupFee),
             total = money(unitPrice * input.quantity) + money(product.setupFee),
             belowMinimum = input.quantity < product.minOrder,
+            weightGrams = choices.lastOrNull { it.second.weightGrams != null }?.second?.weightGrams ?: product.weightGrams,
+            composition = choices.lastOrNull { it.second.composition != null }?.second?.composition ?: product.composition,
         )
     }
 
