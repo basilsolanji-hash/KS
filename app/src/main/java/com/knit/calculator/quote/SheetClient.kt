@@ -1,6 +1,7 @@
 package com.knit.calculator.quote
 
 import com.knit.calculator.core.CatalogSheets
+import com.knit.calculator.core.QuoteStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -14,7 +15,10 @@ import java.net.URLEncoder
 /** Ошибка связи с таблицей; [message] понятно пользователю. */
 class SheetException(message: String) : IOException(message)
 
-data class RemoteCatalog(val name: String, val url: String, val sheets: CatalogSheets)
+/** Логотип из папки Диска: [data] есть, только если версия изменилась. */
+data class RemoteLogo(val version: String, val data: ByteArray?)
+
+data class RemoteCatalog(val name: String, val url: String, val sheets: CatalogSheets, val logo: RemoteLogo? = null)
 
 data class RemoteQuote(
     val number: Int,
@@ -24,6 +28,14 @@ data class RemoteQuote(
     val author: String,
     val id: String,
     val data: String,
+    val status: QuoteStatus = QuoteStatus.SENT,
+    val profit: Double? = null,
+    /** «2026-10» — для отчёта. */
+    val month: String = "",
+    /** Действительно до, мс (0 — неизвестно). */
+    val validUntil: Long = 0,
+    /** Изделие → сумма (из листа «Позиции КП»). */
+    val products: Map<String, Double> = emptyMap(),
 )
 
 /**
@@ -32,8 +44,8 @@ data class RemoteQuote(
  */
 class SheetClient(private val config: SyncConfig) {
 
-    suspend fun catalog(): RemoteCatalog {
-        val o = get("catalog")
+    suspend fun catalog(logoVersion: String = ""): RemoteCatalog {
+        val o = get("catalog", "logoVersion" to logoVersion)
         val sheets = o.optJSONObject("sheets") ?: throw SheetException("Таблица не вернула справочники")
         return RemoteCatalog(
             name = o.optString("name"),
@@ -43,7 +55,13 @@ class SheetClient(private val config: SyncConfig) {
                 parameters = rows(sheets.optJSONArray("parameters")),
                 volume = rows(sheets.optJSONArray("volume")),
                 settings = rows(sheets.optJSONArray("settings")),
+                costs = rows(sheets.optJSONArray("costs")),
+                yarns = rows(sheets.optJSONArray("yarns")),
+                clients = rows(sheets.optJSONArray("clients")),
             ),
+            logo = o.optJSONObject("logo")?.let { l ->
+                RemoteLogo(l.optString("version"), l.optString("data").takeIf { it.isNotBlank() }?.let { android.util.Base64.decode(it, android.util.Base64.DEFAULT) })
+            },
         )
     }
 
@@ -58,6 +76,11 @@ class SheetClient(private val config: SyncConfig) {
                 author = it.optString("author"),
                 id = it.optString("id"),
                 data = it.optString("data"),
+                status = QuoteStatus.from(it.optString("status")),
+                profit = if (it.isNull("profit") || it.optString("profit").isBlank()) null else it.optDouble("profit"),
+                month = it.optString("month"),
+                validUntil = it.optLong("validUntil", 0),
+                products = it.optJSONObject("products")?.let { p -> p.keys().asSequence().associateWith { k -> p.optDouble(k) } }.orEmpty(),
             )
         }
     }
@@ -68,6 +91,30 @@ class SheetClient(private val config: SyncConfig) {
         val number = request(URL(config.url.trim()), body.toString()).optInt("number", 0)
         if (number <= 0) throw SheetException("Таблица не выдала номер КП")
         return number
+    }
+
+    /** Загружает фото образца или PDF КП в папку Диска; возвращает id файла. */
+    suspend fun uploadFile(kind: String, name: String, bytes: ByteArray, mime: String, quoteId: String? = null): String {
+        val body = JSONObject().put("action", "uploadFile").put("key", config.key)
+            .put("kind", kind).put("name", name).put("mime", mime)
+            .put("data", android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP))
+        if (quoteId != null) body.put("quoteId", quoteId)
+        val id = request(URL(config.url.trim()), body.toString()).optJSONObject("file")?.optString("id").orEmpty()
+        if (id.isBlank()) throw SheetException("Диск не вернул файл")
+        return id
+    }
+
+    /** Скачивает фото образца из папки Диска. */
+    suspend fun getFile(fileId: String): ByteArray {
+        val body = JSONObject().put("action", "getFile").put("key", config.key).put("fileId", fileId)
+        val data = request(URL(config.url.trim()), body.toString()).optString("data")
+        return android.util.Base64.decode(data, android.util.Base64.DEFAULT)
+    }
+
+    /** Меняет статус КП в листе «КП». */
+    suspend fun setStatus(id: String, status: QuoteStatus) {
+        val body = JSONObject().put("action", "setStatus").put("key", config.key).put("id", id).put("status", status.title)
+        request(URL(config.url.trim()), body.toString())
     }
 
     private suspend fun get(action: String, vararg params: Pair<String, String>): JSONObject {

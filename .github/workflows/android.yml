@@ -25,6 +25,9 @@ jobs:
       - name: Unit tests
         run: ./gradlew --no-daemon test
 
+      - name: Google Sheets script tests
+        run: node google-sheets/test/run.js
+
       - name: Android lint
         run: ./gradlew --no-daemon :app:lintDebug
 

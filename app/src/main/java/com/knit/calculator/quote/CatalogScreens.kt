@@ -329,7 +329,7 @@ fun CompanyScreen(viewModel: QuoteViewModel, onBack: () -> Unit) {
     var message by rememberSaveable { mutableStateOf<String?>(null) }
     val connectedMessage = stringResource(R.string.sync_connected)
 
-    FormScreen(stringResource(R.string.company_title), onBack) {
+    FormScreen(stringResource(R.string.settings_title), onBack) {
         SectionTitle(R.string.sync_section)
         Text(stringResource(if (config.enabled) R.string.sync_hint_connected else R.string.sync_hint), color = colors.textSecondary, fontSize = 14.sp)
         KnitField(url, { url = it.trim() }, R.string.sync_url, text = true, keyboardType = KeyboardType.Uri, maxLength = 300, enabled = !config.enabled)
@@ -390,6 +390,22 @@ fun CompanyScreen(viewModel: QuoteViewModel, onBack: () -> Unit) {
         KnitField(s.freeDeliveryFrom, { v -> set { it.copy(freeDeliveryFrom = v) } }, R.string.company_free_delivery, enabled = editable)
         KnitField(s.terms, { v -> set { it.copy(terms = v) } }, R.string.company_terms, enabled = editable, text = true, singleLine = false, maxLength = 500)
         KnitField(s.signature, { v -> set { it.copy(signature = v) } }, R.string.company_signature, enabled = editable, text = true, maxLength = 120)
+        KnitField(s.shopUrl, { v -> set { it.copy(shopUrl = v.trim()) } }, R.string.company_shop, enabled = editable, text = true, keyboardType = KeyboardType.Uri, maxLength = 200)
+
+        SectionTitle(R.string.company_section_economics)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            KnitField(s.fixedMonthly, { v -> set { it.copy(fixedMonthly = v) } }, R.string.company_fixed, enabled = editable, modifier = Modifier.weight(1f))
+            KnitField(s.planQuantity, { v -> set { it.copy(planQuantity = v) } }, R.string.company_plan, enabled = editable, modifier = Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            KnitField(s.commissionPercent, { v -> set { it.copy(commissionPercent = v) } }, R.string.company_commission, enabled = editable, modifier = Modifier.weight(1f))
+            KnitField(s.targetMarginPercent, { v -> set { it.copy(targetMarginPercent = v) } }, R.string.company_target, enabled = editable, modifier = Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            KnitField(s.maxDiscountPercent, { v -> set { it.copy(maxDiscountPercent = v) } }, R.string.company_max_discount, enabled = editable, modifier = Modifier.weight(1f))
+            KnitField(s.reminderDays, { v -> set { it.copy(reminderDays = v) } }, R.string.company_reminder, enabled = editable, modifier = Modifier.weight(1f))
+        }
+        KnitField(s.yarnWastePercent, { v -> set { it.copy(yarnWastePercent = v) } }, R.string.company_yarn_waste, enabled = editable)
         if (editable) {
             TextButton(onClick = viewModel::resetSettings, modifier = Modifier.align(Alignment.CenterHorizontally)) {
                 Text(stringResource(R.string.company_reset), color = colors.textSecondary)

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Калькулятор Knit ERP</string>
+    <string name="app_name">Фабрика \"KS\"</string>
 
     <string name="history">История</string>
     <string name="history_open">Открыть историю вычислений</string>
@@ -255,4 +255,88 @@
     <string name="kp_subject_no_number">Коммерческое предложение — %1$s</string>
     <string name="kp_email_body_no_number">Направляем коммерческое предложение. Подробности — в приложенном PDF.</string>
     <string name="kp_subject">Коммерческое предложение № %1$d — %2$s</string>
+    <!-- v1.2: главный экран, экономика, статусы, отчёт, пряжа на заказ, фото, напоминания -->
+    <string name="home_quote">Коммерческое предложение</string>
+    <string name="home_quote_hint">Расчёт по прайсу и КП в PDF</string>
+    <string name="home_yarn">Расход пряжи</string>
+    <string name="home_calculator">Калькулятор</string>
+    <string name="home_history">История КП</string>
+    <string name="home_report">Отчёт</string>
+    <string name="home_settings">Настройки</string>
+    <string name="home_shop">Каталог на сайте</string>
+    <string name="home_sync_off">Без Google Таблицы — данные только на этом телефоне</string>
+    <string name="home_sync_on">Google Таблица подключена · обновлено %1$s</string>
+    <string name="home_sync_error">Нет связи с Google Таблицей · данные от %1$s</string>
+    <string name="shop_share">Поделиться ссылкой</string>
+    <string name="shop_share_title">Отправить ссылку клиенту</string>
+    <string name="shop_open_browser">Открыть в браузере</string>
+    <string name="calculator_title">Калькулятор</string>
+    <string name="settings_title">Настройки</string>
+
+    <string name="quote_client_phone">Телефон клиента</string>
+    <string name="quote_client_inn">ИНН клиента</string>
+    <string name="quote_discount_field">Скидка, %</string>
+    <string name="quote_discount_max">Скидка не больше %1$s %% — применено %1$s %%</string>
+    <string name="quote_photo_add">Фото</string>
+    <string name="quote_photo_gallery">Из галереи</string>
+    <string name="quote_photo_camera">Снять</string>
+    <string name="quote_photo_remove">Убрать фото</string>
+    <string name="quote_photo_error">Не удалось сохранить фото</string>
+    <string name="quote_order_yarn">Пряжа на заказ</string>
+    <string name="quote_economics_show">Себестоимость и прибыль (только для менеджера)</string>
+    <string name="quote_economics_none">Нет данных о затратах для этого изделия (лист «Себестоимость»).</string>
+    <string name="quote_economics_line">Себестоимость %1$s ₽/ед · прибыль %2$s ₽/ед (%3$s %%)</string>
+    <string name="quote_economics_prices">Минимальная цена %1$s ₽ · при рентабельности %2$s %% — %3$s ₽</string>
+    <string name="quote_economics_total">Себестоимость заказа %1$s ₽ · прибыль %2$s ₽ · рентабельность %3$s %%</string>
+    <string name="quote_economics_loss">Убыток: цена ниже себестоимости</string>
+    <string name="quote_client_suggestions">Клиенты из справочника</string>
+    <string name="kp_discount">скидка %1$s %%</string>
+    <string name="kp_inn_client">ИНН %1$s</string>
+
+    <string name="status_change">Статус</string>
+    <string name="history_open_action">Открыть</string>
+    <string name="history_repeat_action">Повторить</string>
+    <string name="history_repeated">Создано новое КП по образцу</string>
+    <string name="history_local_note">Без Google Таблицы: показаны КП, отправленные с этого телефона.</string>
+    <string name="status_error">Не удалось изменить статус: %1$s</string>
+
+    <string name="report_title">Отчёт за месяц</string>
+    <string name="report_quotes">КП отправлено</string>
+    <string name="report_won">Согласовано (согл., в работе, оплачено)</string>
+    <string name="report_conversion">Конверсия</string>
+    <string name="report_profit">Прибыль по согласованным</string>
+    <string name="report_by_manager">По менеджерам</string>
+    <string name="report_by_product">По изделиям</string>
+    <string name="report_row">%1$d КП · %2$s ₽ · согласовано %3$s ₽</string>
+    <string name="report_empty">За этот месяц КП нет.</string>
+    <string name="report_prev">Предыдущий месяц</string>
+    <string name="report_next">Следующий месяц</string>
+    <string name="report_sheet_hint">Тот же отчёт — в листе «Отчёт» Google Таблицы.</string>
+
+    <string name="order_yarn_title">Пряжа на заказ</string>
+    <string name="order_yarn_hint">Сумма по всем позициям КП: вес изделия × состав нитей × количество, с учётом брака пряжи %1$s %%.</string>
+    <string name="order_yarn_missing">Нет веса или состава (листы «Изделия»/«Параметры»): %1$s</string>
+    <string name="order_yarn_line">%1$s кг чистыми · %2$s кг с браком</string>
+    <string name="order_yarn_cost">%1$s ₽</string>
+    <string name="order_yarn_total">Итого пряжи: %1$s кг</string>
+    <string name="order_yarn_total_cost">Стоимость пряжи: %1$s ₽</string>
+    <string name="order_yarn_empty">Добавьте позиции с количеством в КП.</string>
+    <string name="order_yarn_copied">Расчёт пряжи скопирован</string>
+
+    <string name="company_section_economics">Экономика</string>
+    <string name="company_fixed">Постоянные расходы в месяц, ₽</string>
+    <string name="company_plan">План выпуска, шт/мес</string>
+    <string name="company_commission">Комиссия, %</string>
+    <string name="company_target">Целевая рентабельность, %</string>
+    <string name="company_max_discount">Макс. скидка менеджера, %</string>
+    <string name="company_reminder">Напоминание за, дней</string>
+    <string name="company_yarn_waste">Брак пряжи, %</string>
+    <string name="company_shop">Сайт каталога</string>
+
+    <string name="reminder_channel">Напоминания о КП</string>
+    <string name="reminder_title">КП № %1$d</string>
+    <string name="reminder_no_client">клиент</string>
+    <string name="reminder_today">Сегодня последний день действия КП для «%1$s». Свяжитесь с клиентом.</string>
+    <string name="reminder_tomorrow">Завтра истекает срок КП для «%1$s». Свяжитесь с клиентом.</string>
+    <string name="reminder_days">Через %2$d дн. истекает срок КП для «%1$s».</string>
 </resources>

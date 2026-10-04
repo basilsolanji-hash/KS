@@ -4,6 +4,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,11 +14,18 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -28,19 +36,26 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.knit.calculator.R
 import com.knit.calculator.core.QuoteCalculator
+import com.knit.calculator.core.QuoteStatus
 import com.knit.calculator.ui.components.KnitIconButton
 import com.knit.calculator.ui.components.ScreenTopBar
 import com.knit.calculator.ui.theme.LocalKnitColors
-import java.math.BigDecimal
+import kotlinx.coroutines.launch
 
-/** КП, сохранённые в Google Таблице, — со всех телефонов. Нажатие открывает КП для изменения или повторной отправки. */
+/**
+ * История КП: из Google Таблицы (все телефоны) или из архива этого телефона.
+ * Статус меняется прямо в списке; «Открыть» — изменить и отправить снова, «Повторить» — новое КП по образцу.
+ */
 @Composable
 fun QuoteHistoryScreen(viewModel: QuoteViewModel, onBack: () -> Unit, onOpened: () -> Unit) {
     val history by viewModel.history.collectAsStateWithLifecycle()
     val error by viewModel.historyError.collectAsStateWithLifecycle()
+    val sync by viewModel.sync.collectAsStateWithLifecycle()
     val colors = LocalKnitColors.current
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val openError = stringResource(R.string.history_open_error)
+    val repeated = stringResource(R.string.history_repeated)
 
     BackHandler(onBack = onBack)
     LaunchedEffect(Unit) { viewModel.loadHistory() }
@@ -49,9 +64,10 @@ fun QuoteHistoryScreen(viewModel: QuoteViewModel, onBack: () -> Unit, onOpened: 
         ScreenTopBar(stringResource(R.string.history_quotes), onBack) {
             KnitIconButton(R.drawable.ic_arrow_down, stringResource(R.string.sync_refresh), viewModel::loadHistory)
         }
+        if (!sync.connected) Message(stringResource(R.string.history_local_note))
+        error?.let { Message(stringResource(R.string.history_error, it)) }
         val list = history
         when {
-            error != null -> Message(stringResource(R.string.history_error, error.orEmpty()))
             list == null -> Message(stringResource(R.string.sync_loading))
             list.isEmpty() -> Message(stringResource(R.string.history_quotes_empty))
             else -> LazyColumn(
@@ -59,33 +75,25 @@ fun QuoteHistoryScreen(viewModel: QuoteViewModel, onBack: () -> Unit, onOpened: 
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(list, key = { it.id.ifBlank { it.number.toString() } }) { q ->
-                    Surface(
-                        onClick = {
-                            if (viewModel.openQuote(q)) onOpened() else Toast.makeText(context, openError, Toast.LENGTH_LONG).show()
-                        },
-                        shape = RoundedCornerShape(18.dp),
-                        color = colors.panel,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    stringResource(R.string.history_quote_title, q.number, q.date),
-                                    color = colors.textPrimary,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 16.sp,
-                                )
-                                if (q.client.isNotBlank()) Text(q.client, color = colors.textSecondary, fontSize = 14.sp)
-                                if (q.author.isNotBlank()) Text(q.author, color = colors.textSecondary, fontSize = 12.sp)
+                    HistoryCard(
+                        item = q,
+                        onOpen = { if (viewModel.openQuote(q)) onOpened() else Toast.makeText(context, openError, Toast.LENGTH_LONG).show() },
+                        onRepeat = {
+                            if (viewModel.repeatQuote(q)) {
+                                Toast.makeText(context, repeated, Toast.LENGTH_SHORT).show()
+                                onOpened()
+                            } else {
+                                Toast.makeText(context, openError, Toast.LENGTH_LONG).show()
                             }
-                            Text(
-                                stringResource(R.string.quote_money, QuoteCalculator.formatMoney(BigDecimal.valueOf(q.total))),
-                                color = if (colors.isDark) colors.accent else colors.textPrimary,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
-                            )
-                        }
-                    }
+                        },
+                        onStatus = { status ->
+                            scope.launch {
+                                viewModel.setStatus(q, status)?.let {
+                                    Toast.makeText(context, context.getString(R.string.status_error, it), Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        },
+                    )
                 }
             }
         }
@@ -93,6 +101,53 @@ fun QuoteHistoryScreen(viewModel: QuoteViewModel, onBack: () -> Unit, onOpened: 
 }
 
 @Composable
+private fun HistoryCard(item: HistoryItem, onOpen: () -> Unit, onRepeat: () -> Unit, onStatus: (QuoteStatus) -> Unit) {
+    val colors = LocalKnitColors.current
+    var menu by remember { mutableStateOf(false) }
+    Surface(shape = RoundedCornerShape(18.dp), color = colors.panel, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.history_quote_title, item.number, item.date), color = colors.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                    if (item.client.isNotBlank()) Text(item.client, color = colors.textSecondary, fontSize = 14.sp)
+                    if (item.author.isNotBlank()) Text(item.author, color = colors.textSecondary, fontSize = 12.sp)
+                }
+                Text(
+                    stringResource(R.string.quote_money, QuoteCalculator.formatMoney(item.total)),
+                    color = if (colors.isDark) colors.accent else colors.textPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    modifier = Modifier.padding(end = 8.dp),
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box {
+                    Surface(
+                        onClick = { menu = true },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (item.status.isWon) colors.equalsKey else colors.background,
+                        contentColor = if (item.status.isWon) colors.equalsKeyText else colors.textPrimary,
+                    ) {
+                        Text("${stringResource(R.string.status_change)}: ${item.status.title} ▾", fontSize = 14.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+                    }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = colors.panel) {
+                        QuoteStatus.entries.forEach { s ->
+                            DropdownMenuItem(
+                                text = { Text(s.title, color = colors.textPrimary, fontWeight = if (s == item.status) FontWeight.Bold else FontWeight.Normal) },
+                                onClick = { menu = false; if (s != item.status) onStatus(s) },
+                            )
+                        }
+                    }
+                }
+                androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+                TextButton(onClick = onOpen) { Text(stringResource(R.string.history_open_action), color = colors.textPrimary) }
+                TextButton(onClick = onRepeat) { Text(stringResource(R.string.history_repeat_action), color = colors.textPrimary) }
+            }
+        }
+    }
+}
+
+@Composable
 private fun Message(text: String) {
-    Text(text, color = LocalKnitColors.current.textSecondary, fontSize = 15.sp, modifier = Modifier.padding(24.dp))
+    Text(text, color = LocalKnitColors.current.textSecondary, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
 }

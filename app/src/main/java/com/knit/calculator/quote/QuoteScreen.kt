@@ -2,7 +2,23 @@ package com.knit.calculator.quote
 
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.core.content.ContextCompat
+import com.knit.calculator.core.Client
+import com.knit.calculator.core.CostCalculator
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -83,12 +99,36 @@ fun QuoteScreen(
     onOpenCatalog: () -> Unit,
     onOpenCompany: () -> Unit,
     onOpenHistory: () -> Unit,
+    onOpenOrderYarn: () -> Unit,
 ) {
     val draft by viewModel.draft.collectAsStateWithLifecycle()
     val sync by viewModel.sync.collectAsStateWithLifecycle()
     val catalog by viewModel.catalog.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
-    val views = remember(draft, catalog) { viewModel.lineViews(draft, catalog) }
+    val clients by viewModel.clients.collectAsStateWithLifecycle()
+    val views = remember(draft, catalog, settings) { viewModel.lineViews(draft, catalog, settings) }
+    var showEconomics by rememberSaveable { mutableStateOf(false) }
+    var photoLineId by rememberSaveable { mutableStateOf<Long?>(null) }
+    val photoError = stringResource(R.string.quote_photo_error)
+
+    fun attachPhoto(uri: android.net.Uri?) {
+        val lineId = photoLineId ?: return
+        if (uri == null) return
+        scope.launch {
+            val path = withContext(Dispatchers.IO) { PhotoStore.import(context, uri, lineId) }
+            if (path == null) {
+                Toast.makeText(context, photoError, Toast.LENGTH_LONG).show()
+            } else {
+                viewModel.updateLine(lineId) { l -> PhotoStore.delete(l.photoPath); l.copy(photoPath = path) }
+            }
+        }
+    }
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { attachPhoto(it) }
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        if (ok) attachPhoto(PhotoStore.cameraTarget(context).second)
+    }
+    // Android 13+: разрешение на напоминания спрашиваем при первом КП.
+    val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     val totals = remember(views, settings) { viewModel.totals(views, settings) }
     val colors = LocalKnitColors.current
     val context = LocalContext.current
@@ -104,7 +144,7 @@ fun QuoteScreen(
     fun document() = QuoteDocument(settings, draft, totals)
 
     fun makePdf(action: QuoteAction) {
-        val doc = QuoteDocument(settings, viewModel.draft.value, totals)
+        val doc = QuoteDocument(settings, viewModel.draft.value, totals, photoPaths = views.filter { it.line != null }.map { it.draft.photoPath })
         scope.launch {
             val file: File? = try {
                 withContext(Dispatchers.IO) { QuotePdf.create(context, doc) }
@@ -115,6 +155,7 @@ fun QuoteScreen(
                 Toast.makeText(context, R.string.yarn_pdf_error, Toast.LENGTH_LONG).show()
                 return@launch
             }
+            viewModel.uploadPdf(file)
             val subject = QuotePdf.subject(context, doc)
             val text = QuotePdf.emailText(context, doc)
             when (action) {
@@ -132,8 +173,13 @@ fun QuoteScreen(
     fun run(action: QuoteAction) {
         if (saving) return
         saving = true
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
         scope.launch {
-            val result = viewModel.saveToSheet(views, totals)
+            val result = viewModel.saveQuote(views, totals)
             saving = false
             when (result) {
                 is SaveResult.Failed -> saveError = action to result.message
@@ -152,7 +198,7 @@ fun QuoteScreen(
         val title = if ((sync.connected && !draft.saved) || draft.number <= 0) stringResource(R.string.quote_title_new)
         else stringResource(R.string.quote_title, draft.number)
         ScreenTopBar(title, onBack) {
-            if (sync.connected) KnitIconButton(R.drawable.ic_history, stringResource(R.string.history_quotes), onOpenHistory)
+            KnitIconButton(R.drawable.ic_history, stringResource(R.string.history_quotes), onOpenHistory)
             KnitIconButton(R.drawable.ic_list, stringResource(R.string.quote_catalog), onOpenCatalog)
             KnitIconButton(R.drawable.ic_settings, stringResource(R.string.quote_company), onOpenCompany)
         }
@@ -184,11 +230,22 @@ fun QuoteScreen(
                     modifier = Modifier.weight(1f),
                 )
             }
+            ClientSuggestions(draft.clientCompany, clients, onPick = viewModel::applyClient)
             KnitField(draft.clientContact, { v -> viewModel.updateDraft { it.copy(clientContact = v) } }, R.string.quote_client_contact, text = true, maxLength = 120)
             KnitField(
                 draft.clientEmail, { v -> viewModel.updateDraft { it.copy(clientEmail = v.trim()) } }, R.string.quote_client_email,
                 text = true, keyboardType = KeyboardType.Email, maxLength = 120,
             )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                KnitField(
+                    draft.clientPhone, { v -> viewModel.updateDraft { it.copy(clientPhone = v) } }, R.string.quote_client_phone,
+                    text = true, keyboardType = KeyboardType.Phone, maxLength = 30, modifier = Modifier.weight(1f),
+                )
+                KnitField(
+                    draft.clientInn, { v -> viewModel.updateDraft { it.copy(clientInn = v.filter(Char::isDigit).take(12)) } }, R.string.quote_client_inn,
+                    text = true, keyboardType = KeyboardType.Number, maxLength = 12, modifier = Modifier.weight(1f),
+                )
+            }
 
             SectionTitle(R.string.quote_section_items)
             if (views.isEmpty()) {
@@ -206,7 +263,26 @@ fun QuoteScreen(
                     onSelect = { groupId, choiceId ->
                         viewModel.updateLine(view.draft.id) { it.copy(selected = it.selected + (groupId to choiceId)) }
                     },
-                    onRemove = { viewModel.removeLine(view.draft.id) },
+                    onRemove = {
+                        PhotoStore.delete(view.draft.photoPath)
+                        viewModel.removeLine(view.draft.id)
+                    },
+                    onDiscount = { d -> viewModel.updateLine(view.draft.id) { it.copy(discount = d) } },
+                    maxDiscount = settings.maxDiscount,
+                    showEconomics = showEconomics,
+                    targetPercent = settings.targetMarginPercent,
+                    onGallery = {
+                        photoLineId = view.draft.id
+                        galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    },
+                    onCamera = {
+                        photoLineId = view.draft.id
+                        cameraLauncher.launch(PhotoStore.cameraTarget(context).second)
+                    },
+                    onRemovePhoto = {
+                        PhotoStore.delete(view.draft.photoPath)
+                        viewModel.updateLine(view.draft.id) { it.copy(photoPath = null) }
+                    },
                 )
             }
             AddItemButton(catalog, onAdd = viewModel::addLine, onOpenCatalog = onOpenCatalog)
@@ -218,6 +294,14 @@ fun QuoteScreen(
 
             SectionTitle(R.string.quote_section_total)
             TotalsCard(totals, settings)
+            if (views.any { it.line != null }) {
+                EconomicsToggle(showEconomics, views, settings) { showEconomics = it }
+                OutlinedButton(onClick = onOpenOrderYarn, modifier = Modifier.fillMaxWidth()) {
+                    Icon(painterResource(R.drawable.ic_yarn), null, Modifier.size(18.dp), tint = colors.textPrimary)
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.quote_order_yarn), color = colors.textPrimary)
+                }
+            }
 
             if (saving) {
                 Text(stringResource(R.string.sync_saving), color = colors.textSecondary, fontSize = 14.sp)
@@ -276,6 +360,128 @@ fun QuoteScreen(
 }
 
 @Composable
+private fun ClientSuggestions(query: String, clients: List<Client>, onPick: (Client) -> Unit) {
+    val colors = LocalKnitColors.current
+    val q = query.trim()
+    if (q.length < 2) return
+    val matches = clients.filter { it.company.contains(q, ignoreCase = true) && !it.company.equals(q, ignoreCase = true) }.take(4)
+    if (matches.isEmpty()) return
+    Surface(shape = RoundedCornerShape(14.dp), color = colors.panel, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(vertical = 4.dp)) {
+            Text(stringResource(R.string.quote_client_suggestions), color = colors.textSecondary, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp))
+            matches.forEach { c ->
+                Text(
+                    listOf(c.company, c.contact).filter { it.isNotBlank() }.joinToString(" · "),
+                    color = colors.textPrimary,
+                    fontSize = 15.sp,
+                    modifier = Modifier.fillMaxWidth().clickable { onPick(c) }.padding(horizontal = 14.dp, vertical = 10.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PhotoButton(path: String?, onGallery: () -> Unit, onCamera: () -> Unit, onRemove: () -> Unit) {
+    val colors = LocalKnitColors.current
+    var menu by remember { mutableStateOf(false) }
+    val bitmap = remember(path) { PhotoStore.load(path)?.asImageBitmap() }
+    Box {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = stringResource(R.string.quote_photo_add),
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(56.dp).clip(RoundedCornerShape(12.dp)).clickable { menu = true },
+            )
+        } else {
+            OutlinedButton(onClick = { menu = true }) {
+                Icon(painterResource(R.drawable.ic_add), null, Modifier.size(18.dp), tint = colors.textPrimary)
+                Spacer(Modifier.width(6.dp))
+                Text(stringResource(R.string.quote_photo_add), color = colors.textPrimary)
+            }
+        }
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = colors.panel) {
+            DropdownMenuItem(text = { Text(stringResource(R.string.quote_photo_camera), color = colors.textPrimary) }, onClick = { menu = false; onCamera() })
+            DropdownMenuItem(text = { Text(stringResource(R.string.quote_photo_gallery), color = colors.textPrimary) }, onClick = { menu = false; onGallery() })
+            if (path != null) {
+                DropdownMenuItem(text = { Text(stringResource(R.string.quote_photo_remove), color = colors.textPrimary) }, onClick = { menu = false; onRemove() })
+            }
+        }
+    }
+}
+
+@Composable
+private fun EconomicsLine(view: DraftLineView, targetPercent: String) {
+    val colors = LocalKnitColors.current
+    val e = view.economics
+    if (e == null) {
+        Text(stringResource(R.string.quote_economics_none), color = colors.textSecondary, fontSize = 13.sp)
+        return
+    }
+    Column(Modifier.padding(end = 8.dp)) {
+        Text(
+            stringResource(
+                R.string.quote_economics_line,
+                QuoteCalculator.formatMoney(e.unitCost.total),
+                QuoteCalculator.formatMoney(e.unitProfit),
+                YarnCalculator.formatCompact(e.marginPercent, 1),
+            ),
+            color = colors.textSecondary,
+            fontSize = 13.sp,
+        )
+        Text(
+            stringResource(
+                R.string.quote_economics_prices,
+                QuoteCalculator.formatQuantity(e.breakEvenPrice),
+                targetPercent,
+                QuoteCalculator.formatQuantity(e.targetPrice),
+            ),
+            color = colors.textSecondary,
+            fontSize = 13.sp,
+        )
+        if (e.unitProfit.signum() < 0) {
+            Text(stringResource(R.string.quote_economics_loss), color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun EconomicsToggle(shown: Boolean, views: List<DraftLineView>, settings: CompanySettings, onToggle: (Boolean) -> Unit) {
+    val colors = LocalKnitColors.current
+    Surface(shape = RoundedCornerShape(14.dp), color = colors.panel, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.quote_economics_show), color = colors.textPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                Switch(
+                    checked = shown,
+                    onCheckedChange = onToggle,
+                    colors = SwitchDefaults.colors(checkedTrackColor = colors.equalsKey, checkedThumbColor = colors.equalsKeyText),
+                )
+            }
+            if (shown) {
+                val economics = CostCalculator.quote(views.map { it.economics })
+                if (views.any { it.economics != null }) {
+                    Text(
+                        stringResource(
+                            R.string.quote_economics_total,
+                            QuoteCalculator.formatMoney(economics.totalCost),
+                            QuoteCalculator.formatMoney(economics.totalProfit),
+                            YarnCalculator.formatCompact(economics.marginPercent, 1),
+                        ),
+                        color = if (economics.totalProfit.signum() < 0) colors.textPrimary else colors.textSecondary,
+                        fontWeight = if (economics.totalProfit.signum() < 0) FontWeight.SemiBold else FontWeight.Normal,
+                        fontSize = 14.sp,
+                    )
+                } else {
+                    Text(stringResource(R.string.quote_economics_none), color = colors.textSecondary, fontSize = 13.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun SyncBar(sync: SyncStatus, onRefresh: () -> Unit, onSetup: () -> Unit) {
     val colors = LocalKnitColors.current
     val time = sync.lastSync?.let { remember(it) { SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date(it)) } }
@@ -324,6 +530,13 @@ private fun LineCard(
     onQuantity: (String) -> Unit,
     onSelect: (Long, Long) -> Unit,
     onRemove: () -> Unit,
+    onDiscount: (String) -> Unit,
+    maxDiscount: BigDecimal,
+    showEconomics: Boolean,
+    targetPercent: String,
+    onGallery: () -> Unit,
+    onCamera: () -> Unit,
+    onRemovePhoto: () -> Unit,
 ) {
     val colors = LocalKnitColors.current
     val product = view.product
@@ -367,10 +580,25 @@ private fun LineCard(
                 buildList {
                     add(stringResource(R.string.quote_price_line, QuoteCalculator.formatMoney(line.unitPrice), product.unit))
                     if (line.volumeFactor.compareTo(BigDecimal.ONE) != 0) add(stringResource(R.string.quote_volume, QuoteCalculator.formatFactor(line.volumeFactor)))
+                    if (line.discountPercent.signum() > 0) add(stringResource(R.string.kp_discount, YarnCalculator.formatCompact(line.discountPercent, 2)))
                     if (line.setupFee.signum() > 0) add(stringResource(R.string.quote_setup, QuoteCalculator.formatMoney(line.setupFee)))
                 }.joinToString(" · ")
             }
             Text(details, color = colors.textSecondary, fontSize = 14.sp)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(end = 8.dp)) {
+                KnitField(
+                    value = view.draft.discount,
+                    onChange = onDiscount,
+                    label = R.string.quote_discount_field,
+                    modifier = Modifier.width(130.dp),
+                )
+                PhotoButton(view.draft.photoPath, onGallery, onCamera, onRemovePhoto)
+            }
+            if (view.discountTooHigh) {
+                val max = YarnCalculator.formatCompact(maxDiscount, 2)
+                Text(stringResource(R.string.quote_discount_max, max), color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            }
+            if (showEconomics && line != null) EconomicsLine(view, targetPercent)
             if (line?.belowMinimum == true) {
                 Text(
                     stringResource(R.string.quote_below_min, QuoteCalculator.formatQuantity(product.minOrder), product.unit),

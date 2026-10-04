@@ -6,6 +6,7 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import com.knit.calculator.R
+import com.knit.calculator.report.BrandLogo
 import com.knit.calculator.core.QuoteCalculator
 import com.knit.calculator.core.QuoteLine
 import com.knit.calculator.core.QuoteTotals
@@ -22,6 +23,8 @@ data class QuoteDocument(
     val draft: QuoteDraft,
     val totals: QuoteTotals,
     val createdAt: Date = Date(),
+    /** Фото образцов по позициям [totals].lines (путь к файлу или `null`). */
+    val photoPaths: List<String?> = emptyList(),
 )
 
 /** Формирует коммерческое предложение в PDF (A4) и текст письма. */
@@ -127,6 +130,7 @@ object QuotePdf {
 
         // № | Наименование | Кол-во | Ед. | Цена | Сумма — всего 515 pt.
         private val cols = floatArrayOf(24f, 226f, 62f, 38f, 75f, 90f)
+        private val photos = doc.photoPaths.map { PhotoStore.load(it) }
 
         fun draw() {
             newPage()
@@ -158,8 +162,10 @@ object QuotePdf {
 
         private fun companyHeader() {
             val s = doc.settings
+            val logoWidth = BrandLogo.draw(context, canvas, MARGIN, y, 44f)
+            val textLeft = MARGIN + if (logoWidth > 0) logoWidth + 14f else 0f
             y += 18f
-            canvas.drawText(fit(s.brand, width * 0.6f, brand), MARGIN, y, brand)
+            canvas.drawText(fit(s.brand, width * 0.6f - (textLeft - MARGIN), brand), textLeft, y, brand)
             val right = listOf(s.phone, s.email, s.website).filter { it.isNotBlank() }
             var ry = y - 4f
             right.forEach {
@@ -172,14 +178,14 @@ object QuotePdf {
                 s.inn.takeIf { it.isNotBlank() }?.let { context.getString(R.string.kp_inn, it) },
             ).filter { !it.isNullOrBlank() }.joinToString(", ")
             if (legal.isNotBlank()) {
-                canvas.drawText(fit(legal, width * 0.6f, muted), MARGIN, y, muted)
+                canvas.drawText(fit(legal, width * 0.6f - (textLeft - MARGIN), muted), textLeft, y, muted)
                 y += 13f
             }
             if (s.city.isNotBlank()) {
-                canvas.drawText(s.city, MARGIN, y, muted)
+                canvas.drawText(s.city, textLeft, y, muted)
                 y += 13f
             }
-            y = maxOf(y, ry) + 8f
+            y = maxOf(y, ry, MARGIN + 44f) + 8f
             canvas.drawLine(MARGIN, y, PAGE_WIDTH - MARGIN, y, rule)
             y += 28f
         }
@@ -189,7 +195,12 @@ object QuotePdf {
             else context.getString(R.string.kp_title_no_number, date(doc.createdAt))
             canvas.drawText(heading, MARGIN, y, title)
             y += 22f
-            val client = listOf(doc.draft.clientCompany, doc.draft.clientContact).filter { it.isNotBlank() }.joinToString(", ")
+            val client = listOf(
+                doc.draft.clientCompany,
+                doc.draft.clientInn.takeIf { it.isNotBlank() }?.let { context.getString(R.string.kp_inn_client, it) }.orEmpty(),
+                doc.draft.clientContact,
+                doc.draft.clientPhone,
+            ).filter { it.isNotBlank() }.joinToString(", ")
             if (client.isNotBlank()) {
                 wrap(context.getString(R.string.kp_to, client), width, bold).forEach {
                     canvas.drawText(it, MARGIN, y, bold)
@@ -215,8 +226,11 @@ object QuotePdf {
 
             doc.totals.lines.forEachIndexed { i, line ->
                 val extras = extraInfo(line)
-                val nameLines = wrap(line.description, cols[1] - 12f, normal) + extras
-                val rowHeight = nameLines.size * 13f + 10f
+                val photo = photos.getOrNull(i)
+                val photoSize = 54f
+                val nameWidth = cols[1] - 12f - if (photo != null) photoSize + 8f else 0f
+                val nameLines = wrap(line.description, nameWidth, normal) + extras
+                val rowHeight = maxOf(nameLines.size * 13f + 10f, if (photo != null) photoSize + 10f else 0f)
                 ensure(rowHeight)
                 if (i % 2 == 1) {
                     fill.color = ROW_TINT
@@ -233,15 +247,25 @@ object QuotePdf {
                     ),
                     y, rowHeight, normal,
                     smallTail = extras.size,
+                    nameOffset = if (photo != null) photoSize + 8f else 0f,
                 )
+                if (photo != null) {
+                    val left = MARGIN + cols[0] + 5f
+                    val side = minOf(photo.width, photo.height)
+                    val src = android.graphics.Rect((photo.width - side) / 2, (photo.height - side) / 2, (photo.width + side) / 2, (photo.height + side) / 2)
+                    canvas.drawBitmap(photo, src, android.graphics.RectF(left, y + 5f, left + photoSize, y + 5f + photoSize), null)
+                }
                 y += rowHeight
             }
             canvas.drawLine(MARGIN, y, MARGIN + width, y, rule)
             y += 16f
         }
 
-        // Внутренние коэффициенты клиенту не показываем — только разовую подготовку.
+        // Внутренние коэффициенты клиенту не показываем — только скидку и разовую подготовку.
         private fun extraInfo(line: QuoteLine): List<String> = buildList {
+            if (line.discountPercent.signum() > 0) {
+                add(context.getString(R.string.kp_discount, YarnCalculator.formatCompact(line.discountPercent, 2)))
+            }
             if (line.setupFee.signum() > 0) {
                 add(context.getString(R.string.quote_setup, QuoteCalculator.formatMoney(line.setupFee)))
             }
@@ -300,7 +324,7 @@ object QuotePdf {
         }
 
         /** Ячейки строки: первая колонка «№» и название — слева, числа — справа. */
-        private fun drawCells(cells: List<List<String>>, top: Float, height: Float, p: Paint, smallTail: Int = 0) {
+        private fun drawCells(cells: List<List<String>>, top: Float, height: Float, p: Paint, smallTail: Int = 0, nameOffset: Float = 0f) {
             var x = MARGIN
             cells.forEachIndexed { i, lines ->
                 val w = cols[i]
@@ -309,8 +333,12 @@ object QuotePdf {
                 lines.forEachIndexed { li, raw ->
                     // Скидка и подготовка — мелким шрифтом под названием.
                     val lp = if (i == 1 && li >= lines.size - smallTail) small else p
-                    val t = fit(raw, w - 10f, lp)
-                    val tx = if (i <= 1) x + 5f else x + w - 5f - lp.measureText(t)
+                    val t = fit(raw, w - 10f - if (i == 1) nameOffset else 0f, lp)
+                    val tx = when {
+                        i == 1 -> x + 5f + nameOffset
+                        i == 0 -> x + 5f
+                        else -> x + w - 5f - lp.measureText(t)
+                    }
                     canvas.drawText(t, tx, ly, lp)
                     ly += 13f
                 }

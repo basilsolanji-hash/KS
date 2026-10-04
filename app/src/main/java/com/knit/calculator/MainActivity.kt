@@ -18,7 +18,12 @@ import com.knit.calculator.data.ThemeMode
 import com.knit.calculator.quote.CatalogScreen
 import com.knit.calculator.quote.CompanyScreen
 import com.knit.calculator.quote.ProductEditorScreen
+import com.knit.calculator.quote.OrderYarnScreen
 import com.knit.calculator.quote.QuoteHistoryScreen
+import com.knit.calculator.quote.ReportScreen
+import com.knit.calculator.ui.HomeAction
+import com.knit.calculator.ui.HomeScreen
+import com.knit.calculator.ui.WebCatalogScreen
 import com.knit.calculator.quote.QuoteScreen
 import com.knit.calculator.quote.QuoteViewModel
 import com.knit.calculator.ui.CalculatorScreen
@@ -27,7 +32,7 @@ import com.knit.calculator.yarn.YarnScreen
 import com.knit.calculator.yarn.YarnViewModel
 
 /** Экраны приложения; переход «назад» описан у каждого экрана. */
-private enum class Screen { CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY }
+private enum class Screen { HOME, CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY, REPORT, ORDER_YARN, SHOP }
 
 class MainActivity : ComponentActivity() {
 
@@ -50,38 +55,59 @@ class MainActivity : ComponentActivity() {
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
                 onDispose {}
             }
-            var screen by rememberSaveable { mutableStateOf(Screen.CALCULATOR) }
+            // Простой стек экранов: «назад» возвращает на предыдущий экран, в конце — главный.
+            var stack by rememberSaveable { mutableStateOf(listOf(Screen.HOME.name)) }
+            val screen = Screen.valueOf(stack.last())
+            fun open(s: Screen) { stack = stack + s.name }
+            fun back() { stack = if (stack.size > 1) stack.dropLast(1) else stack }
+            val sync by quoteViewModel.sync.collectAsStateWithLifecycle()
+            val settings by quoteViewModel.settings.collectAsStateWithLifecycle()
             KnitTheme(darkTheme = darkTheme) {
                 when (screen) {
-                    Screen.CALCULATOR -> CalculatorScreen(
-                        viewModel = viewModel,
-                        themeMode = themeMode,
-                        onOpenYarn = { screen = Screen.YARN },
-                        onOpenQuote = { screen = Screen.QUOTE },
-                    )
-                    Screen.YARN -> YarnScreen(viewModel = yarnViewModel, onBack = { screen = Screen.CALCULATOR })
+                    Screen.HOME -> HomeScreen(sync, themeMode, onTheme = viewModel::cycleTheme) { action ->
+                        open(
+                            when (action) {
+                                HomeAction.QUOTE -> Screen.QUOTE
+                                HomeAction.YARN -> Screen.YARN
+                                HomeAction.CALCULATOR -> Screen.CALCULATOR
+                                HomeAction.HISTORY -> Screen.QUOTE_HISTORY
+                                HomeAction.REPORT -> Screen.REPORT
+                                HomeAction.SHOP -> Screen.SHOP
+                                HomeAction.SETTINGS -> Screen.COMPANY
+                            },
+                        )
+                    }
+                    Screen.CALCULATOR -> CalculatorScreen(viewModel = viewModel, themeMode = themeMode, onBack = ::back)
+                    Screen.YARN -> YarnScreen(viewModel = yarnViewModel, onBack = ::back)
                     Screen.QUOTE -> QuoteScreen(
                         viewModel = quoteViewModel,
-                        onBack = { screen = Screen.CALCULATOR },
-                        onOpenCatalog = { screen = Screen.CATALOG },
-                        onOpenCompany = { screen = Screen.COMPANY },
-                        onOpenHistory = { screen = Screen.QUOTE_HISTORY },
+                        onBack = ::back,
+                        onOpenCatalog = { open(Screen.CATALOG) },
+                        onOpenCompany = { open(Screen.COMPANY) },
+                        onOpenHistory = { open(Screen.QUOTE_HISTORY) },
+                        onOpenOrderYarn = { open(Screen.ORDER_YARN) },
                     )
                     Screen.QUOTE_HISTORY -> QuoteHistoryScreen(
                         viewModel = quoteViewModel,
-                        onBack = { screen = Screen.QUOTE },
-                        onOpened = { screen = Screen.QUOTE },
+                        onBack = ::back,
+                        onOpened = {
+                            // Из истории — в КП; повторное «назад» вернёт туда, откуда пришли.
+                            stack = stack.dropLast(1).let { if (it.lastOrNull() == Screen.QUOTE.name) it else it + Screen.QUOTE.name }
+                        },
                     )
                     Screen.CATALOG -> CatalogScreen(
                         viewModel = quoteViewModel,
-                        onBack = { screen = Screen.QUOTE },
+                        onBack = ::back,
                         onEdit = { id ->
                             quoteViewModel.startEditing(id)
-                            screen = Screen.PRODUCT
+                            open(Screen.PRODUCT)
                         },
                     )
-                    Screen.PRODUCT -> ProductEditorScreen(viewModel = quoteViewModel, onDone = { screen = Screen.CATALOG })
-                    Screen.COMPANY -> CompanyScreen(viewModel = quoteViewModel, onBack = { screen = Screen.QUOTE })
+                    Screen.PRODUCT -> ProductEditorScreen(viewModel = quoteViewModel, onDone = ::back)
+                    Screen.COMPANY -> CompanyScreen(viewModel = quoteViewModel, onBack = ::back)
+                    Screen.REPORT -> ReportScreen(viewModel = quoteViewModel, onBack = ::back)
+                    Screen.ORDER_YARN -> OrderYarnScreen(viewModel = quoteViewModel, onBack = ::back)
+                    Screen.SHOP -> WebCatalogScreen(startUrl = settings.shopUrl, onBack = ::back)
                 }
             }
         }

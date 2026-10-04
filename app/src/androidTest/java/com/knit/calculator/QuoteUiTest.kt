@@ -39,7 +39,8 @@ class QuoteUiTest {
         compose.onAllNodes(hasText(money(v))).onFirst().performScrollTo().assertExists()
 
     @Test fun podvyazPricesLikeFactoryPriceList() {
-        compose.onNodeWithContentDescription("Коммерческое предложение").performClick()
+        Shots.take("00_home", compose)
+        compose.onNodeWithText("Коммерческое предложение").performClick()
         compose.onNodeWithText("Компания клиента").performTextInput("ООО «Пример»")
         compose.onNodeWithText("Добавить позицию").performScrollTo().performClick()
         compose.onNodeWithText("Подвяз трикотажный").performClick()
@@ -63,11 +64,37 @@ class QuoteUiTest {
         compose.onNodeWithText("Итого к оплате").performScrollTo()
         Shots.take("31_quote_totals", compose)
 
+        // Скидка менеджера: больше 7 % нельзя — применяется 7 %.
+        qty.performTextClearance()
+        qty.performTextInput("600")
+        val discount = compose.onNode(hasSetTextAction() and hasText("Скидка, %"))
+        discount.performScrollTo().performTextInput("10")
+        compose.onNodeWithText("Скидка не больше 7 % — применено 7 %").assertExists()
+        assertMoney(106_800) // 191 ₽ × 0,93 = 177,63 → 178 ₽ (округление до рубля) × 600
+
+        // Себестоимость и прибыль — только для менеджера, по переключателю.
+        compose.onNodeWithText("Себестоимость и прибыль (только для менеджера)").performScrollTo().performClick()
+        compose.onAllNodes(hasText("Себестоимость заказа", substring = true)).onFirst().performScrollTo().assertExists()
+        Shots.take("35_quote_economics", compose)
+
+
         compose.onNodeWithContentDescription("Ассортимент и цены").performClick()
         Shots.take("32_catalog", compose)
         compose.onNodeWithContentDescription("Назад").performClick()
         compose.onNodeWithContentDescription("Реквизиты фабрики").performClick()
         Shots.take("33_company_settings", compose)
+        compose.onNodeWithContentDescription("Назад").performClick()
+        compose.onNodeWithContentDescription("Назад").performClick()
+
+        // Главный экран → отчёт и каталог на сайте.
+        compose.onNodeWithText("Отчёт").performClick()
+        compose.onNodeWithText("Отчёт за месяц").assertExists()
+        Shots.take("36_report", compose)
+        compose.onNodeWithContentDescription("Назад").performClick()
+        compose.onNodeWithText("Каталог на сайте").performClick()
+        compose.mainClock.advanceTimeBy(5_000)
+        Thread.sleep(4_000) // загрузка сайта (без проверки: сеть эмулятора может быть недоступна)
+        Shots.take("37_shop", compose)
     }
 
     @Test fun quotePdfRenders() {

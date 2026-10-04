@@ -4,6 +4,8 @@
     <!-- Интернет нужен только для связи с вашей Google Таблицей (справочники и КП).
          Калькулятор, расход пряжи и КП без таблицы работают офлайн. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Напоминания об окончании срока КП (Android 13+ спрашивает разрешение). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="false"

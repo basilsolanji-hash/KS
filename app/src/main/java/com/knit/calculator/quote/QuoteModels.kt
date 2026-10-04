@@ -1,11 +1,13 @@
 package com.knit.calculator.quote
 
 import com.knit.calculator.core.CatalogParser
+import com.knit.calculator.core.CostSettings
 import com.knit.calculator.core.Coefficients
 import com.knit.calculator.core.OptionGroup
 import com.knit.calculator.core.PriceChoice
 import com.knit.calculator.core.PriceTier
 import com.knit.calculator.core.Product
+import com.knit.calculator.core.QuoteStatus
 import com.knit.calculator.core.SeedCatalog
 import com.knit.calculator.core.YarnCalculator
 import java.math.BigDecimal
@@ -16,7 +18,7 @@ fun newId(): Long = Random.nextLong(1, Long.MAX_VALUE)
 
 /** Реквизиты и условия, которые печатаются в КП. */
 data class CompanySettings(
-    val brand: String = "Фабрика «KS»",
+    val brand: String = "Фабрика \"KS\"",
     val city: String = "г. Электросталь",
     val legalName: String = "ООО «СОЛВЕР»",
     val inn: String = "9705239429",
@@ -29,10 +31,36 @@ data class CompanySettings(
     val leadTime: String = "5–15 рабочих дней",
     val freeDeliveryFrom: String = "50000",
     val terms: String = "Цены указаны в рублях.",
-    val signature: String = "С уважением, команда Фабрики «KS»",
+    val signature: String = "С уважением, команда Фабрики \"KS\"",
+    // Экономика (модель «База КП»).
+    val fixedMonthly: String = "954000",
+    val planQuantity: String = "13000",
+    val commissionPercent: String = "9",
+    val targetMarginPercent: String = "25",
+    val maxDiscountPercent: String = "7",
+    val reminderDays: String = "1",
+    val yarnWastePercent: String = "3",
+    val shopUrl: String = "https://fabrika-ks.ru/shop",
 ) {
     val freeDeliveryThreshold: BigDecimal?
         get() = YarnCalculator.parseDecimal(freeDeliveryFrom)?.takeIf { it.signum() > 0 }
+
+    val maxDiscount: BigDecimal
+        get() = YarnCalculator.parseDecimal(maxDiscountPercent)?.coerceIn(BigDecimal.ZERO, BigDecimal(100)) ?: BigDecimal.ZERO
+
+    val reminderDaysValue: Int
+        get() = YarnCalculator.parseDecimal(reminderDays)?.toInt()?.coerceIn(0, 30) ?: 1
+
+    val yarnWaste: BigDecimal
+        get() = YarnCalculator.parseDecimal(yarnWastePercent) ?: BigDecimal.ZERO
+
+    fun costSettings(): CostSettings = CostSettings(
+        fixedMonthly = YarnCalculator.parseDecimal(fixedMonthly) ?: BigDecimal.ZERO,
+        planQuantity = YarnCalculator.parseDecimal(planQuantity) ?: BigDecimal.ZERO,
+        commissionPercent = YarnCalculator.parseDecimal(commissionPercent) ?: BigDecimal.ZERO,
+        targetMarginPercent = YarnCalculator.parseDecimal(targetMarginPercent) ?: BigDecimal.ZERO,
+        vat = vat(),
+    )
 
     companion object {
         // Названия строк листа «Настройки» в Google Таблице.
@@ -50,6 +78,14 @@ data class CompanySettings(
         const val S_FREE_DELIVERY = "Бесплатная доставка от, ₽"
         const val S_TERMS = "Прочие условия"
         const val S_SIGNATURE = "Подпись"
+        const val S_FIXED = "Постоянные расходы в месяц, ₽"
+        const val S_PLAN = "План выпуска, шт/мес"
+        const val S_COMMISSION = "Комиссия, %"
+        const val S_TARGET = "Целевая рентабельность, %"
+        const val S_MAX_DISCOUNT = "Макс. скидка менеджера, %"
+        const val S_REMINDER = "Напоминание за, дней"
+        const val S_YARN_WASTE = "Брак пряжи, %"
+        const val S_SHOP = "Сайт каталога"
 
         /** Реквизиты из листа «Настройки»; отсутствующие строки берутся из [fallback]. */
         fun fromSheet(values: Map<String, String>, fallback: CompanySettings = CompanySettings()): CompanySettings {
@@ -70,6 +106,14 @@ data class CompanySettings(
                 freeDeliveryFrom = v(S_FREE_DELIVERY, fallback.freeDeliveryFrom),
                 terms = v(S_TERMS, fallback.terms),
                 signature = v(S_SIGNATURE, fallback.signature),
+                fixedMonthly = v(S_FIXED, fallback.fixedMonthly),
+                planQuantity = v(S_PLAN, fallback.planQuantity),
+                commissionPercent = v(S_COMMISSION, fallback.commissionPercent),
+                targetMarginPercent = v(S_TARGET, fallback.targetMarginPercent),
+                maxDiscountPercent = v(S_MAX_DISCOUNT, fallback.maxDiscountPercent),
+                reminderDays = v(S_REMINDER, fallback.reminderDays),
+                yarnWastePercent = v(S_YARN_WASTE, fallback.yarnWastePercent),
+                shopUrl = v(S_SHOP, fallback.shopUrl),
             )
         }
     }
@@ -81,6 +125,12 @@ data class DraftLine(
     val productId: Long,
     val selected: Map<Long, Long> = emptyMap(),
     val quantity: String = "",
+    /** Скидка менеджера, % (строка поля ввода). */
+    val discount: String = "",
+    /** Фото образца на этом телефоне (files/photos/…). */
+    val photoPath: String? = null,
+    /** То же фото в папке «Фото образцов» Google Диска (для других телефонов). */
+    val photoFileId: String? = null,
 )
 
 /**
@@ -95,6 +145,8 @@ data class QuoteDraft(
     val clientCompany: String = "",
     val clientContact: String = "",
     val clientEmail: String = "",
+    val clientPhone: String = "",
+    val clientInn: String = "",
     val comment: String = "",
     val lines: List<DraftLine> = emptyList(),
 )
@@ -173,5 +225,25 @@ data class EditableProduct(
 
 /** Стартовый ассортимент — те же строки, что и в Google Таблице (одинаковые идентификаторы). */
 object DefaultCatalog {
-    val products: List<Product> by lazy { CatalogParser.parse(SeedCatalog.sheets).products }
+    val parsed by lazy { CatalogParser.parse(SeedCatalog.sheets) }
+    val products: List<Product> get() = parsed.products
 }
+
+/**
+ * КП, отправленное с этого телефона (архив для истории без таблицы, отчёта и напоминаний).
+ * С таблицей основной источник — лист «КП», архив дублирует статус для напоминаний.
+ */
+data class ArchivedQuote(
+    val id: String,
+    val number: Int,
+    val createdAt: Long,
+    val client: String,
+    val total: BigDecimal,
+    val profit: BigDecimal?,
+    val status: QuoteStatus,
+    val validUntil: Long?,
+    val manager: String,
+    val data: String,
+    /** Изделие → сумма. */
+    val products: Map<String, BigDecimal>,
+)

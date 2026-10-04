@@ -7,6 +7,7 @@ import com.knit.calculator.core.OptionGroup
 import com.knit.calculator.core.PriceChoice
 import com.knit.calculator.core.PriceTier
 import com.knit.calculator.core.Product
+import com.knit.calculator.core.QuoteStatus
 import org.json.JSONArray
 import org.json.JSONObject
 import java.math.BigDecimal
@@ -65,6 +66,14 @@ class QuoteStore(context: Context) {
                 freeDeliveryFrom = o.optString("freeDeliveryFrom", d.freeDeliveryFrom),
                 terms = o.optString("terms", d.terms),
                 signature = o.optString("signature", d.signature),
+                fixedMonthly = o.optString("fixedMonthly", d.fixedMonthly),
+                planQuantity = o.optString("planQuantity", d.planQuantity),
+                commissionPercent = o.optString("commissionPercent", d.commissionPercent),
+                targetMarginPercent = o.optString("targetMarginPercent", d.targetMarginPercent),
+                maxDiscountPercent = o.optString("maxDiscountPercent", d.maxDiscountPercent),
+                reminderDays = o.optString("reminderDays", d.reminderDays),
+                yarnWastePercent = o.optString("yarnWastePercent", d.yarnWastePercent),
+                shopUrl = o.optString("shopUrl", d.shopUrl),
             )
         } catch (e: Exception) {
             CompanySettings()
@@ -79,6 +88,10 @@ class QuoteStore(context: Context) {
             .put("validityDays", s.validityDays).put("leadTime", s.leadTime)
             .put("freeDeliveryFrom", s.freeDeliveryFrom)
             .put("terms", s.terms).put("signature", s.signature)
+            .put("fixedMonthly", s.fixedMonthly).put("planQuantity", s.planQuantity)
+            .put("commissionPercent", s.commissionPercent).put("targetMarginPercent", s.targetMarginPercent)
+            .put("maxDiscountPercent", s.maxDiscountPercent).put("reminderDays", s.reminderDays)
+            .put("yarnWastePercent", s.yarnWastePercent).put("shopUrl", s.shopUrl)
         prefs.edit().putString(KEY_SETTINGS, o.toString()).apply()
     }
 
@@ -106,6 +119,10 @@ class QuoteStore(context: Context) {
             .apply()
     }
 
+    var logoVersion: String
+        get() = prefs.getString(KEY_LOGO_VERSION, "").orEmpty()
+        set(value) = prefs.edit().putString(KEY_LOGO_VERSION, value).apply()
+
     fun loadSheetCache(): SheetCache? {
         val raw = prefs.getString(KEY_SHEET_CACHE, null) ?: return null
         return try {
@@ -123,6 +140,67 @@ class QuoteStore(context: Context) {
         }
         val o = JSONObject().put("sheets", sheetsToJson(cache.sheets)).put("url", cache.sheetUrl).put("loadedAt", cache.loadedAt)
         prefs.edit().putString(KEY_SHEET_CACHE, o.toString()).apply()
+    }
+
+    // ---------------- Архив КП и клиенты (этот телефон) ----------------
+
+    fun loadArchive(): List<ArchivedQuote> {
+        val raw = prefs.getString(KEY_ARCHIVE, null) ?: return emptyList()
+        return try {
+            JSONArray(raw).objects().map { o ->
+                val products = o.optJSONObject("products") ?: JSONObject()
+                ArchivedQuote(
+                    id = o.getString("id"),
+                    number = o.optInt("number"),
+                    createdAt = o.optLong("createdAt"),
+                    client = o.optString("client"),
+                    total = BigDecimal(o.optString("total", "0")),
+                    profit = o.optString("profit").takeIf { it.isNotBlank() }?.let(::BigDecimal),
+                    status = QuoteStatus.from(o.optString("status")),
+                    validUntil = o.optLong("validUntil").takeIf { it > 0 },
+                    manager = o.optString("manager"),
+                    data = o.optString("data"),
+                    products = products.keys().asSequence().associateWith { BigDecimal(products.getString(it)) },
+                )
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveArchive(list: List<ArchivedQuote>) {
+        val array = JSONArray()
+        list.take(MAX_ARCHIVE).forEach { q ->
+            val products = JSONObject()
+            q.products.forEach { (k, v) -> products.put(k, v.toPlainString()) }
+            array.put(
+                JSONObject().put("id", q.id).put("number", q.number).put("createdAt", q.createdAt)
+                    .put("client", q.client).put("total", q.total.toPlainString())
+                    .put("profit", q.profit?.toPlainString() ?: "").put("status", q.status.title)
+                    .put("validUntil", q.validUntil ?: 0L).put("manager", q.manager)
+                    .put("data", q.data).put("products", products),
+            )
+        }
+        prefs.edit().putString(KEY_ARCHIVE, array.toString()).apply()
+    }
+
+    fun loadLocalClients(): List<com.knit.calculator.core.Client> {
+        val raw = prefs.getString(KEY_CLIENTS, null) ?: return emptyList()
+        return try {
+            JSONArray(raw).objects().map {
+                com.knit.calculator.core.Client(it.optString("company"), it.optString("contact"), it.optString("email"), it.optString("phone"), it.optString("inn"))
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveLocalClients(list: List<com.knit.calculator.core.Client>) {
+        val array = JSONArray()
+        list.forEach { c ->
+            array.put(JSONObject().put("company", c.company).put("contact", c.contact).put("email", c.email).put("phone", c.phone).put("inn", c.inn))
+        }
+        prefs.edit().putString(KEY_CLIENTS, array.toString()).apply()
     }
 
     // ---------------- JSON ----------------
@@ -188,12 +266,18 @@ class QuoteStore(context: Context) {
         .put("parameters", rowsToJson(s.parameters))
         .put("volume", rowsToJson(s.volume))
         .put("settings", rowsToJson(s.settings))
+        .put("costs", rowsToJson(s.costs))
+        .put("yarns", rowsToJson(s.yarns))
+        .put("clients", rowsToJson(s.clients))
 
     fun sheetsFromJson(o: JSONObject): CatalogSheets = CatalogSheets(
         products = rowsFromJson(o.optJSONArray("products")),
         parameters = rowsFromJson(o.optJSONArray("parameters")),
         volume = rowsFromJson(o.optJSONArray("volume")),
         settings = rowsFromJson(o.optJSONArray("settings")),
+        costs = rowsFromJson(o.optJSONArray("costs")),
+        yarns = rowsFromJson(o.optJSONArray("yarns")),
+        clients = rowsFromJson(o.optJSONArray("clients")),
     )
 
     companion object {
@@ -204,18 +288,27 @@ class QuoteStore(context: Context) {
         private const val KEY_SYNC_KEY = "sync_key"
         private const val KEY_SYNC_MANAGER = "sync_manager"
         private const val KEY_SHEET_CACHE = "sheet_cache"
+        private const val KEY_ARCHIVE = "archive"
+        private const val KEY_LOGO_VERSION = "logo_version"
+        private const val KEY_CLIENTS = "clients"
+        private const val MAX_ARCHIVE = 500
 
         fun draftToJson(d: QuoteDraft): String {
             val lines = JSONArray()
             d.lines.forEach { l ->
                 val sel = JSONObject()
                 l.selected.forEach { (g, c) -> sel.put(g.toString(), c) }
-                lines.put(JSONObject().put("id", l.id).put("productId", l.productId).put("selected", sel).put("quantity", l.quantity))
+                lines.put(
+                    JSONObject().put("id", l.id).put("productId", l.productId).put("selected", sel)
+                        .put("quantity", l.quantity).put("discount", l.discount).put("photo", l.photoPath ?: "")
+                        .put("photoFileId", l.photoFileId ?: ""),
+                )
             }
             return JSONObject()
                 .put("id", d.id).put("number", d.number).put("saved", d.saved)
                 .put("clientCompany", d.clientCompany).put("clientContact", d.clientContact)
-                .put("clientEmail", d.clientEmail).put("comment", d.comment).put("lines", lines)
+                .put("clientEmail", d.clientEmail).put("clientPhone", d.clientPhone).put("clientInn", d.clientInn)
+                .put("comment", d.comment).put("lines", lines)
                 .toString()
         }
 
@@ -229,6 +322,8 @@ class QuoteStore(context: Context) {
                 clientCompany = o.optString("clientCompany"),
                 clientContact = o.optString("clientContact"),
                 clientEmail = o.optString("clientEmail"),
+                clientPhone = o.optString("clientPhone"),
+                clientInn = o.optString("clientInn"),
                 comment = o.optString("comment"),
                 lines = (0 until lines.length()).mapNotNull { lines.optJSONObject(it) }.map { l ->
                     val sel = l.optJSONObject("selected") ?: JSONObject()
@@ -237,6 +332,9 @@ class QuoteStore(context: Context) {
                         productId = l.getLong("productId"),
                         selected = sel.keys().asSequence().associate { it.toLong() to sel.getLong(it) },
                         quantity = l.optString("quantity"),
+                        discount = l.optString("discount"),
+                        photoPath = l.optString("photo").ifBlank { null },
+                        photoFileId = l.optString("photoFileId").ifBlank { null },
                     )
                 },
             )

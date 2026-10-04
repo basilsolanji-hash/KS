@@ -5,6 +5,16 @@ import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.knit.calculator.core.CatalogParser
+import com.knit.calculator.report.BrandLogo
+import com.knit.calculator.core.Client
+import com.knit.calculator.core.CostCalculator
+import com.knit.calculator.core.LineEconomics
+import com.knit.calculator.core.MonthReport
+import com.knit.calculator.core.OrderYarn
+import com.knit.calculator.core.OrderYarnCalculator
+import com.knit.calculator.core.QuoteStatus
+import com.knit.calculator.core.QuoteSummary
+import com.knit.calculator.core.ReportCalculator
 import com.knit.calculator.core.Product
 import com.knit.calculator.core.QuoteCalculator
 import com.knit.calculator.core.QuoteLine
@@ -22,8 +32,31 @@ import org.json.JSONObject
 import java.math.BigDecimal
 import java.util.UUID
 
-/** Строка КП вместе с расчётом (или `null`, если количество ещё не введено). */
-data class DraftLineView(val draft: DraftLine, val product: Product, val line: QuoteLine?)
+/** Строка КП вместе с расчётом (или `null`, если количество ещё не введено) и экономикой для менеджера. */
+data class DraftLineView(
+    val draft: DraftLine,
+    val product: Product,
+    val line: QuoteLine?,
+    val economics: LineEconomics? = null,
+    /** Скидка больше разрешённой — поле подсвечивается, применяется максимум. */
+    val discountTooHigh: Boolean = false,
+)
+
+/** КП в истории — из Google Таблицы или из архива этого телефона. */
+data class HistoryItem(
+    val id: String,
+    val number: Int,
+    val date: String,
+    val month: String,
+    val client: String,
+    val total: BigDecimal,
+    val profit: BigDecimal?,
+    val status: QuoteStatus,
+    val author: String,
+    val data: String,
+    val validUntil: Long,
+    val products: Map<String, BigDecimal>,
+)
 
 /** Состояние связи с Google Таблицей. */
 data class SyncStatus(
@@ -64,8 +97,14 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
     private val _sync = MutableStateFlow(SyncStatus())
     val sync: StateFlow<SyncStatus> = _sync.asStateFlow()
 
-    private val _history = MutableStateFlow<List<RemoteQuote>?>(null)
-    val history: StateFlow<List<RemoteQuote>?> = _history.asStateFlow()
+    private val _history = MutableStateFlow<List<HistoryItem>?>(null)
+    val history: StateFlow<List<HistoryItem>?> = _history.asStateFlow()
+
+    /** Затраты, цены пряжи и клиенты — из таблицы или стартовые. */
+    private var parsedExtras = DefaultCatalog.parsed
+
+    private val _clients = MutableStateFlow<List<Client>>(emptyList())
+    val clients: StateFlow<List<Client>> = _clients.asStateFlow()
 
     private val _historyError = MutableStateFlow<String?>(null)
     val historyError: StateFlow<String?> = _historyError.asStateFlow()
@@ -81,12 +120,16 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         val c = cache
         if (config.enabled && c != null) {
             val parsed = CatalogParser.parse(c.sheets)
+            parsedExtras = parsed
             _catalog.value = parsed.products
             _settings.value = CompanySettings.fromSheet(parsed.settings)
+            _clients.value = mergeClients(parsed.clients, store.loadLocalClients())
             _sync.update { it.copy(connected = true, lastSync = c.loadedAt, warnings = parsed.warnings, sheetUrl = c.sheetUrl) }
         } else {
+            parsedExtras = DefaultCatalog.parsed
             _catalog.value = localCatalog
             _settings.value = localSettings
+            _clients.value = store.loadLocalClients()
             _sync.update { SyncStatus(connected = config.enabled, loading = it.loading, error = it.error) }
         }
     }
@@ -99,7 +142,8 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         _sync.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
             try {
-                val remote = SheetClient(config).catalog()
+                val remote = SheetClient(config).catalog(store.logoVersion)
+                applyLogo(remote.logo)
                 val newCache = SheetCache(remote.sheets, remote.url, System.currentTimeMillis())
                 cache = newCache
                 store.saveSheetCache(newCache)
@@ -122,6 +166,7 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 val remote = SheetClient(config).catalog()
+                applyLogo(remote.logo)
                 _syncConfig.value = config
                 store.saveSyncConfig(config)
                 cache = SheetCache(remote.sheets, remote.url, System.currentTimeMillis()).also(store::saveSheetCache)
@@ -132,6 +177,66 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 _sync.update { it.copy(loading = false) }
                 onResult(e.message ?: "Нет связи с таблицей")
+            }
+        }
+    }
+
+    /** Логотип из папки Диска: новый — сохраняем; папка пуста — встроенный логотип. */
+    private fun applyLogo(logo: RemoteLogo?) {
+        logo ?: return
+        val data = logo.data
+        when {
+            data != null -> BrandLogo.save(getApplication(), data)
+            logo.version.isBlank() -> BrandLogo.clear(getApplication())
+        }
+        store.logoVersion = logo.version
+    }
+
+    /** Фото, которых ещё нет на Диске, загружаем перед сохранением КП (ошибка не мешает КП). */
+    private suspend fun uploadPhotos(config: SyncConfig) {
+        val d = _draft.value
+        d.lines.filter { it.photoPath != null && it.photoFileId == null }.forEach { line ->
+            val file = java.io.File(line.photoPath!!)
+            if (!file.exists()) return@forEach
+            try {
+                val id = SheetClient(config).uploadFile("photo", "КП-${d.id.take(8)}-${line.id}.jpg", file.readBytes(), "image/jpeg")
+                updateLine(line.id) { it.copy(photoFileId = id) }
+            } catch (e: Exception) {
+                // Фото останется только на этом телефоне.
+            }
+        }
+    }
+
+    /** Фото из КП другого телефона скачиваем с Диска. */
+    private fun downloadMissingPhotos() {
+        val config = _syncConfig.value
+        if (!config.enabled) return
+        val missing = _draft.value.lines.filter { it.photoFileId != null && (it.photoPath == null || !java.io.File(it.photoPath).exists()) }
+        if (missing.isEmpty()) return
+        viewModelScope.launch {
+            missing.forEach { line ->
+                try {
+                    val bytes = SheetClient(config).getFile(line.photoFileId!!)
+                    val dir = java.io.File(getApplication<Application>().filesDir, "photos").apply { mkdirs() }
+                    val file = java.io.File(dir, "${line.id}-${line.photoFileId}.jpg")
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { file.writeBytes(bytes) }
+                    updateLine(line.id) { it.copy(photoPath = file.absolutePath) }
+                } catch (e: Exception) {
+                    // Без фото КП всё равно откроется.
+                }
+            }
+        }
+    }
+
+    /** Копия PDF КП — в папку «КП (PDF)» Диска, ссылка — в лист «КП». В фоне, ошибки не мешают отправке. */
+    fun uploadPdf(file: java.io.File) {
+        val config = _syncConfig.value
+        val d = _draft.value
+        if (!config.enabled || !d.saved) return
+        viewModelScope.launch {
+            runCatching {
+                val bytes = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { file.readBytes() }
+                SheetClient(config).uploadFile("pdf", file.name, bytes, "application/pdf", d.id)
             }
         }
     }
@@ -152,75 +257,230 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         dropMissingLines()
     }
 
-    /** Сохраняет КП в таблицу (если подключена) и присваивает номер. */
-    suspend fun saveToSheet(views: List<DraftLineView>, totals: QuoteTotals): SaveResult {
+    /**
+     * Сохраняет КП: в архив этого телефона (для истории, отчёта и напоминаний) и в таблицу,
+     * если она подключена (таблица выдаёт номер).
+     */
+    suspend fun saveQuote(views: List<DraftLineView>, totals: QuoteTotals): SaveResult {
         val config = _syncConfig.value
-        if (!config.enabled) return SaveResult.Local
-        val d = _draft.value
         val settings = _settings.value
-        val lines = JSONArray()
-        views.forEach { v ->
-            val l = v.line ?: return@forEach
-            lines.put(
-                JSONObject()
-                    .put("code", v.product.code)
-                    .put("product", v.product.name)
-                    .put("params", l.parameters)
-                    .put("qty", l.quantity.toDouble())
-                    .put("unit", v.product.unit)
-                    .put("price", l.unitPrice.toDouble())
-                    .put("sum", l.total.toDouble()),
-            )
+        val economics = CostCalculator.quote(views.mapNotNull { v -> v.line?.let { v.economics } })
+        val profit = economics.totalProfit.takeIf { views.any { it.economics != null } }
+        val validUntil = validUntilMillis(settings)
+        val products = linkedMapOf<String, BigDecimal>()
+        views.forEach { v -> v.line?.let { products[v.product.name] = (products[v.product.name] ?: BigDecimal.ZERO) + it.total } }
+        rememberClient()
+
+        var number = _draft.value.number
+        var result: SaveResult = SaveResult.Local
+        if (config.enabled) {
+            uploadPhotos(config)
+            val d = _draft.value
+            val lines = JSONArray()
+            views.forEach { v ->
+                val l = v.line ?: return@forEach
+                lines.put(
+                    JSONObject()
+                        .put("code", v.product.code)
+                        .put("product", v.product.name)
+                        .put("params", l.parameters)
+                        .put("qty", l.quantity.toDouble())
+                        .put("unit", v.product.unit)
+                        .put("price", l.unitPrice.toDouble())
+                        .put("sum", l.total.toDouble())
+                        .put("discount", l.discountPercent.toDouble()),
+                )
+            }
+            val payload = JSONObject()
+                .put("id", d.id)
+                .put("client", d.clientCompany)
+                .put("contact", d.clientContact)
+                .put("email", d.clientEmail)
+                .put("phone", d.clientPhone)
+                .put("inn", d.clientInn)
+                .put("subtotal", totals.totalWithoutVat.toDouble())
+                .put("vat", totals.vat.toDouble())
+                .put("total", totals.total.toDouble())
+                .put("cost", if (profit != null) economics.totalCost.toDouble() else "")
+                .put("profit", profit?.toDouble() ?: "")
+                .put("validUntil", validUntil ?: 0L)
+                .put("delivery", deliveryText(totals, settings))
+                .put("author", author())
+                .put("data", QuoteStore.draftToJson(d.copy(saved = true)))
+                .put("lines", lines)
+            result = try {
+                number = SheetClient(config).saveQuote(payload)
+                SaveResult.Saved(number)
+            } catch (e: Exception) {
+                return SaveResult.Failed(e.message ?: "Нет связи с таблицей")
+            }
         }
-        val payload = JSONObject()
-            .put("id", d.id)
-            .put("client", d.clientCompany)
-            .put("contact", d.clientContact)
-            .put("email", d.clientEmail)
-            .put("subtotal", totals.totalWithoutVat.toDouble())
-            .put("vat", totals.vat.toDouble())
-            .put("total", totals.total.toDouble())
-            .put("delivery", deliveryText(totals, settings))
-            .put("author", listOf(config.manager, Build.MODEL.orEmpty()).filter { it.isNotBlank() }.joinToString(" / "))
-            .put("data", QuoteStore.draftToJson(d.copy(saved = true)))
-            .put("lines", lines)
-        return try {
-            val number = SheetClient(config).saveQuote(payload)
-            updateDraft { it.copy(number = number, saved = true) }
-            SaveResult.Saved(number)
-        } catch (e: Exception) {
-            SaveResult.Failed(e.message ?: "Нет связи с таблицей")
+        updateDraft { it.copy(number = number, saved = true) }
+        val d = _draft.value
+        val previous = store.loadArchive().firstOrNull { it.id == d.id }
+        val archived = ArchivedQuote(
+            id = d.id,
+            number = number,
+            createdAt = previous?.createdAt ?: System.currentTimeMillis(),
+            client = d.clientCompany,
+            total = totals.total,
+            profit = profit,
+            status = previous?.status ?: QuoteStatus.SENT,
+            validUntil = validUntil,
+            manager = author(),
+            data = QuoteStore.draftToJson(d),
+            products = products,
+        )
+        store.saveArchive(listOf(archived) + store.loadArchive().filterNot { it.id == d.id })
+        if (validUntil != null) {
+            QuoteReminders.schedule(getApplication(), d.id, number, d.clientCompany, validUntil, settings.reminderDaysValue)
         }
+        return result
+    }
+
+    private fun author() = listOf(_syncConfig.value.manager, Build.MODEL.orEmpty()).filter { it.isNotBlank() }.joinToString(" / ")
+
+    private fun validUntilMillis(settings: CompanySettings): Long? {
+        val days = YarnCalculator.parseDecimal(settings.validityDays)?.toInt()?.takeIf { it > 0 } ?: return null
+        return java.util.Calendar.getInstance().apply {
+            add(java.util.Calendar.DAY_OF_YEAR, days)
+            set(java.util.Calendar.HOUR_OF_DAY, 23)
+            set(java.util.Calendar.MINUTE, 59)
+        }.timeInMillis
+    }
+
+    /** Клиент из КП — в справочник этого телефона (в таблице его добавляет скрипт). */
+    private fun rememberClient() {
+        val d = _draft.value
+        val company = d.clientCompany.trim()
+        if (company.isEmpty()) return
+        val local = store.loadLocalClients().filterNot { it.company.equals(company, ignoreCase = true) }
+        val client = Client(company, d.clientContact.trim(), d.clientEmail.trim(), d.clientPhone.trim(), d.clientInn.trim())
+        store.saveLocalClients(listOf(client) + local)
+        _clients.value = mergeClients(_clients.value, listOf(client))
+    }
+
+    private fun mergeClients(primary: List<Client>, extra: List<Client>): List<Client> =
+        (primary + extra).distinctBy { it.company.trim().lowercase() }
+
+    fun applyClient(client: Client) = updateDraft {
+        it.copy(
+            clientCompany = client.company,
+            clientContact = client.contact.ifBlank { it.clientContact },
+            clientEmail = client.email.ifBlank { it.clientEmail },
+            clientPhone = client.phone.ifBlank { it.clientPhone },
+            clientInn = client.inn.ifBlank { it.clientInn },
+        )
     }
 
     fun loadHistory() {
         val config = _syncConfig.value
-        if (!config.enabled) return
         _historyError.value = null
+        if (!config.enabled) {
+            _history.value = archiveItems()
+            return
+        }
         viewModelScope.launch {
             try {
-                _history.value = SheetClient(config).quotes()
+                _history.value = SheetClient(config).quotes(200).map { q ->
+                    HistoryItem(
+                        id = q.id, number = q.number, date = q.date, month = q.month, client = q.client,
+                        total = BigDecimal.valueOf(q.total), profit = q.profit?.let(BigDecimal::valueOf),
+                        status = q.status, author = q.author, data = q.data, validUntil = q.validUntil,
+                        products = q.products.mapValues { BigDecimal.valueOf(it.value) },
+                    )
+                }
             } catch (e: Exception) {
                 _historyError.value = e.message ?: "Нет связи с таблицей"
+                if (_history.value == null) _history.value = archiveItems()
             }
         }
     }
 
+    private fun archiveItems(): List<HistoryItem> {
+        val dateFormat = java.text.SimpleDateFormat("dd.MM.yyyy HH:mm", java.util.Locale.getDefault())
+        val monthFormat = java.text.SimpleDateFormat("yyyy-MM", java.util.Locale.US)
+        return store.loadArchive().sortedByDescending { it.createdAt }.map { a ->
+            HistoryItem(
+                id = a.id, number = a.number, date = dateFormat.format(java.util.Date(a.createdAt)),
+                month = monthFormat.format(java.util.Date(a.createdAt)), client = a.client, total = a.total,
+                profit = a.profit, status = a.status, author = a.manager, data = a.data,
+                validUntil = a.validUntil ?: 0, products = a.products,
+            )
+        }
+    }
+
+    /** Меняет статус КП (в таблице и в архиве телефона); `null` — успех, иначе текст ошибки. */
+    suspend fun setStatus(item: HistoryItem, status: QuoteStatus): String? {
+        val config = _syncConfig.value
+        if (config.enabled) {
+            try {
+                SheetClient(config).setStatus(item.id, status)
+            } catch (e: Exception) {
+                return e.message ?: "Нет связи с таблицей"
+            }
+        }
+        val archive = store.loadArchive()
+        if (archive.any { it.id == item.id }) {
+            store.saveArchive(archive.map { if (it.id == item.id) it.copy(status = status) else it })
+        }
+        if (status != QuoteStatus.SENT) QuoteReminders.cancel(getApplication(), item.id)
+        _history.value = _history.value?.map { if (it.id == item.id) it.copy(status = status) else it }
+        return null
+    }
+
+    /** Повтор заказа: копия КП как новое КП (номер выдаётся заново, цены — по текущему прайсу). */
+    fun repeatQuote(item: HistoryItem): Boolean {
+        val draft = QuoteStore.draftFromJson(item.data) ?: return false
+        val local = !_syncConfig.value.enabled
+        updateDraft {
+            draft.copy(
+                id = UUID.randomUUID().toString(),
+                number = if (local) (store.loadArchive().maxOfOrNull { a -> a.number } ?: it.number) + 1 else 0,
+                saved = false,
+                lines = draft.lines.map { l -> l.copy(id = newId()) },
+            )
+        }
+        downloadMissingPhotos()
+        return true
+    }
+
+    fun report(month: String): MonthReport? {
+        val items = _history.value ?: return null
+        return ReportCalculator.month(
+            items.map { QuoteSummary(it.month, it.status, it.total, it.profit, it.author, it.products) },
+            month,
+        )
+    }
+
+    fun orderYarn(views: List<DraftLineView>): OrderYarn =
+        OrderYarnCalculator.calculate(views.mapNotNull { it.line }, _settings.value.yarnWaste, parsedExtras.yarnPrices)
+
     /** Открывает сохранённое КП для просмотра, изменения или повторной отправки. */
-    fun openQuote(remote: RemoteQuote): Boolean {
-        val draft = QuoteStore.draftFromJson(remote.data) ?: return false
-        updateDraft { draft.copy(id = remote.id.ifBlank { draft.id }, number = remote.number, saved = true) }
+    fun openQuote(item: HistoryItem): Boolean {
+        val draft = QuoteStore.draftFromJson(item.data) ?: return false
+        updateDraft { draft.copy(id = item.id.ifBlank { draft.id }, number = item.number, saved = true) }
+        downloadMissingPhotos()
         return true
     }
 
     // ---------- Расчёт ----------
 
-    fun lineViews(draft: QuoteDraft, catalog: List<Product>): List<DraftLineView> =
-        draft.lines.mapNotNull { d ->
+    fun lineViews(draft: QuoteDraft, catalog: List<Product>, settings: CompanySettings): List<DraftLineView> {
+        val costSettings = settings.costSettings()
+        val max = settings.maxDiscount
+        return draft.lines.mapNotNull { d ->
             val product = catalog.firstOrNull { it.id == d.productId } ?: return@mapNotNull null
             val qty = YarnCalculator.parseDecimal(d.quantity)?.takeIf { it.signum() > 0 }
-            DraftLineView(d, product, qty?.let { QuoteCalculator.line(QuoteLineInput(product, d.selected, it)) })
+            val wanted = YarnCalculator.parseDecimal(d.discount)?.max(BigDecimal.ZERO) ?: BigDecimal.ZERO
+            val discount = wanted.min(max)
+            val line = qty?.let { QuoteCalculator.line(QuoteLineInput(product, d.selected, it, discount)) }
+            val economics = line?.let {
+                CostCalculator.line(it, parsedExtras.costs[product.code.lowercase()], costSettings, parsedExtras.yarnPrices)
+            }
+            DraftLineView(d, product, line, economics, discountTooHigh = wanted > max)
         }
+    }
 
     fun totals(views: List<DraftLineView>, settings: CompanySettings): QuoteTotals =
         QuoteCalculator.totals(views.mapNotNull { it.line }, settings.vat())
@@ -247,7 +507,8 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Новое КП. В локальном режиме номер увеличивается на 1, с таблицей — выдаётся при сохранении. */
     fun newQuote() = updateDraft {
-        QuoteDraft(id = UUID.randomUUID().toString(), number = if (_syncConfig.value.enabled) 0 else it.number + 1)
+        val next = maxOf(it.number, store.loadArchive().maxOfOrNull { a -> a.number } ?: 0) + 1
+        QuoteDraft(id = UUID.randomUUID().toString(), number = if (_syncConfig.value.enabled) 0 else next)
     }
 
     private fun dropMissingLines() {

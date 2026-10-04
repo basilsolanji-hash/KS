@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Логотип Фабрики "KS" (векторная копия branding/ks-logo.jpg). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="96dp"
+    android:height="72dp"
+    android:viewportWidth="564"
+    android:viewportHeight="408">
+    <group android:translateX="-8" android:translateY="-94">
+        <path android:fillColor="#FF000000" android:pathData="M165,104 L245,104 L97,292 L245,492 L165,492 L13,292 Z" />
+        <path android:pathData="M500,192 C480,160 455,148 425,148 C370,148 337,175 337,215 C337,262 380,276 430,286 C490,298 516,320 516,370 C516,425 470,456 420,456 C385,456 360,440 345,412" android:strokeColor="#FF000000" android:strokeWidth="70" android:strokeLineCap="butt" />
+    </group>
+</vector>

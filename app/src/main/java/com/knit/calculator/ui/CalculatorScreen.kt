@@ -1,6 +1,7 @@
 package com.knit.calculator.ui
 
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
@@ -68,7 +69,7 @@ import com.knit.calculator.ui.components.Keypad
 import com.knit.calculator.ui.theme.LocalKnitColors
 
 @Composable
-fun CalculatorScreen(viewModel: CalculatorViewModel, themeMode: ThemeMode, onOpenYarn: () -> Unit, onOpenQuote: () -> Unit) {
+fun CalculatorScreen(viewModel: CalculatorViewModel, themeMode: ThemeMode, onBack: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val history by viewModel.history.collectAsStateWithLifecycle()
     var showHistory by rememberSaveable { mutableStateOf(false) }
@@ -86,6 +87,8 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, themeMode: ThemeMode, onOpe
             Toast.makeText(context, copiedMessage, Toast.LENGTH_SHORT).show()
         }
     }
+
+    BackHandler(enabled = !showHistory, onBack = onBack)
 
     LaunchedEffect(showHistory) {
         if (!showHistory) runCatching { focusRequester.requestFocus() }
@@ -110,8 +113,7 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, themeMode: ThemeMode, onOpe
                 themeMode = themeMode,
                 onThemeClick = viewModel::cycleTheme,
                 onHistoryClick = { showHistory = true },
-                onYarnClick = onOpenYarn,
-                onQuoteClick = onOpenQuote,
+                onBack = onBack,
             )
         }
         val display = @Composable { modifier: Modifier ->
@@ -166,7 +168,7 @@ private fun CalculatorState.copyableValue(): String =
     if (evaluated) expression else preview ?: expression
 
 @Composable
-private fun TopBar(themeMode: ThemeMode, onThemeClick: () -> Unit, onHistoryClick: () -> Unit, onYarnClick: () -> Unit, onQuoteClick: () -> Unit) {
+private fun TopBar(themeMode: ThemeMode, onThemeClick: () -> Unit, onHistoryClick: () -> Unit, onBack: () -> Unit) {
     val colors = LocalKnitColors.current
     val themeName = stringResource(
         when (themeMode) {
@@ -176,30 +178,19 @@ private fun TopBar(themeMode: ThemeMode, onThemeClick: () -> Unit, onHistoryClic
         },
     )
     Row(Modifier.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onBack) {
+            Icon(painterResource(R.drawable.ic_arrow_back), stringResource(R.string.back), tint = colors.textPrimary)
+        }
         Text(
-            text = stringResource(R.string.app_name).replaceFirst(" ", "\n"), // «Калькулятор» / «Knit ERP»
-            color = colors.textSecondary,
-            fontSize = 15.sp,
-            lineHeight = 18.sp,
-            fontWeight = FontWeight.Medium,
+            text = stringResource(R.string.calculator_title),
+            color = colors.textPrimary,
+            fontSize = 20.sp,
+            lineHeight = 24.sp,
+            fontWeight = FontWeight.SemiBold,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f).padding(start = 8.dp).semantics { heading() },
         )
-        IconButton(onClick = onQuoteClick) {
-            Icon(
-                painter = painterResource(R.drawable.ic_quote),
-                contentDescription = stringResource(R.string.quote_open),
-                tint = colors.accent.takeIf { colors.isDark } ?: colors.textPrimary,
-            )
-        }
-        IconButton(onClick = onYarnClick) {
-            Icon(
-                painter = painterResource(R.drawable.ic_yarn),
-                contentDescription = stringResource(R.string.yarn_open),
-                tint = colors.accent.takeIf { colors.isDark } ?: colors.textPrimary,
-            )
-        }
         IconButton(onClick = onThemeClick) {
             Icon(
                 painter = painterResource(
