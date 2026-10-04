@@ -55,19 +55,19 @@ class QuoteUiTest {
         compose.onNodeWithText("Полиэстер 1×1", substring = true).performScrollTo().performClick()
         compose.onNodeWithText("Хлопок 2×2", substring = true).performClick()
         assertMoney(114_600) // 191 ₽
-        Shots.take("30_quote_line")
+        Shots.take("30_quote_line", compose)
 
         qty.performTextClearance()
         qty.performTextInput("5")
         assertMoney(1_915) // 1-9 шт: 383 ₽
         compose.onNodeWithText("Итого к оплате").performScrollTo()
-        Shots.take("31_quote_totals")
+        Shots.take("31_quote_totals", compose)
 
         compose.onNodeWithContentDescription("Ассортимент и цены").performClick()
-        Shots.take("32_catalog")
+        Shots.take("32_catalog", compose)
         compose.onNodeWithContentDescription("Назад").performClick()
         compose.onNodeWithContentDescription("Реквизиты фабрики").performClick()
-        Shots.take("33_company_settings")
+        Shots.take("33_company_settings", compose)
     }
 
     @Test fun quotePdfRenders() {

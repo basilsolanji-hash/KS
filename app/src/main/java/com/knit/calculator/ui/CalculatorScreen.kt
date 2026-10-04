@@ -177,11 +177,12 @@ private fun TopBar(themeMode: ThemeMode, onThemeClick: () -> Unit, onHistoryClic
     )
     Row(Modifier.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(
-            text = stringResource(R.string.app_name),
+            text = stringResource(R.string.app_name).replaceFirst(" ", "\n"), // «Калькулятор» / «Knit ERP»
             color = colors.textSecondary,
-            fontSize = 16.sp,
+            fontSize = 15.sp,
+            lineHeight = 18.sp,
             fontWeight = FontWeight.Medium,
-            maxLines = 1,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f).padding(start = 8.dp).semantics { heading() },
         )

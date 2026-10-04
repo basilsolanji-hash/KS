@@ -66,18 +66,18 @@ class CalculatorUiTest {
     @Test fun divisionByZero() {
         press("5/0=")
         compose.onNodeWithText("Деление на ноль невозможно").assertExists()
-        Shots.take("02_division_by_zero")
+        Shots.take("02_division_by_zero", compose)
     }
 
     @Test fun historyRestoreAndCopy() {
         press("1234.5*2=")
         assertResult("2469")
         compose.onNodeWithText("Скопировать результат").performClick()
-        Shots.take("01_calculator_light")
+        Shots.take("01_calculator_light", compose)
         press("C2+3=")
         compose.onNodeWithContentDescription("Открыть историю вычислений").performClick()
         compose.waitUntil(5_000) { compose.onAllNodes(hasText("= 5")).fetchSemanticsNodes().isNotEmpty() }
-        Shots.take("03_history")
+        Shots.take("03_history", compose)
         compose.onNodeWithText("= 2469").performClick()
         assertResult("2469")
     }

@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
+import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.rules.TestWatcher
 import org.junit.runner.Description
@@ -26,9 +27,12 @@ class ResetAppRule(private val theme: String = "LIGHT") : TestWatcher() {
 object Shots {
     private val dir: File get() = File(targetContext.filesDir, "screenshots").apply { mkdirs() }
 
-    fun take(name: String) {
+    /** Снимок экрана после того, как Compose дорисовал кадр и завершил анимации. */
+    fun take(name: String, compose: ComposeTestRule) {
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(1_500)
+        compose.waitForIdle()
         InstrumentationRegistry.getInstrumentation().waitForIdleSync()
-        Thread.sleep(400) // завершение анимаций
         val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot() ?: return
         save(bitmap, name)
     }

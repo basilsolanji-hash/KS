@@ -42,7 +42,7 @@ class YarnUiTest {
         field("Доля, %").performTextInput("30")
         compose.onNodeWithText("Спандекс").performScrollTo().performClick()
         compose.onNodeWithText("330,000 кг").performScrollTo().assertExists()
-        Shots.take("20_yarn_result")
+        Shots.take("20_yarn_result", compose)
     }
 
     @Test fun yarnPdfRenders() {

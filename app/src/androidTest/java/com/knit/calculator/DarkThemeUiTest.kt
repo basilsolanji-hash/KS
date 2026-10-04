@@ -19,11 +19,11 @@ class DarkThemeUiTest {
 
     @Test fun darkScreens() {
         listOf("1", "2", "×", "(", "3", "+", "4").forEach { compose.onNodeWithTag("key_${if (it == "(") "( )" else it}").performClick() }
-        Shots.take("10_calculator_dark_preview")
+        Shots.take("10_calculator_dark_preview", compose)
         compose.onNodeWithTag("key_=").performClick()
         compose.onNodeWithContentDescription("Результат: 84").assertExists()
-        Shots.take("11_calculator_dark_result")
+        Shots.take("11_calculator_dark_result", compose)
         compose.onNodeWithContentDescription("Расход пряжи").performClick()
-        Shots.take("12_yarn_dark")
+        Shots.take("12_yarn_dark", compose)
     }
 }
