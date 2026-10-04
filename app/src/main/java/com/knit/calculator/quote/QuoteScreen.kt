@@ -107,6 +107,12 @@ fun QuoteScreen(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val clients by viewModel.clients.collectAsStateWithLifecycle()
     val views = remember(draft, catalog, settings) { viewModel.lineViews(draft, catalog, settings) }
+    val totals = remember(views, settings) { viewModel.totals(views, settings) }
+    val colors = LocalKnitColors.current
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
+    val copiedMessage = stringResource(R.string.quote_copied)
     var showEconomics by rememberSaveable { mutableStateOf(false) }
     var photoLineId by rememberSaveable { mutableStateOf<Long?>(null) }
     val photoError = stringResource(R.string.quote_photo_error)
@@ -129,12 +135,6 @@ fun QuoteScreen(
     }
     // Android 13+: разрешение на напоминания спрашиваем при первом КП.
     val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
-    val totals = remember(views, settings) { viewModel.totals(views, settings) }
-    val colors = LocalKnitColors.current
-    val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
-    val scope = rememberCoroutineScope()
-    val copiedMessage = stringResource(R.string.quote_copied)
     var confirmNew by rememberSaveable { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf<Pair<QuoteAction, String>?>(null) }
