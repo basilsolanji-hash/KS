@@ -466,7 +466,7 @@ private fun EconomicsToggle(shown: Boolean, views: List<DraftLineView>, settings
     val colors = LocalKnitColors.current
     Surface(shape = RoundedCornerShape(14.dp), color = colors.panel, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().clickable { onToggle(!shown) }, verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.quote_economics_show), color = colors.textPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f))
                 Switch(
                     checked = shown,
