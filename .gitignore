@@ -9,3 +9,7 @@ captures/
 .cxx/
 *.keystore
 !debug.keystore
+
+# Скачанные/собранные APK
+apk/
+*.apk
