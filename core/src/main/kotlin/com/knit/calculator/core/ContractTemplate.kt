@@ -51,7 +51,7 @@ object ContractTemplate {
 
     /** Подстановка значений; неизвестные ключи остаются как есть, чтобы их было видно. */
     fun fill(paragraphs: List<String>, values: Map<String, String>): List<String> =
-        paragraphs.map { p -> Regex("\\{([^{}]+)}").replace(p) { m -> values[m.groupValues[1].trim()] ?: m.value } }
+        paragraphs.map { p -> Regex("\\{([^{}]+)\\}").replace(p) { m -> values[m.groupValues[1].trim()] ?: m.value } }
 
     /** Абзацы из листа «Договор»: столбец A без строки заголовка; пусто — текст по умолчанию. */
     fun fromSheet(rows: List<List<String>>): List<String> =

@@ -94,7 +94,7 @@ class ContractTemplateTest {
         assertEquals(ContractTemplate.DEFAULT, ContractTemplate.fromSheet(listOf(listOf("Текст договора"))))
         assertEquals(listOf("# Заголовок", "Абзац"), ContractTemplate.fromSheet(listOf(listOf("Текст"), listOf("# Заголовок"), listOf(""), listOf("Абзац"))))
         // Все ключи шаблона по умолчанию известны приложению.
-        val keys = ContractTemplate.DEFAULT.flatMap { Regex("\\{([^{}]+)}").findAll(it).map { m -> m.groupValues[1] } }.toSet()
+        val keys = ContractTemplate.DEFAULT.flatMap { Regex("\\{([^{}]+)\\}").findAll(it).map { m -> m.groupValues[1] } }.toSet()
         assertEquals(setOf("номер", "город", "дата", "поставщик", "директор", "покупатель", "сумма", "сумма_прописью", "ставка_ндс", "ндс", "предоплата", "срок", "доставка"), keys)
     }
 }
