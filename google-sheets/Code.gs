@@ -118,9 +118,9 @@ function saveQuote_(ss, q) {
     }
     var lines = q.lines || [];
     var row = [
-      number, date, q.client || '', q.contact || '', q.email || '',
+      number, date, text_(q.client), text_(q.contact), text_(q.email),
       Number(q.subtotal) || 0, Number(q.vat) || 0, Number(q.total) || 0,
-      q.delivery || '', lines.length, q.author || '', q.id || '', q.data || '',
+      text_(q.delivery), lines.length, text_(q.author), text_(q.id), text_(q.data),
     ];
     if (rowIndex > 0) {
       sheet.getRange(rowIndex, 1, 1, row.length).setValues([row]);
@@ -134,8 +134,8 @@ function saveQuote_(ss, q) {
       if (Number(existing[r - 1][0]) === number) items.deleteRow(r);
     }
     var itemRows = lines.map(function (l) {
-      return [number, date, q.client || '', l.code || '', l.product || '', l.params || '',
-        Number(l.qty) || 0, l.unit || '', Number(l.price) || 0, Number(l.sum) || 0];
+      return [number, date, text_(q.client), text_(l.code), text_(l.product), text_(l.params),
+        Number(l.qty) || 0, text_(l.unit), Number(l.price) || 0, Number(l.sum) || 0];
     });
     if (itemRows.length) {
       items.getRange(items.getLastRow() + 1, 1, itemRows.length, itemRows[0].length).setValues(itemRows);
@@ -165,6 +165,12 @@ function listQuotes_(ss, limit) {
     });
   }
   return result;
+}
+
+/** Текст как есть: значения, начинающиеся с = + - @ (например, «+7 985…»), не превращаются в формулы. */
+function text_(value) {
+  var s = value == null ? '' : String(value);
+  return /^[=+\-@]/.test(s) ? "'" + s : s;
 }
 
 function json_(obj) {

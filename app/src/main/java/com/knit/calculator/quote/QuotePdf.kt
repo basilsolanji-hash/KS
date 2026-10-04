@@ -84,8 +84,8 @@ object QuotePdf {
         validUntil(doc)?.let { appendLine(context.getString(R.string.kp_validity, s.validityDays, date(it))) }
         appendLine()
         appendLine(s.signature)
-        appendLine(listOf(s.brand, s.city).filter { it.isNotBlank() }.joinToString(", "))
-        appendLine(listOf(s.phone, s.email, s.website).filter { it.isNotBlank() }.joinToString(" · "))
+        // Название уже в подписи — добавляем только город и контакты.
+        appendLine(listOf(s.city, s.phone, s.email, s.website).filter { it.isNotBlank() }.joinToString(" · "))
     }
 
     fun create(context: Context, doc: QuoteDocument): File {
@@ -146,8 +146,8 @@ object QuotePdf {
             y = MARGIN
             fill.color = TURQUOISE
             canvas.drawRect(0f, 0f, PAGE_WIDTH.toFloat(), 8f, fill)
-            val s = doc.settings
-            val footer = context.getString(R.string.kp_footer, listOf(s.brand, s.phone, s.email).filter { it.isNotBlank() }.joinToString(" · "), pageNumber)
+            // Реквизиты уже есть в шапке — в колонтитуле только номер страницы.
+            val footer = context.getString(R.string.kp_footer, pageNumber)
             canvas.drawLine(MARGIN, PAGE_HEIGHT - 36f, PAGE_WIDTH - MARGIN, PAGE_HEIGHT - 36f, rule)
             canvas.drawText(fit(footer, width, small), MARGIN, PAGE_HEIGHT - 22f, small)
         }
@@ -294,15 +294,9 @@ object QuotePdf {
         private fun signature() {
             val s = doc.settings
             ensure(60f)
-            canvas.drawText(s.signature, MARGIN, y, bold)
+            // Контакты не повторяем: они в шапке КП.
+            canvas.drawText(fit(s.signature, width, bold), MARGIN, y, bold)
             y += 15f
-            listOf(listOf(s.brand, s.city), listOf(s.phone, s.email, s.website)).forEach { parts ->
-                val text = parts.filter { it.isNotBlank() }.joinToString(" · ")
-                if (text.isNotBlank()) {
-                    canvas.drawText(fit(text, width, muted), MARGIN, y, muted)
-                    y += 13f
-                }
-            }
         }
 
         /** Ячейки строки: первая колонка «№» и название — слева, числа — справа. */

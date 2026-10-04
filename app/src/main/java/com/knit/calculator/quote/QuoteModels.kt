@@ -16,7 +16,7 @@ fun newId(): Long = Random.nextLong(1, Long.MAX_VALUE)
 
 /** Реквизиты и условия, которые печатаются в КП. */
 data class CompanySettings(
-    val brand: String = "Трикотажная фабрика «KS»",
+    val brand: String = "Фабрика «KS»",
     val city: String = "г. Электросталь",
     val legalName: String = "ООО «СОЛВЕР»",
     val inn: String = "9705239429",
