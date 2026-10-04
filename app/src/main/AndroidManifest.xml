@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Приложение работает полностью офлайн: разрешений не требуется.
-         PDF отправляется через выбранное пользователем почтовое приложение. -->
+    <!-- Интернет нужен только для связи с вашей Google Таблицей (справочники и КП).
+         Калькулятор, расход пряжи и КП без таблицы работают офлайн. -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:allowBackup="false"

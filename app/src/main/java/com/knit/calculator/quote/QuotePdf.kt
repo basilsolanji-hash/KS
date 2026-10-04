@@ -47,11 +47,12 @@ object QuotePdf {
     }
 
     fun subject(context: Context, doc: QuoteDocument): String =
-        context.getString(R.string.kp_subject, doc.draft.number, doc.settings.brand)
+        if (doc.draft.number > 0) context.getString(R.string.kp_subject, doc.draft.number, doc.settings.brand)
+        else context.getString(R.string.kp_subject_no_number, doc.settings.brand)
 
     fun fileName(doc: QuoteDocument): String {
         val stamp = SimpleDateFormat("yyyyMMdd", Locale.US).format(doc.createdAt)
-        return "KP_${doc.draft.number}_KS_$stamp.pdf"
+        return if (doc.draft.number > 0) "KP_${doc.draft.number}_KS_$stamp.pdf" else "KP_KS_$stamp.pdf"
     }
 
     fun vatLabel(context: Context, doc: QuoteDocument): String {
@@ -65,7 +66,10 @@ object QuotePdf {
         val t = doc.totals
         appendLine(context.getString(R.string.kp_email_greeting))
         appendLine()
-        appendLine(context.getString(R.string.kp_email_body, doc.draft.number))
+        appendLine(
+            if (doc.draft.number > 0) context.getString(R.string.kp_email_body, doc.draft.number)
+            else context.getString(R.string.kp_email_body_no_number),
+        )
         appendLine()
         t.lines.forEachIndexed { i, l ->
             appendLine(
@@ -76,6 +80,7 @@ object QuotePdf {
         appendLine()
         appendLine("${context.getString(R.string.quote_total)}: ${QuoteCalculator.formatMoney(t.total)} ₽ (${vatLabel(context, doc)}: ${QuoteCalculator.formatMoney(t.vat)} ₽)")
         if (s.leadTime.isNotBlank()) appendLine(context.getString(R.string.kp_lead_time, s.leadTime))
+        deliveryText(t, s).takeIf { it.isNotBlank() }?.let { appendLine(context.getString(R.string.kp_delivery, it.lowercase())) }
         validUntil(doc)?.let { appendLine(context.getString(R.string.kp_validity, s.validityDays, date(it))) }
         appendLine()
         appendLine(s.signature)
@@ -180,7 +185,9 @@ object QuotePdf {
         }
 
         private fun titleBlock() {
-            canvas.drawText(context.getString(R.string.kp_title, doc.draft.number, date(doc.createdAt)), MARGIN, y, title)
+            val heading = if (doc.draft.number > 0) context.getString(R.string.kp_title, doc.draft.number, date(doc.createdAt))
+            else context.getString(R.string.kp_title_no_number, date(doc.createdAt))
+            canvas.drawText(heading, MARGIN, y, title)
             y += 22f
             val client = listOf(doc.draft.clientCompany, doc.draft.clientContact).filter { it.isNotBlank() }.joinToString(", ")
             if (client.isNotBlank()) {
@@ -233,10 +240,8 @@ object QuotePdf {
             y += 16f
         }
 
+        // Внутренние коэффициенты клиенту не показываем — только разовую подготовку.
         private fun extraInfo(line: QuoteLine): List<String> = buildList {
-            if (line.discountPercent.signum() > 0) {
-                add(context.getString(R.string.quote_discount, YarnCalculator.formatCompact(line.discountPercent, 2)))
-            }
             if (line.setupFee.signum() > 0) {
                 add(context.getString(R.string.quote_setup, QuoteCalculator.formatMoney(line.setupFee)))
             }
@@ -271,6 +276,7 @@ object QuotePdf {
             val s = doc.settings
             val lines = buildList {
                 if (s.leadTime.isNotBlank()) add(context.getString(R.string.kp_lead_time, s.leadTime))
+                deliveryText(doc.totals, s).takeIf { it.isNotBlank() }?.let { add(context.getString(R.string.kp_delivery, it.lowercase())) }
                 validUntil(doc)?.let { add(context.getString(R.string.kp_validity, s.validityDays.trim(), date(it))) }
                 if (s.terms.isNotBlank()) add(s.terms)
                 if (doc.draft.comment.isNotBlank()) add(doc.draft.comment)

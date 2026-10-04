@@ -18,6 +18,7 @@ import com.knit.calculator.data.ThemeMode
 import com.knit.calculator.quote.CatalogScreen
 import com.knit.calculator.quote.CompanyScreen
 import com.knit.calculator.quote.ProductEditorScreen
+import com.knit.calculator.quote.QuoteHistoryScreen
 import com.knit.calculator.quote.QuoteScreen
 import com.knit.calculator.quote.QuoteViewModel
 import com.knit.calculator.ui.CalculatorScreen
@@ -26,7 +27,7 @@ import com.knit.calculator.yarn.YarnScreen
 import com.knit.calculator.yarn.YarnViewModel
 
 /** Экраны приложения; переход «назад» описан у каждого экрана. */
-private enum class Screen { CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY }
+private enum class Screen { CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY }
 
 class MainActivity : ComponentActivity() {
 
@@ -64,6 +65,12 @@ class MainActivity : ComponentActivity() {
                         onBack = { screen = Screen.CALCULATOR },
                         onOpenCatalog = { screen = Screen.CATALOG },
                         onOpenCompany = { screen = Screen.COMPANY },
+                        onOpenHistory = { screen = Screen.QUOTE_HISTORY },
+                    )
+                    Screen.QUOTE_HISTORY -> QuoteHistoryScreen(
+                        viewModel = quoteViewModel,
+                        onBack = { screen = Screen.QUOTE },
+                        onOpened = { screen = Screen.QUOTE },
                     )
                     Screen.CATALOG -> CatalogScreen(
                         viewModel = quoteViewModel,

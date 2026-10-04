@@ -1,5 +1,6 @@
 package com.knit.calculator.quote
 
+import com.knit.calculator.core.QuoteCalculator
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -8,45 +9,75 @@ import java.math.BigDecimal
 
 class EditableProductTest {
 
-    @Test fun roundTripKeepsCatalog() {
+    /** Изделие → форма → изделие даёт те же цены на всех вариантах и объёмах. */
+    @Test fun roundTripKeepsPrices() {
         DefaultCatalog.products.forEach { p ->
-            assertEquals(p.copy(tiers = p.tiers.sortedBy { it.fromQuantity }).normalized(), EditableProduct.from(p).toProduct()!!.normalized())
+            val copy = EditableProduct.from(p).toProduct()!!
+            listOf(1, 9, 10, 50, 100, 499, 500, 1000).forEach { qty ->
+                p.options.firstOrNull()?.choices?.forEach { choice ->
+                    val selected = mapOf(p.options.first().id to choice.id)
+                    assertEquals(
+                        "${p.name} / ${choice.name} / $qty",
+                        QuoteCalculator.unitPrice(p, selected, BigDecimal(qty)).first,
+                        QuoteCalculator.unitPrice(copy, selected, BigDecimal(qty)).first,
+                    )
+                }
+            }
         }
     }
 
-    @Test fun parsesCommaDecimalsAndSkipsBlankRows() {
+    @Test fun parsesCoefficientsAndSkipsBlankRows() {
         val product = EditableProduct(
+            code = "SH",
             name = "Шнур",
             unit = "м",
             basePrice = "12,5",
             minOrder = "",
+            rounding = "0,01",
             groups = listOf(
-                EditableGroup(name = "Диаметр", choices = listOf(EditableChoice(name = "5 мм", priceAdd = "0"), EditableChoice(name = "", priceAdd = "3"))),
+                EditableGroup(name = "Диаметр", choices = listOf(EditableChoice(name = "5 мм", factor = "1"), EditableChoice(name = "", factor = "2"))),
                 EditableGroup(name = "", choices = listOf(EditableChoice(name = "x"))),
             ),
-            tiers = listOf(EditableTier(fromQuantity = "1000", percent = "7,5"), EditableTier()),
+            tiers = listOf(EditableTier(fromQuantity = "1000", factor = "0,9"), EditableTier()),
         ).toProduct()
         assertNotNull(product)
         product!!
         assertEquals(0, BigDecimal("12.5").compareTo(product.basePrice))
-        assertEquals(0, BigDecimal.ZERO.compareTo(product.minOrder))
         assertEquals(1, product.options.size)
         assertEquals(1, product.options[0].choices.size)
         assertEquals(1, product.tiers.size)
+        assertEquals(0, BigDecimal("11.25").compareTo(QuoteCalculator.unitPrice(product, emptyMap(), BigDecimal(1000)).first))
     }
 
     @Test fun rejectsInvalid() {
         assertNull(EditableProduct(name = "", basePrice = "10").toProduct())
         assertNull(EditableProduct(name = "A", basePrice = "").toProduct())
         assertNull(EditableProduct(name = "A", basePrice = "abc").toProduct())
-        assertNull(EditableProduct(name = "A", basePrice = "10", tiers = listOf(EditableTier(fromQuantity = "10", percent = "150"))).toProduct())
+        assertNull(EditableProduct(name = "A", basePrice = "10", tiers = listOf(EditableTier(fromQuantity = "10", factor = "1/0"))).toProduct())
+        assertNull(
+            EditableProduct(name = "A", basePrice = "10", groups = listOf(EditableGroup(name = "G", choices = listOf(EditableChoice(name = "c", factor = "abc"))))).toProduct(),
+        )
     }
 
-    private fun com.knit.calculator.core.Product.normalized() = copy(
-        basePrice = basePrice.stripTrailingZeros(),
-        minOrder = minOrder.stripTrailingZeros(),
-        setupFee = setupFee.stripTrailingZeros(),
-        options = options.map { g -> g.copy(choices = g.choices.map { it.copy(priceAdd = it.priceAdd.stripTrailingZeros()) }) },
-        tiers = tiers.map { it.copy(fromQuantity = it.fromQuantity.stripTrailingZeros(), percent = it.percent.stripTrailingZeros()) },
-    )
+    @Test fun settingsFromSheet() {
+        val s = CompanySettings.fromSheet(
+            mapOf(
+                CompanySettings.S_LEAD_TIME to "5–15 рабочих дней",
+                CompanySettings.S_VAT_INCLUDED to "нет",
+                CompanySettings.S_FREE_DELIVERY to "30 000",
+            ),
+        )
+        assertEquals("5–15 рабочих дней", s.leadTime)
+        assertEquals(false, s.vatIncluded)
+        assertEquals(0, BigDecimal(30000).compareTo(s.freeDeliveryThreshold))
+        assertEquals("ООО «СОЛВЕР»", s.legalName) // не задано в таблице — значение по умолчанию
+    }
+
+    @Test fun draftJsonRoundTrip() {
+        val d = QuoteDraft(
+            number = 7, saved = true, clientCompany = "ООО Ромашка",
+            lines = listOf(DraftLine(1, 2, mapOf(3L to 4L), "150")),
+        )
+        assertEquals(d, QuoteStore.draftFromJson(QuoteStore.draftToJson(d)))
+    }
 }

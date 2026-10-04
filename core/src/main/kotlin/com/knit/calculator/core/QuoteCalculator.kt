@@ -3,14 +3,66 @@ package com.knit.calculator.core
 import java.math.BigDecimal
 import java.math.RoundingMode
 
-/** Вариант параметра изделия с надбавкой к цене за единицу (например, «Ширина 3 см», +4 ₽). */
-data class PriceChoice(val id: Long, val name: String, val priceAdd: BigDecimal)
+/**
+ * Множитель цены в виде точной дроби: «1,04» = 104/100, «13/14» = 13/14.
+ * Дробь хранится без потери точности, чтобы округление совпадало с формулами таблиц.
+ */
+data class Factor(val numerator: BigDecimal, val denominator: BigDecimal) {
+    val value: BigDecimal get() = numerator.divide(denominator, 12, RoundingMode.HALF_UP)
 
-/** Параметр изделия: ширина, размер, рисунок, цвет… */
+    companion object {
+        val ONE = Factor(BigDecimal.ONE, BigDecimal.ONE)
+    }
+}
+
+/**
+ * Разбор коэффициентов из ячейки таблицы.
+ *
+ * «1,04*1,04» → два множителя, «13/14» → дробь, пусто или «1» → без изменения.
+ * Разделители множителей: `*`, `×`, `x`. Возвращает `null`, если текст некорректен.
+ */
+object Coefficients {
+    fun parse(text: String): List<Factor>? {
+        val cleaned = text.filterNot { it.isWhitespace() || it == '\u00A0' || it == NumberFormatter.GROUP_SEPARATOR }
+        if (cleaned.isEmpty()) return emptyList()
+        return cleaned.split('*', '×', 'x', 'х').map { part ->
+            val pieces = part.split('/')
+            if (pieces.size > 2) return null
+            val num = YarnCalculator.parseDecimal(pieces[0]) ?: return null
+            val den = if (pieces.size == 2) YarnCalculator.parseDecimal(pieces[1]) ?: return null else BigDecimal.ONE
+            if (den.signum() == 0 || num.signum() < 0 || den.signum() < 0) return null
+            Factor(num, den)
+        }.filterNot { it.numerator.compareTo(it.denominator) == 0 }
+    }
+
+    /** Произведение множителей одной дробью (для коэффициента объёма — округление один раз). */
+    fun product(factors: List<Factor>): Factor =
+        factors.fold(Factor.ONE) { acc, f -> Factor(acc.numerator * f.numerator, acc.denominator * f.denominator) }
+}
+
+/**
+ * Вариант параметра изделия.
+ *
+ * Цена меняется так: каждый множитель из [factors] применяется по очереди с округлением,
+ * затем прибавляется [priceAdd] (тоже с округлением).
+ * Пример: «Хлопок 2×2» = «1,04*1,04*1,04» — три шага по +4 % с округлением, как в прайсе.
+ */
+data class PriceChoice(
+    val id: Long,
+    val name: String,
+    val priceAdd: BigDecimal = BigDecimal.ZERO,
+    val factors: List<Factor> = emptyList(),
+    val factorText: String = "",
+)
+
+/** Параметр изделия: размер, тип нити, рисунок, цвет… Порядок параметров = порядок применения. */
 data class OptionGroup(val id: Long, val name: String, val choices: List<PriceChoice>)
 
-/** Скидка от объёма: начиная с [fromQuantity] единиц цена снижается на [percent] %. */
-data class DiscountTier(val fromQuantity: BigDecimal, val percent: BigDecimal)
+/**
+ * Коэффициент объёма: начиная с [fromQuantity] единиц цена умножается на [factor]
+ * (меньше 1 — скидка, больше 1 — наценка за малый тираж). Округление — один раз.
+ */
+data class PriceTier(val fromQuantity: BigDecimal, val factor: Factor, val factorText: String = "")
 
 /** Позиция ассортимента. Все цены — за единицу [unit]. */
 data class Product(
@@ -18,11 +70,15 @@ data class Product(
     val name: String,
     val unit: String,
     val basePrice: BigDecimal,
-    val minOrder: BigDecimal,
+    val minOrder: BigDecimal = BigDecimal.ZERO,
     /** Разовая стоимость подготовки (наладка, образец) на позицию заказа. */
-    val setupFee: BigDecimal,
-    val options: List<OptionGroup>,
-    val tiers: List<DiscountTier>,
+    val setupFee: BigDecimal = BigDecimal.ZERO,
+    val options: List<OptionGroup> = emptyList(),
+    val tiers: List<PriceTier> = emptyList(),
+    /** Шаг округления цены после каждого шага расчёта: 1 — до рубля, 0,01 — до копейки. */
+    val rounding: BigDecimal = BigDecimal.ONE,
+    /** Код изделия из таблицы (для связи параметров и коэффициентов). */
+    val code: String = "",
 )
 
 /** Выбор клиента: изделие, варианты параметров (id группы → id варианта) и количество. */
@@ -36,19 +92,22 @@ data class QuoteLine(
     val product: Product,
     val choices: List<Pair<OptionGroup, PriceChoice>>,
     val quantity: BigDecimal,
-    /** Цена за единицу до скидки. */
-    val listPrice: BigDecimal,
-    val discountPercent: BigDecimal,
-    /** Цена за единицу со скидкой, округлена до копеек. */
+    /** Применённый коэффициент объёма (1 — без изменения). */
+    val volumeFactor: BigDecimal,
+    /** Цена за единицу после всех шагов расчёта. */
     val unitPrice: BigDecimal,
     val setupFee: BigDecimal,
     val total: BigDecimal,
     val belowMinimum: Boolean,
 ) {
-    /** «Подвязы (Ширина: 3 см; Рисунок: 2 полосы)». */
+    /** «Подвязы (Размер: 115×14; Тип: Хлопок 1×1)». */
     val description: String
         get() = if (choices.isEmpty()) product.name
-        else product.name + " (" + choices.joinToString("; ") { (g, c) -> "${g.name}: ${c.name}" } + ")"
+        else product.name + " (" + parameters + ")"
+
+    /** «Размер: 115×14; Тип: Хлопок 1×1». */
+    val parameters: String
+        get() = choices.joinToString("; ") { (g, c) -> "${g.name}: ${c.name}" }
 }
 
 /**
@@ -69,60 +128,69 @@ data class QuoteTotals(
 )
 
 /**
- * Расчёт стоимости заказа для коммерческого предложения.
+ * Расчёт стоимости заказа для коммерческого предложения — по системе прайса фабрики:
  *
- * Цена за единицу = (базовая цена + надбавки выбранных вариантов) × (1 − скидка/100),
- * где скидка — наибольшая ступень, порог которой не превышает количество.
- * Сумма позиции = цена за единицу × количество + разовая подготовка.
- * Денежные значения округляются до копеек (половина — вверх).
+ * 1. цена = базовая цена × коэффициент объёма (по наибольшему достигнутому порогу), округление;
+ * 2. для каждого параметра по порядку: каждый множитель варианта с округлением, затем надбавка в рублях;
+ * 3. сумма позиции = цена × количество + разовая подготовка.
+ *
+ * Округление — «половина вверх» до шага [Product.rounding] (как ROUND в Google Таблицах).
  */
 object QuoteCalculator {
     private val HUNDRED = BigDecimal(100)
 
+    fun unitPrice(product: Product, selected: Map<Long, Long>, quantity: BigDecimal): Pair<BigDecimal, BigDecimal> {
+        val step = product.rounding.takeIf { it.signum() > 0 } ?: BigDecimal("0.01")
+        val tier = tierFor(product, quantity)
+        val volume = tier?.factor ?: Factor.ONE
+        var price = round(product.basePrice * volume.numerator, volume.denominator, step)
+        choicesFor(product, selected).forEach { (_, choice) ->
+            choice.factors.forEach { f -> price = round(price * f.numerator, f.denominator, step) }
+            if (choice.priceAdd.signum() != 0) price = round(price + choice.priceAdd, BigDecimal.ONE, step)
+        }
+        return price.max(BigDecimal.ZERO) to volume.value
+    }
+
     fun line(input: QuoteLineInput): QuoteLine {
         val product = input.product
-        val choices = product.options.mapNotNull { group ->
-            val choice = group.choices.firstOrNull { it.id == input.selected[group.id] } ?: group.choices.firstOrNull()
-            choice?.let { group to it }
-        }
-        val listPrice = choices.fold(product.basePrice) { acc, (_, c) -> acc + c.priceAdd }.max(BigDecimal.ZERO)
-        val discount = discountFor(product, input.quantity)
-        val unitPrice = money((listPrice * (HUNDRED - discount)).over(HUNDRED))
-        val total = money(unitPrice * input.quantity) + money(product.setupFee)
+        val (price, volume) = unitPrice(product, input.selected, input.quantity)
+        val unitPrice = money(price)
         return QuoteLine(
             product = product,
-            choices = choices,
+            choices = choicesFor(product, input.selected),
             quantity = input.quantity,
-            listPrice = money(listPrice),
-            discountPercent = discount,
+            volumeFactor = volume,
             unitPrice = unitPrice,
             setupFee = money(product.setupFee),
-            total = total,
+            total = money(unitPrice * input.quantity) + money(product.setupFee),
             belowMinimum = input.quantity < product.minOrder,
         )
     }
 
-    fun discountFor(product: Product, quantity: BigDecimal): BigDecimal =
-        product.tiers
-            .filter { it.fromQuantity <= quantity }
-            .maxByOrNull { it.fromQuantity }
-            ?.percent
-            ?.coerceIn(BigDecimal.ZERO, HUNDRED)
-            ?: BigDecimal.ZERO
+    fun tierFor(product: Product, quantity: BigDecimal): PriceTier? =
+        product.tiers.filter { it.fromQuantity <= quantity }.maxByOrNull { it.fromQuantity }
+
+    private fun choicesFor(product: Product, selected: Map<Long, Long>): List<Pair<OptionGroup, PriceChoice>> =
+        product.options.mapNotNull { group ->
+            val choice = group.choices.firstOrNull { it.id == selected[group.id] } ?: group.choices.firstOrNull()
+            choice?.let { group to it }
+        }
+
+    /** Точное `numerator / denominator`, округлённое до шага `step` (половина — вверх). */
+    private fun round(numerator: BigDecimal, denominator: BigDecimal, step: BigDecimal): BigDecimal =
+        numerator.divide(denominator * step, 0, RoundingMode.HALF_UP) * step
 
     fun totals(lines: List<QuoteLine>, vat: VatSettings): QuoteTotals {
         val subtotal = lines.fold(BigDecimal.ZERO) { acc, l -> acc + l.total }
         val rate = vat.ratePercent.max(BigDecimal.ZERO)
         return if (vat.included) {
-            val vatAmount = money((subtotal * rate).over(HUNDRED + rate))
+            val vatAmount = (subtotal * rate).divide(HUNDRED + rate, 2, RoundingMode.HALF_UP)
             QuoteTotals(lines, subtotal, vatAmount, subtotal, subtotal - vatAmount)
         } else {
-            val vatAmount = money((subtotal * rate).over(HUNDRED))
+            val vatAmount = (subtotal * rate).divide(HUNDRED, 2, RoundingMode.HALF_UP)
             QuoteTotals(lines, subtotal, vatAmount, subtotal + vatAmount, subtotal)
         }
     }
-
-    private fun BigDecimal.over(other: BigDecimal): BigDecimal = divide(other, 10, RoundingMode.HALF_EVEN)
 
     fun money(value: BigDecimal): BigDecimal = value.setScale(2, RoundingMode.HALF_UP)
 
@@ -143,4 +211,7 @@ object QuoteCalculator {
 
     /** Количество без лишних нулей: «150», «12,5». */
     fun formatQuantity(value: BigDecimal): String = YarnCalculator.formatCompact(value, 3)
+
+    /** Коэффициент для показа: «×1,07», «×0,9». */
+    fun formatFactor(value: BigDecimal): String = "×" + YarnCalculator.formatCompact(value, 4)
 }

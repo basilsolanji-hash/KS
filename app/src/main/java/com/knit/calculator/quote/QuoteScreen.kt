@@ -49,7 +49,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.knit.calculator.R
+import com.knit.calculator.core.Coefficients
 import com.knit.calculator.core.OptionGroup
+import com.knit.calculator.core.PriceChoice
 import com.knit.calculator.core.Product
 import com.knit.calculator.core.QuoteCalculator
 import com.knit.calculator.core.QuoteTotals
@@ -67,6 +69,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
+import java.math.BigDecimal
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private enum class QuoteAction { SHARE, EMAIL, PRINT }
 
@@ -76,8 +82,10 @@ fun QuoteScreen(
     onBack: () -> Unit,
     onOpenCatalog: () -> Unit,
     onOpenCompany: () -> Unit,
+    onOpenHistory: () -> Unit,
 ) {
     val draft by viewModel.draft.collectAsStateWithLifecycle()
+    val sync by viewModel.sync.collectAsStateWithLifecycle()
     val catalog by viewModel.catalog.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val views = remember(draft, catalog) { viewModel.lineViews(draft, catalog) }
@@ -88,13 +96,15 @@ fun QuoteScreen(
     val scope = rememberCoroutineScope()
     val copiedMessage = stringResource(R.string.quote_copied)
     var confirmNew by rememberSaveable { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
+    var saveError by remember { mutableStateOf<Pair<QuoteAction, String>?>(null) }
 
     BackHandler(onBack = onBack)
 
     fun document() = QuoteDocument(settings, draft, totals)
 
-    fun run(action: QuoteAction) {
-        val doc = document()
+    fun makePdf(action: QuoteAction) {
+        val doc = QuoteDocument(settings, viewModel.draft.value, totals)
         scope.launch {
             val file: File? = try {
                 withContext(Dispatchers.IO) { QuotePdf.create(context, doc) }
@@ -118,6 +128,20 @@ fun QuoteScreen(
         }
     }
 
+    // С таблицей: сначала сохраняем КП и получаем номер, затем формируем PDF.
+    fun run(action: QuoteAction) {
+        if (saving) return
+        saving = true
+        scope.launch {
+            val result = viewModel.saveToSheet(views, totals)
+            saving = false
+            when (result) {
+                is SaveResult.Failed -> saveError = action to result.message
+                else -> makePdf(action)
+            }
+        }
+    }
+
     Column(
         Modifier
             .fillMaxSize()
@@ -125,10 +149,14 @@ fun QuoteScreen(
             .safeDrawingPadding()
             .imePadding(),
     ) {
-        ScreenTopBar(stringResource(R.string.quote_title, draft.number), onBack) {
+        val title = if ((sync.connected && !draft.saved) || draft.number <= 0) stringResource(R.string.quote_title_new)
+        else stringResource(R.string.quote_title, draft.number)
+        ScreenTopBar(title, onBack) {
+            if (sync.connected) KnitIconButton(R.drawable.ic_history, stringResource(R.string.history_quotes), onOpenHistory)
             KnitIconButton(R.drawable.ic_list, stringResource(R.string.quote_catalog), onOpenCatalog)
             KnitIconButton(R.drawable.ic_settings, stringResource(R.string.quote_company), onOpenCompany)
         }
+        SyncBar(sync, onRefresh = viewModel::refresh, onSetup = onOpenCompany)
 
         Column(
             Modifier
@@ -140,7 +168,7 @@ fun QuoteScreen(
         ) {
             SectionTitle(R.string.quote_section_client)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                KnitField(
+                if (!sync.connected) KnitField(
                     value = if (draft.number > 0) draft.number.toString() else "",
                     onChange = { v -> viewModel.updateDraft { it.copy(number = v.filter(Char::isDigit).take(7).toIntOrNull() ?: 0) } },
                     label = R.string.quote_number,
@@ -191,6 +219,9 @@ fun QuoteScreen(
             SectionTitle(R.string.quote_section_total)
             TotalsCard(totals, settings)
 
+            if (saving) {
+                Text(stringResource(R.string.sync_saving), color = colors.textSecondary, fontSize = 14.sp)
+            }
             if (totals.lines.isNotEmpty()) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     ActionButton(R.string.yarn_pdf, R.drawable.ic_share, primary = true, Modifier.weight(1f)) { run(QuoteAction.SHARE) }
@@ -211,6 +242,28 @@ fun QuoteScreen(
         }
     }
 
+    saveError?.let { (action, message) ->
+        val colors2 = LocalKnitColors.current
+        AlertDialog(
+            onDismissRequest = { saveError = null },
+            title = { Text(stringResource(R.string.sync_save_failed_title)) },
+            text = { Text(stringResource(R.string.sync_save_failed_text, message)) },
+            confirmButton = {
+                TextButton(onClick = { saveError = null; run(action) }) {
+                    Text(stringResource(R.string.sync_retry), color = colors2.textPrimary, fontWeight = FontWeight.SemiBold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { saveError = null; makePdf(action) }) {
+                    Text(stringResource(R.string.sync_without_saving), color = colors2.textSecondary)
+                }
+            },
+            containerColor = colors2.panel,
+            titleContentColor = colors2.textPrimary,
+            textContentColor = colors2.textSecondary,
+        )
+    }
+
     if (confirmNew) {
         ConfirmDialog(
             title = stringResource(R.string.quote_new_title),
@@ -219,6 +272,29 @@ fun QuoteScreen(
             onConfirm = { confirmNew = false; viewModel.newQuote() },
             onDismiss = { confirmNew = false },
         )
+    }
+}
+
+@Composable
+private fun SyncBar(sync: SyncStatus, onRefresh: () -> Unit, onSetup: () -> Unit) {
+    val colors = LocalKnitColors.current
+    val time = sync.lastSync?.let { remember(it) { SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date(it)) } }
+    val text = when {
+        !sync.connected -> stringResource(R.string.sync_local)
+        sync.loading -> stringResource(R.string.sync_loading)
+        sync.error != null -> stringResource(R.string.sync_error, sync.error, time ?: "—")
+        else -> stringResource(R.string.sync_ok, time ?: "—")
+    }
+    Surface(
+        onClick = if (sync.connected) onRefresh else onSetup,
+        color = colors.panel,
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+    ) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+            Text(text, color = if (sync.error != null) colors.textPrimary else colors.textSecondary, fontSize = 13.sp)
+            sync.warnings.take(3).forEach { Text("• $it", color = colors.textSecondary, fontSize = 12.sp) }
+        }
     }
 }
 
@@ -290,7 +366,7 @@ private fun LineCard(
             } else {
                 buildList {
                     add(stringResource(R.string.quote_price_line, QuoteCalculator.formatMoney(line.unitPrice), product.unit))
-                    if (line.discountPercent.signum() > 0) add(stringResource(R.string.quote_discount, YarnCalculator.formatCompact(line.discountPercent, 2)))
+                    if (line.volumeFactor.compareTo(BigDecimal.ONE) != 0) add(stringResource(R.string.quote_volume, QuoteCalculator.formatFactor(line.volumeFactor)))
                     if (line.setupFee.signum() > 0) add(stringResource(R.string.quote_setup, QuoteCalculator.formatMoney(line.setupFee)))
                 }.joinToString(" · ")
             }
@@ -322,7 +398,7 @@ private fun OptionSelector(group: OptionGroup, selectedId: Long?, onSelect: (Lon
             Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(group.name, color = colors.textSecondary, fontSize = 12.sp)
-                    Text(choiceLabel(selected.name, selected.priceAdd), color = colors.textPrimary, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(choiceLabel(selected), color = colors.textPrimary, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Icon(painterResource(R.drawable.ic_dropdown), null, tint = colors.textSecondary)
             }
@@ -332,7 +408,7 @@ private fun OptionSelector(group: OptionGroup, selectedId: Long?, onSelect: (Lon
                 DropdownMenuItem(
                     text = {
                         Text(
-                            choiceLabel(choice.name, choice.priceAdd),
+                            choiceLabel(choice),
                             color = colors.textPrimary,
                             fontWeight = if (choice.id == selected.id) FontWeight.SemiBold else FontWeight.Normal,
                         )
@@ -347,10 +423,13 @@ private fun OptionSelector(group: OptionGroup, selectedId: Long?, onSelect: (Lon
     }
 }
 
-private fun choiceLabel(name: String, add: java.math.BigDecimal): String = when {
-    add.signum() > 0 -> "$name  (+${QuoteCalculator.formatMoney(add)} ₽)"
-    add.signum() < 0 -> "$name  (${QuoteCalculator.formatMoney(add)} ₽)"
-    else -> name
+private fun choiceLabel(choice: PriceChoice): String {
+    val parts = buildList {
+        if (choice.factors.isNotEmpty()) add(QuoteCalculator.formatFactor(Coefficients.product(choice.factors).value))
+        if (choice.priceAdd.signum() > 0) add("+${QuoteCalculator.formatMoney(choice.priceAdd)} ₽")
+        if (choice.priceAdd.signum() < 0) add("${QuoteCalculator.formatMoney(choice.priceAdd)} ₽")
+    }
+    return if (parts.isEmpty()) choice.name else "${choice.name}  (${parts.joinToString(", ")})"
 }
 
 @Composable
@@ -405,6 +484,10 @@ private fun TotalsCard(totals: QuoteTotals, settings: CompanySettings) {
             )
             if (settings.vatIncluded) {
                 TotalRow(stringResource(R.string.quote_vat_included, rate), QuoteCalculator.formatMoney(totals.vat))
+            }
+            val delivery = deliveryText(totals, settings)
+            if (delivery.isNotBlank() && totals.lines.isNotEmpty()) {
+                Text(stringResource(R.string.quote_delivery, delivery.lowercase()), color = colors.textSecondary, fontSize = 15.sp)
             }
         }
     }

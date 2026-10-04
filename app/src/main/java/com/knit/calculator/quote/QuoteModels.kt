@@ -1,16 +1,20 @@
 package com.knit.calculator.quote
 
-import com.knit.calculator.core.DiscountTier
+import com.knit.calculator.core.CatalogParser
+import com.knit.calculator.core.Coefficients
 import com.knit.calculator.core.OptionGroup
 import com.knit.calculator.core.PriceChoice
+import com.knit.calculator.core.PriceTier
 import com.knit.calculator.core.Product
+import com.knit.calculator.core.SeedCatalog
 import com.knit.calculator.core.YarnCalculator
 import java.math.BigDecimal
+import java.util.UUID
 import kotlin.random.Random
 
 fun newId(): Long = Random.nextLong(1, Long.MAX_VALUE)
 
-/** Реквизиты и условия, которые печатаются в КП. Всё редактируется в настройках. */
+/** Реквизиты и условия, которые печатаются в КП. */
 data class CompanySettings(
     val brand: String = "Трикотажная фабрика «KS»",
     val city: String = "г. Электросталь",
@@ -22,10 +26,54 @@ data class CompanySettings(
     val vatRate: String = "22",
     val vatIncluded: Boolean = true,
     val validityDays: String = "5",
-    val leadTime: String = "от 2 рабочих дней",
-    val terms: String = "Цены указаны в рублях. Доставка рассчитывается отдельно.",
+    val leadTime: String = "5–15 рабочих дней",
+    val freeDeliveryFrom: String = "50000",
+    val terms: String = "Цены указаны в рублях.",
     val signature: String = "С уважением, команда Фабрики «KS»",
-)
+) {
+    val freeDeliveryThreshold: BigDecimal?
+        get() = YarnCalculator.parseDecimal(freeDeliveryFrom)?.takeIf { it.signum() > 0 }
+
+    companion object {
+        // Названия строк листа «Настройки» в Google Таблице.
+        const val S_BRAND = "Название для КП"
+        const val S_CITY = "Город"
+        const val S_LEGAL = "Юр. лицо"
+        const val S_INN = "ИНН"
+        const val S_PHONE = "Телефон"
+        const val S_EMAIL = "E-mail"
+        const val S_SITE = "Сайт"
+        const val S_VAT = "Ставка НДС, %"
+        const val S_VAT_INCLUDED = "Цены с НДС"
+        const val S_VALIDITY = "Срок действия КП, дней"
+        const val S_LEAD_TIME = "Срок изготовления"
+        const val S_FREE_DELIVERY = "Бесплатная доставка от, ₽"
+        const val S_TERMS = "Прочие условия"
+        const val S_SIGNATURE = "Подпись"
+
+        /** Реквизиты из листа «Настройки»; отсутствующие строки берутся из [fallback]. */
+        fun fromSheet(values: Map<String, String>, fallback: CompanySettings = CompanySettings()): CompanySettings {
+            fun v(key: String, default: String) = values[key]?.trim() ?: default
+            return CompanySettings(
+                brand = v(S_BRAND, fallback.brand),
+                city = v(S_CITY, fallback.city),
+                legalName = v(S_LEGAL, fallback.legalName),
+                inn = v(S_INN, fallback.inn),
+                phone = v(S_PHONE, fallback.phone),
+                email = v(S_EMAIL, fallback.email),
+                website = v(S_SITE, fallback.website),
+                vatRate = v(S_VAT, fallback.vatRate),
+                vatIncluded = values[S_VAT_INCLUDED]?.trim()?.lowercase()
+                    ?.let { it !in setOf("нет", "no", "false", "0", "ложь") } ?: fallback.vatIncluded,
+                validityDays = v(S_VALIDITY, fallback.validityDays),
+                leadTime = v(S_LEAD_TIME, fallback.leadTime),
+                freeDeliveryFrom = v(S_FREE_DELIVERY, fallback.freeDeliveryFrom),
+                terms = v(S_TERMS, fallback.terms),
+                signature = v(S_SIGNATURE, fallback.signature),
+            )
+        }
+    }
+}
 
 /** Строка КП в том виде, как её заполняет менеджер. */
 data class DraftLine(
@@ -35,8 +83,15 @@ data class DraftLine(
     val quantity: String = "",
 )
 
+/**
+ * Черновик КП.
+ * @property id уникальный идентификатор КП (одинаковый на всех телефонах после сохранения в таблицу).
+ * @property saved КП уже сохранено в таблицу и получило номер [number].
+ */
 data class QuoteDraft(
+    val id: String = UUID.randomUUID().toString(),
     val number: Int = 1,
+    val saved: Boolean = false,
     val clientCompany: String = "",
     val clientContact: String = "",
     val clientEmail: String = "",
@@ -46,45 +101,51 @@ data class QuoteDraft(
 
 // ---------- Редактируемая форма изделия (строки, как в полях ввода) ----------
 
-data class EditableChoice(val id: Long = newId(), val name: String = "", val priceAdd: String = "0")
+data class EditableChoice(val id: Long = newId(), val name: String = "", val factor: String = "1", val priceAdd: String = "0")
 data class EditableGroup(val id: Long = newId(), val name: String = "", val choices: List<EditableChoice> = listOf(EditableChoice()))
-data class EditableTier(val id: Long = newId(), val fromQuantity: String = "", val percent: String = "")
+data class EditableTier(val id: Long = newId(), val fromQuantity: String = "", val factor: String = "")
 
 data class EditableProduct(
     val id: Long = newId(),
+    val code: String = "",
     val name: String = "",
     val unit: String = "шт",
     val basePrice: String = "",
     val minOrder: String = "",
     val setupFee: String = "0",
+    val rounding: String = "1",
     val groups: List<EditableGroup> = emptyList(),
     val tiers: List<EditableTier> = emptyList(),
 ) {
-    /** `null`, если обязательные поля не заполнены или числа некорректны. */
+    /** `null`, если обязательные поля не заполнены или числа/коэффициенты некорректны. */
     fun toProduct(): Product? {
         fun num(s: String, blankAsZero: Boolean = true): BigDecimal? =
             if (s.isBlank()) (if (blankAsZero) BigDecimal.ZERO else null) else YarnCalculator.parseDecimal(s)
         if (name.isBlank() || unit.isBlank()) return null
         val price = num(basePrice, blankAsZero = false) ?: return null
-        if (price.signum() < 0) return null
+        val step = num(rounding) ?: return null
+        if (price.signum() < 0 || step.signum() < 0) return null
         return Product(
             id = id,
+            code = code.trim(),
             name = name.trim(),
             unit = unit.trim(),
             basePrice = price,
             minOrder = num(minOrder) ?: return null,
             setupFee = num(setupFee) ?: return null,
+            rounding = step,
             options = groups.filter { it.name.isNotBlank() }.map { g ->
                 OptionGroup(
                     g.id,
                     g.name.trim(),
-                    g.choices.filter { it.name.isNotBlank() }.map { c -> PriceChoice(c.id, c.name.trim(), num(c.priceAdd) ?: return null) },
+                    g.choices.filter { it.name.isNotBlank() }.map { c ->
+                        PriceChoice(c.id, c.name.trim(), num(c.priceAdd) ?: return null, Coefficients.parse(c.factor) ?: return null, c.factor.trim())
+                    },
                 )
             }.filter { it.choices.isNotEmpty() },
-            tiers = tiers.filter { it.fromQuantity.isNotBlank() && it.percent.isNotBlank() }.map { t ->
-                val pct = num(t.percent) ?: return null
-                if (pct.signum() < 0 || pct > BigDecimal(100)) return null
-                DiscountTier(num(t.fromQuantity) ?: return null, pct)
+            tiers = tiers.filter { it.fromQuantity.isNotBlank() }.map { t ->
+                val factors = Coefficients.parse(t.factor) ?: return null
+                PriceTier(num(t.fromQuantity) ?: return null, Coefficients.product(factors), t.factor.trim())
             }.sortedBy { it.fromQuantity },
         )
     }
@@ -92,13 +153,17 @@ data class EditableProduct(
     companion object {
         fun from(p: Product) = EditableProduct(
             id = p.id,
+            code = p.code,
             name = p.name,
             unit = p.unit,
             basePrice = p.basePrice.plain(),
             minOrder = p.minOrder.plain(),
             setupFee = p.setupFee.plain(),
-            groups = p.options.map { g -> EditableGroup(g.id, g.name, g.choices.map { EditableChoice(it.id, it.name, it.priceAdd.plain()) }) },
-            tiers = p.tiers.map { EditableTier(newId(), it.fromQuantity.plain(), it.percent.plain()) },
+            rounding = p.rounding.plain(),
+            groups = p.options.map { g ->
+                EditableGroup(g.id, g.name, g.choices.map { EditableChoice(it.id, it.name, it.factorText.ifBlank { "1" }, it.priceAdd.plain()) })
+            },
+            tiers = p.tiers.map { EditableTier(newId(), it.fromQuantity.plain(), it.factorText.ifBlank { it.factor.value.plain() }) },
         )
 
         private fun BigDecimal.plain(): String =
@@ -106,69 +171,7 @@ data class EditableProduct(
     }
 }
 
-/**
- * Стартовый ассортимент. Цены — ориентировочные примеры: замените их на актуальные
- * в разделе «Ассортимент и цены».
- */
+/** Стартовый ассортимент — те же строки, что и в Google Таблице (одинаковые идентификаторы). */
 object DefaultCatalog {
-    private fun bd(s: String) = BigDecimal(s)
-    private fun choice(id: Long, name: String, add: String) = PriceChoice(id, name, bd(add))
-
-    private fun pattern(base: Long) = OptionGroup(
-        base, "Рисунок",
-        listOf(
-            choice(base + 1, "Гладкий", "0"),
-            choice(base + 2, "1 полоса", "3"),
-            choice(base + 3, "2 полосы", "5"),
-            choice(base + 4, "3 полосы", "7"),
-            choice(base + 5, "С люрексом", "6"),
-        ),
-    )
-
-    private fun color(base: Long) = OptionGroup(
-        base, "Цвет",
-        listOf(choice(base + 1, "Из палитры фабрики", "0"), choice(base + 2, "Окраска по Pantone", "5")),
-    )
-
-    val products: List<Product> = listOf(
-        Product(
-            id = 1001, name = "Подвязы трикотажные", unit = "м",
-            basePrice = bd("18"), minOrder = bd("50"), setupFee = bd("0"),
-            options = listOf(
-                OptionGroup(
-                    1100, "Ширина",
-                    listOf(
-                        choice(1101, "2 см", "0"), choice(1102, "2,5 см", "2"), choice(1103, "3 см", "4"),
-                        choice(1104, "4 см", "7"), choice(1105, "5 см", "10"),
-                    ),
-                ),
-                pattern(1200),
-                color(1300),
-            ),
-            tiers = listOf(DiscountTier(bd("300"), bd("5")), DiscountTier(bd("1000"), bd("10")), DiscountTier(bd("3000"), bd("15"))),
-        ),
-        Product(
-            id = 2001, name = "Воротник поло", unit = "шт",
-            basePrice = bd("35"), minOrder = bd("100"), setupFee = bd("0"),
-            options = listOf(
-                OptionGroup(
-                    2100, "Размер",
-                    listOf(choice(2101, "37 × 8 см", "0"), choice(2102, "40 × 9 см", "3"), choice(2103, "42 × 10 см", "5")),
-                ),
-                pattern(2200),
-                color(2300),
-            ),
-            tiers = listOf(DiscountTier(bd("500"), bd("5")), DiscountTier(bd("1000"), bd("10")), DiscountTier(bd("5000"), bd("15"))),
-        ),
-        Product(
-            id = 3001, name = "Манжеты поло", unit = "пара",
-            basePrice = bd("22"), minOrder = bd("100"), setupFee = bd("0"),
-            options = listOf(
-                OptionGroup(3100, "Ширина", listOf(choice(3101, "3 см", "0"), choice(3102, "3,5 см", "2"), choice(3103, "4 см", "4"))),
-                pattern(3200),
-                color(3300),
-            ),
-            tiers = listOf(DiscountTier(bd("500"), bd("5")), DiscountTier(bd("1000"), bd("10"))),
-        ),
-    )
+    val products: List<Product> by lazy { CatalogParser.parse(SeedCatalog.sheets).products }
 }

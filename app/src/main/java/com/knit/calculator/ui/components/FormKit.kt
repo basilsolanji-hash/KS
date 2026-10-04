@@ -71,6 +71,7 @@ fun KnitField(
     singleLine: Boolean = true,
     maxLength: Int = 60,
     suffix: String? = null,
+    enabled: Boolean = true,
 ) {
     val colors = LocalKnitColors.current
     val focus = if (colors.isDark) colors.accent else colors.textPrimary
@@ -80,6 +81,7 @@ fun KnitField(
             onChange(if (text) v.take(maxLength) else v.filter { it.isDigit() || it == ',' || it == '.' }.take(12))
         },
         label = { Text(stringResource(label)) },
+        enabled = enabled,
         placeholder = if (placeholder != null) { { Text(placeholder) } } else null,
         suffix = if (suffix != null) { { Text(suffix) } } else null,
         singleLine = singleLine,
@@ -101,6 +103,10 @@ fun KnitField(
             unfocusedPlaceholderColor = colors.textSecondary,
             focusedSuffixColor = colors.textSecondary,
             unfocusedSuffixColor = colors.textSecondary,
+            disabledTextColor = colors.textPrimary,
+            disabledBorderColor = colors.textSecondary.copy(alpha = 0.2f),
+            disabledLabelColor = colors.textSecondary,
+            disabledSuffixColor = colors.textSecondary,
         ),
         modifier = modifier,
     )
