@@ -40,6 +40,7 @@ import com.knit.calculator.core.QuoteStatus
 import com.knit.calculator.ui.components.KnitIconButton
 import com.knit.calculator.ui.components.ScreenTopBar
 import com.knit.calculator.ui.theme.LocalKnitColors
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
@@ -87,7 +88,7 @@ fun QuoteHistoryScreen(viewModel: QuoteViewModel, onBack: () -> Unit, onOpened: 
                             }
                         },
                         onStatus = { status ->
-                            scope.launch {
+                            scope.launch(Dispatchers.Main) {
                                 viewModel.setStatus(q, status)?.let {
                                     Toast.makeText(context, context.getString(R.string.status_error, it), Toast.LENGTH_LONG).show()
                                 }

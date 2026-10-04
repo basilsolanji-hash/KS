@@ -120,7 +120,7 @@ fun QuoteScreen(
     fun attachPhoto(uri: android.net.Uri?) {
         val lineId = photoLineId ?: return
         if (uri == null) return
-        scope.launch {
+        scope.launch(Dispatchers.Main) {
             val path = withContext(Dispatchers.IO) { PhotoStore.import(context, uri, lineId) }
             if (path == null) {
                 Toast.makeText(context, photoError, Toast.LENGTH_LONG).show()
@@ -145,7 +145,7 @@ fun QuoteScreen(
 
     fun makePdf(action: QuoteAction) {
         val doc = QuoteDocument(settings, viewModel.draft.value, totals, photoPaths = views.filter { it.line != null }.map { it.draft.photoPath })
-        scope.launch {
+        scope.launch(Dispatchers.Main) { // тосты и письма — только с главного потока
             val file: File? = try {
                 withContext(Dispatchers.IO) { QuotePdf.create(context, doc) }
             } catch (e: IOException) {
