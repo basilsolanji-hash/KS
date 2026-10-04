@@ -28,6 +28,7 @@ function makeSheet(name, rows) {
     },
     appendRow(r) { data.push(r.map((v) => (typeof v === 'string' && v.startsWith("'") ? v.slice(1) : v))); },
     deleteRow(i) { data.splice(i - 1, 1); },
+    setFrozenRows() {},
     getLastRow() { return data.length; },
     maxColumns: 21,
     getMaxColumns() { return this.maxColumns; },
@@ -49,6 +50,7 @@ const ss = {
   getName: () => 'Тест',
   getUrl: () => 'https://docs.google.com/test',
   getSpreadsheetTimeZone: () => 'Europe/Moscow',
+  insertSheet: (n) => (sheets[n] = makeSheet(n, [])),
 };
 
 const context = {
@@ -140,5 +142,47 @@ assert.strictEqual(call({ action: 'sendEmail', to: 'не адрес', data: '' }
 context.MailApp.quota = 0;
 assert.ok(/Лимит/.test(call({ action: 'sendEmail', to: 'client@example.ru', data: '' }).error));
 assert.strictEqual(context.MailApp.sent.length, 1);
+
+// ---- Учёт: счета, оплаты, заказы, склад пряжи (листы создаются сами).
+sheets['Настройки'].data.push(['Начальный номер счёта', '50'], ['Папка: документы (ID)', 'docs']);
+assert.strictEqual(call({ action: 'addInvoice', invoice: { quoteId: 'q1', quoteNumber: 100, client: 'ООО Ромашка', amount: 61, purpose: 'Предоплата 50 %' } }).number, 50);
+assert.strictEqual(call({ action: 'addInvoice', invoice: { quoteId: 'q1', quoteNumber: 100, client: 'ООО Ромашка', amount: 61, purpose: 'Остаток' } }).number, 51);
+assert.strictEqual(sheets['Счета'].data[0][0], '№ счёта');
+// PDF счёта — в «Документы», ссылка — в строку счёта.
+call({ action: 'uploadFile', kind: 'doc', name: 'Счёт_50.pdf', data: 'JVBERg==', mime: 'application/pdf', invoiceNumber: 50 });
+assert.strictEqual(sheets['Счета'].data[1][7], 'https://drive/f1');
+
+const pay = { id: 'p1', quoteId: 'q1', quoteNumber: 100, client: 'ООО Ромашка', amount: 61, date: Date.UTC(2026, 9, 5) };
+assert.strictEqual(call({ action: 'addPayment', payment: pay }).ok, true);
+call({ action: 'addPayment', payment: pay }); // повтор — без дубля
+assert.strictEqual(sheets['Оплаты'].data.length, 2);
+assert.strictEqual(call({ action: 'addPayment', payment: Object.assign({}, pay, { id: 'p2', amount: 0 }) }).ok, false);
+
+const order = { quoteId: 'q1', quoteNumber: 100, client: 'ООО Ромашка', created: Date.UTC(2026, 9, 5), due: Date.UTC(2026, 9, 26), stage: 'Новый', items: 'Подвяз — 10 шт', yarn: '[]' };
+call({ action: 'saveOrder', order });
+call({ action: 'saveOrder', order: Object.assign({}, order, { stage: 'В вязке', yarnWrittenOff: true }) });
+assert.strictEqual(sheets['Заказы'].data.length, 2);
+assert.strictEqual(sheets['Заказы'].data[1][5], 'В вязке');
+
+call({ action: 'addYarnMoves', moves: [{ id: 'm1', yarn: 'Полиэстер', kg: 25, reason: 'Приход' }, { id: 'm2', yarn: 'Полиэстер', kg: -5, reason: 'Заказ № 100' }] });
+call({ action: 'addYarnMoves', moves: [{ id: 'm1', yarn: 'Полиэстер', kg: 25, reason: 'Приход' }] });
+assert.strictEqual(sheets['Движение пряжи'].data.length, 3);
+
+const ops = get({ action: 'ops' }).ops;
+assert.strictEqual(ops.invoices.length, 2);
+assert.strictEqual(ops.payments[0].amount, 61);
+assert.strictEqual(ops.payments[0].date, Date.UTC(2026, 9, 5));
+assert.strictEqual(ops.orders[0].stage, 'В вязке');
+assert.strictEqual(ops.orders[0].yarnWrittenOff, true);
+assert.strictEqual(ops.moves.reduce((a, m) => a + m.kg, 0), 20);
+// Ошибочную оплату можно удалить.
+assert.strictEqual(call({ action: 'deletePayment', id: 'p1' }).ok, true);
+assert.strictEqual(get({ action: 'ops' }).ops.payments.length, 0);
+
+// Письмо со счётом — без отметки в листе «КП».
+context.MailApp.quota = 100;
+const before = sheets['КП'].data[1][21];
+assert.strictEqual(call({ action: 'sendEmail', kind: 'invoice', invoiceNumber: 50, to: 'client@example.ru', subject: 'Счёт № 50', body: '', name: 'Счёт_50.pdf', data: 'JVBERg==' }).ok, true);
+assert.strictEqual(sheets['КП'].data[1][21], before);
 
 console.log('Apps Script: все проверки пройдены');

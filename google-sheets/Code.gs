@@ -23,10 +23,24 @@ var SHEETS = {
   costs: 'Себестоимость',
   yarns: 'Пряжа',
   clients: 'Клиенты',
+  invoices: 'Счета',
+  payments: 'Оплаты',
+  orders: 'Заказы',
+  yarnMoves: 'Движение пряжи',
+  contract: 'Договор',
 };
+// Листы учёта создаются сами при первой записи.
+var HEADERS = {
+  invoices: ['№ счёта', 'Дата', '№ КП', 'ID КП', 'Клиент', 'Сумма, ₽', 'Назначение', 'PDF'],
+  payments: ['Дата', '№ КП', 'ID КП', 'Клиент', 'Сумма, ₽', 'Комментарий', 'Менеджер', 'ID'],
+  orders: ['№ КП', 'ID КП', 'Клиент', 'Создан', 'Срок отгрузки', 'Этап', 'Дата этапа', 'Изделия', 'Комментарий',
+    'Пряжа (не изменять)', 'Пряжа списана'],
+  yarnMoves: ['Дата', 'Пряжа', 'Кг (+ приход, − расход)', 'Основание', 'Менеджер', 'ID'],
+};
+var START_INVOICE_SETTING = 'Начальный номер счёта';
 var KEY_SETTING = 'Ключ доступа';
 var START_NUMBER_SETTING = 'Начальный номер КП';
-var FOLDER_SETTINGS = { logo: 'Папка: логотип (ID)', photo: 'Папка: фото (ID)', pdf: 'Папка: КП (ID)' };
+var FOLDER_SETTINGS = { logo: 'Папка: логотип (ID)', photo: 'Папка: фото (ID)', pdf: 'Папка: КП (ID)', doc: 'Папка: документы (ID)' };
 // Колонки листа «КП» (с 1).
 var Q = {
   number: 1, date: 2, client: 3, contact: 4, email: 5, subtotal: 6, vat: 7, total: 8, delivery: 9,
@@ -74,6 +88,7 @@ function handle_(req) {
             costs: optionalRows_(ss, SHEETS.costs),
             yarns: optionalRows_(ss, SHEETS.yarns),
             clients: optionalRows_(ss, SHEETS.clients),
+            contract: optionalRows_(ss, SHEETS.contract),
           },
           logo: logo_(ss, String(req.logoVersion || '')),
         });
@@ -87,6 +102,22 @@ function handle_(req) {
         return json_({ ok: true, data: getFile_(ss, String(req.fileId || '')) });
       case 'sendEmail':
         return json_({ ok: true, mail: sendEmail_(ss, req) });
+      case 'ops':
+        return json_({ ok: true, ops: ops_(ss) });
+      case 'addInvoice':
+        return json_({ ok: true, number: addInvoice_(ss, req.invoice || {}) });
+      case 'addPayment':
+        addPayment_(ss, req.payment || {});
+        return json_({ ok: true });
+      case 'deletePayment':
+        deleteById_(ss, 'payments', 8, String(req.id || ''));
+        return json_({ ok: true });
+      case 'saveOrder':
+        saveOrder_(ss, req.order || {});
+        return json_({ ok: true });
+      case 'addYarnMoves':
+        addYarnMoves_(ss, req.moves || []);
+        return json_({ ok: true });
       case 'setStatus':
         setStatus_(ss, String(req.id || ''), String(req.status || ''));
         return json_({ ok: true });
@@ -277,7 +308,7 @@ function logo_(ss, knownVersion) {
 
 /** Фото образца или PDF КП → папка на Диске. Файл с тем же именем заменяется. */
 function uploadFile_(ss, req) {
-  var kind = req.kind === 'pdf' ? 'pdf' : 'photo';
+  var kind = req.kind === 'pdf' || req.kind === 'doc' ? req.kind : 'photo';
   var folder = folder_(ss, kind);
   var name = String(req.name || (kind + '-' + Date.now()));
   var old = folder.getFilesByName(name);
@@ -294,7 +325,142 @@ function uploadFile_(ss, req) {
       }
     }
   }
+  if (kind === 'doc' && req.invoiceNumber) {
+    var inv = sheet_(ss, 'invoices');
+    var rows = inv.getDataRange().getValues();
+    for (var r = 1; r < rows.length; r++) {
+      if (Number(rows[r][0]) === Number(req.invoiceNumber)) {
+        inv.getRange(r + 1, 8).setValue(file.getUrl());
+        break;
+      }
+    }
+  }
   return { id: file.getId(), url: file.getUrl() };
+}
+
+// ---------------------------------------------------------------- Учёт: счета, оплаты, заказы, склад пряжи
+
+/** Лист учёта; если его нет — создаётся с заголовками. */
+function sheet_(ss, kind) {
+  var sheet = ss.getSheetByName(SHEETS[kind]);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEETS[kind]);
+    sheet.appendRow(HEADERS[kind]);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function millis_(v) {
+  return v instanceof Date ? v.getTime() : (Number(v) || 0);
+}
+
+function date_(ms) {
+  return ms ? new Date(Number(ms)) : new Date();
+}
+
+function ops_(ss) {
+  function rows(kind) {
+    var sheet = ss.getSheetByName(SHEETS[kind]);
+    return sheet ? sheet.getDataRange().getValues().slice(1).filter(function (r) { return r.join('') !== ''; }) : [];
+  }
+  return {
+    invoices: rows('invoices').map(function (r) {
+      return { number: Number(r[0]), date: millis_(r[1]), quoteNumber: Number(r[2]) || 0, quoteId: String(r[3]),
+        client: String(r[4]), amount: Number(r[5]) || 0, purpose: String(r[6]), pdf: String(r[7] || '') };
+    }),
+    payments: rows('payments').map(function (r) {
+      return { date: millis_(r[0]), quoteNumber: Number(r[1]) || 0, quoteId: String(r[2]), client: String(r[3]),
+        amount: Number(r[4]) || 0, note: String(r[5] || ''), author: String(r[6] || ''), id: String(r[7] || '') };
+    }),
+    orders: rows('orders').map(function (r) {
+      return { quoteNumber: Number(r[0]) || 0, quoteId: String(r[1]), client: String(r[2]), created: millis_(r[3]),
+        due: millis_(r[4]), stage: String(r[5] || ''), stageDate: millis_(r[6]), items: String(r[7] || ''),
+        comment: String(r[8] || ''), yarn: String(r[9] || ''), yarnWrittenOff: r[10] === true || String(r[10]).toLowerCase() === 'да' };
+    }),
+    moves: rows('yarnMoves').map(function (r) {
+      return { date: millis_(r[0]), yarn: String(r[1]), kg: Number(r[2]) || 0, reason: String(r[3] || ''),
+        author: String(r[4] || ''), id: String(r[5] || '') };
+    }),
+  };
+}
+
+/** Новый счёт: номер — следующий по листу «Счета» (под блокировкой). */
+function addInvoice_(ss, inv) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sheet = sheet_(ss, 'invoices');
+    var data = sheet.getDataRange().getValues();
+    var max = 0;
+    for (var i = 1; i < data.length; i++) max = Math.max(max, Number(data[i][0]) || 0);
+    var start = Number(settings_(ss)[START_INVOICE_SETTING]) || 1;
+    var number = Math.max(max + 1, start);
+    sheet.appendRow([number, date_(inv.date), Number(inv.quoteNumber) || '', text_(inv.quoteId), text_(inv.client),
+      Number(inv.amount) || 0, text_(inv.purpose), '']);
+    return number;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Оплата; повтор с тем же ID не дублируется. */
+function addPayment_(ss, p) {
+  if (!(Number(p.amount) > 0)) throw new Error('Сумма оплаты должна быть больше нуля');
+  var sheet = sheet_(ss, 'payments');
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) if (p.id && String(data[i][7]) === String(p.id)) return;
+  sheet.appendRow([date_(p.date), Number(p.quoteNumber) || '', text_(p.quoteId), text_(p.client), Number(p.amount),
+    text_(p.note), text_(p.author), text_(p.id)]);
+}
+
+function deleteById_(ss, kind, column, id) {
+  if (!id) throw new Error('Не указан ID');
+  var sheet = sheet_(ss, kind);
+  var data = sheet.getDataRange().getValues();
+  for (var i = data.length - 1; i >= 1; i--) {
+    if (String(data[i][column - 1]) === id) {
+      sheet.deleteRow(i + 1);
+      return;
+    }
+  }
+  throw new Error('Запись не найдена');
+}
+
+/** Заказ на производство: одна строка на КП (по ID КП). */
+function saveOrder_(ss, o) {
+  if (!o.quoteId) throw new Error('Не указано КП заказа');
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sheet = sheet_(ss, 'orders');
+    var data = sheet.getDataRange().getValues();
+    var row = [Number(o.quoteNumber) || '', text_(o.quoteId), text_(o.client), date_(o.created), date_(o.due),
+      text_(o.stage), date_(o.stageDate), text_(o.items), text_(o.comment), text_(o.yarn), o.yarnWrittenOff ? 'да' : 'нет'];
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][1]) === String(o.quoteId)) {
+        sheet.getRange(i + 1, 1, 1, row.length).setValues([row]);
+        return;
+      }
+    }
+    sheet.appendRow(row);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Движения пряжи (приход «+», расход «−»); повтор с тем же ID не дублируется. */
+function addYarnMoves_(ss, moves) {
+  var sheet = sheet_(ss, 'yarnMoves');
+  var data = sheet.getDataRange().getValues();
+  var known = {};
+  for (var i = 1; i < data.length; i++) known[String(data[i][5])] = true;
+  moves.forEach(function (m) {
+    if (!String(m.yarn || '').trim() || !Number(m.kg)) return;
+    if (m.id && known[String(m.id)]) return;
+    sheet.appendRow([date_(m.date), text_(m.yarn), Number(m.kg), text_(m.reason), text_(m.author), text_(m.id)]);
+    known[String(m.id)] = true;
+  });
 }
 
 /**
@@ -311,9 +477,14 @@ function sendEmail_(ss, req) {
     throw new Error('Лимит писем Google на сегодня исчерпан — отправьте КП из почты телефона');
   }
   var name = String(req.name || 'КП.pdf');
+  // Счёт и договор — в папку «Документы», КП — в «КП (PDF)» со ссылкой в листе «КП».
+  var isQuote = !req.kind || req.kind === 'quote';
   var blob;
   try {
-    blob = DriveApp.getFileById(uploadFile_(ss, { kind: 'pdf', name: name, data: req.data, mime: 'application/pdf', quoteId: req.quoteId }).id).getBlob();
+    var upload = isQuote
+      ? { kind: 'pdf', name: name, data: req.data, mime: 'application/pdf', quoteId: req.quoteId }
+      : { kind: 'doc', name: name, data: req.data, mime: 'application/pdf', invoiceNumber: req.invoiceNumber };
+    blob = DriveApp.getFileById(uploadFile_(ss, upload).id).getBlob();
   } catch (err) {
     // Папка не настроена — письмо всё равно уходит, PDF берём из запроса.
     blob = Utilities.newBlob(Utilities.base64Decode(String(req.data || '')), 'application/pdf', name);
@@ -324,7 +495,7 @@ function sendEmail_(ss, req) {
   MailApp.sendEmail(to, String(req.subject || 'Коммерческое предложение'), String(req.body || ''), options);
 
   var sent = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'dd.MM.yyyy HH:mm') + ' → ' + to;
-  if (req.quoteId) {
+  if (isQuote && req.quoteId) {
     var sheet = ss.getSheetByName(SHEETS.quotes);
     // В старых таблицах колонки «Письмо клиенту» ещё нет.
     if (sheet.getMaxColumns() < Q.mail) sheet.insertColumnsAfter(sheet.getMaxColumns(), Q.mail - sheet.getMaxColumns());
