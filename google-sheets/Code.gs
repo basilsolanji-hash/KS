@@ -245,16 +245,21 @@ function cacheGen_() {
   var c = CacheService.getScriptCache();
   var gen = c.get('gen');
   if (!gen) {
-    gen = String(Date.now());
+    gen = newGen_();
     c.put('gen', gen, 21600);
   }
   return gen;
 }
 
+/** Новое «поколение» кэша: время + случайная часть (два сброса в одну миллисекунду всё равно различаются). */
+function newGen_() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
 /** Сбросить кэш таблицы (после записи в листы-справочники или правки вручную). */
 function cacheBump_() {
   try {
-    CacheService.getScriptCache().put('gen', String(Date.now()), 21600);
+    CacheService.getScriptCache().put('gen', newGen_(), 21600);
   } catch (e) {}
 }
 
