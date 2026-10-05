@@ -124,12 +124,17 @@ class MainActivity : FragmentActivity() {
                     if (f != null && f.actualIn.isNotEmpty()) f.actualIn else ops.payments.map { it.date to it.amount }, now,
                 )
                 val outflow = if (f != null && f.actualOut.isNotEmpty()) com.knit.calculator.core.monthlySums(f.actualOut, now) else null
+                val shipSum = if (f != null && f.hasShipments) com.knit.calculator.core.monthlySums(f.shipments.map { it.first to it.second }, now) else null
+                val shipQty = if (f != null && f.hasShipments) com.knit.calculator.core.monthlySums(f.shipments.map { it.first to it.third }, now) else null
                 com.knit.calculator.ui.HomeCharts(
                     months = sales.map { it.first }, sales = sales.map { it.second },
                     plan = f?.plan?.takeIf { it.signum() > 0 },
                     inflow = inflow.map { it.second }, outflow = outflow?.map { it.second },
+                    shipSum = shipSum?.map { it.second }, shipQty = shipQty?.map { it.second },
                 ).takeIf { it.sales.any { v -> v.signum() > 0 } || it.inflow.any { v -> v.signum() > 0 } || it.outflow != null }
             }
+            val financeLoading by financeViewModel.loading.collectAsStateWithLifecycle()
+            val refreshing = sync.loading || financeLoading
             val mySalary by quoteViewModel.mySalary.collectAsStateWithLifecycle()
             val myPay = if (director) null else mySalary?.rows?.firstOrNull()?.let { Triple(it.total, it.paid, it.bonus) }
             val day = androidx.compose.runtime.remember(deals, ops) {
@@ -155,7 +160,16 @@ class MainActivity : FragmentActivity() {
                     return@KnitTheme
                 }
                 when (screen) {
-                    Screen.HOME -> HomeScreen(sync, themeMode, director, onTheme = viewModel::cycleTheme, day = day, version = version, myPay = myPay, charts = charts) { action ->
+                    Screen.HOME -> HomeScreen(sync, themeMode, director, onTheme = viewModel::cycleTheme, day = day, version = version, myPay = myPay, charts = charts,
+                        refreshing = refreshing,
+                        onRefresh = {
+                            // Свайп вниз: заново всё — каталог, КП, учёт, финансы.
+                            quoteViewModel.refresh()
+                            quoteViewModel.loadDeals()
+                            opsViewModel.load()
+                            if (director) financeViewModel.load() else quoteViewModel.loadMySalary()
+                        },
+                    ) { action ->
                         open(
                             when (action) {
                                 HomeAction.QUOTE -> Screen.QUOTE

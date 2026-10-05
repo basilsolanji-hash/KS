@@ -701,5 +701,11 @@
     <string name="chart_flows">Приход и расход денег</string>
     <string name="chart_in">Приход</string>
     <string name="chart_out">Расход</string>
+    <string name="chart_ship">Отгрузки (МойСклад)</string>
+    <string name="chart_ship_series">Отгружено</string>
+    <string name="home_group_dynamics">Динамика</string>
+    <string name="home_group_sales">Продажи</string>
+    <string name="home_group_money">Деньги</string>
+    <string name="home_group_production">Производство</string>
     <string name="chart_no_out">Расход появится после подключения МойСклад (исходящие платежи).</string>
 </resources>

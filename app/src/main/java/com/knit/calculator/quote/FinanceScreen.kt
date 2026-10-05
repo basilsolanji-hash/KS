@@ -62,6 +62,10 @@ data class FinanceData(
     val actualIn: List<Pair<Long, BigDecimal>> = emptyList(),
     val actualOut: List<Pair<Long, BigDecimal>> = emptyList(),
     val msError: String? = null,
+    /** Отгрузки МойСклад: дата, сумма ₽, штуки. */
+    val shipments: List<Triple<Long, BigDecimal, BigDecimal>> = emptyList(),
+    /** `false` — МойСклад не подключён, отгрузок нет. */
+    val hasShipments: Boolean = false,
 ) {
     companion object {
         private fun money(v: Any?): BigDecimal = v?.toString()?.toBigDecimalOrNull() ?: BigDecimal.ZERO
@@ -76,6 +80,8 @@ data class FinanceData(
             actualIn = o.optJSONArray("actualIn").objects().map { it.optLong("date") to money(it.opt("amount")) },
             actualOut = o.optJSONArray("actualOut").objects().map { it.optLong("date") to money(it.opt("amount")) },
             msError = o.optString("msError").ifBlank { null },
+            shipments = o.optJSONArray("shipments").objects().map { Triple(it.optLong("date"), money(it.opt("sum")), money(it.opt("qty"))) },
+            hasShipments = o.has("shipments"),
         )
     }
 }
@@ -112,14 +118,23 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
     private var loadedAt = 0L
+    private val cache = java.io.File(application.filesDir, "finance_cache.json")
+
+    init {
+        // Последние данные с телефона — графики видны сразу, пока идёт обновление.
+        if (store.loadSyncConfig().enabled) {
+            _data.value = runCatching { FinanceData.parse(JSONObject(cache.readText())) }.getOrNull()
+        }
+    }
 
     /** Для графиков главного экрана: не чаще раза в 10 минут, без сообщения об ошибке. */
     fun loadIfStale(maxAgeMs: Long = 10 * 60_000L) {
         if (!store.loadSyncConfig().enabled || System.currentTimeMillis() - loadedAt < maxAgeMs) return
-        load()
+        load(fresh = false)
     }
 
-    fun load() {
+    /** [fresh] — мимо кэша скрипта (свайп «обновить», кнопка на экране финансов). */
+    fun load(fresh: Boolean = true) {
         loadedAt = System.currentTimeMillis()
         val config = store.loadSyncConfig()
         if (!config.enabled) {
@@ -132,7 +147,9 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             try {
                 val client = SheetClient(config)
-                _data.value = FinanceData.parse(client.finance())
+                val raw = client.finance(fresh)
+                _data.value = FinanceData.parse(raw)
+                runCatching { cache.writeText(raw.toString()) }
                 _salary.value = runCatching { SalaryData.parse(client.salary()) }.getOrNull()
             } catch (e: Exception) {
                 _error.value = e.message ?: "Нет связи с таблицей"
@@ -169,7 +186,7 @@ fun FinanceScreen(quoteVm: QuoteViewModel, opsVm: OpsViewModel, financeVm: Finan
     val settings by quoteVm.settings.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableStateOf(0) }
     LaunchedEffect(Unit) {
-        financeVm.load()
+        financeVm.load(fresh = false)
         quoteVm.loadDeals()
         opsVm.load()
     }

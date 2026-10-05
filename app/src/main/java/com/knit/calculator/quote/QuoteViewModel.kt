@@ -607,8 +607,13 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
     private var salaryLoadedAt = 0L
 
     fun loadMySalaryIfStale(maxAgeMs: Long = 10 * 60_000L) {
+        if (System.currentTimeMillis() - salaryLoadedAt < maxAgeMs) return
+        loadMySalary()
+    }
+
+    fun loadMySalary() {
         val config = _syncConfig.value
-        if (!config.enabled || System.currentTimeMillis() - salaryLoadedAt < maxAgeMs) return
+        if (!config.enabled) return
         salaryLoadedAt = System.currentTimeMillis()
         viewModelScope.launch {
             _mySalary.value = runCatching { SalaryData.parse(SheetClient(config).salary()) }.getOrNull()
@@ -617,8 +622,14 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
 
     private var dealsLoadedAt = 0L
 
+    private fun dealsCache() = java.io.File(getApplication<Application>().filesDir, "deals_cache.json")
+
     /** Для панели «Сегодня»: не чаще раза в [maxAgeMs], чтобы главный экран не ждал таблицу. */
     fun loadDealsIfStale(maxAgeMs: Long = 5 * 60_000L) {
+        // Сразу показываем сохранённую копию — графики и «Сегодня» не ждут таблицу.
+        if (_deals.value == null && _syncConfig.value.enabled) {
+            _deals.value = runCatching { parseQuotes(JSONArray(dealsCache().readText())).map(::historyItem) }.getOrNull()
+        }
         if (_deals.value != null && System.currentTimeMillis() - dealsLoadedAt < maxAgeMs) return
         loadDeals()
     }
@@ -632,7 +643,9 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             try {
-                _deals.value = SheetClient(config).quotes(light = true).map(::historyItem)
+                val raw = SheetClient(config).quotesJson(light = true)
+                _deals.value = parseQuotes(raw).map(::historyItem)
+                runCatching { dealsCache().writeText(raw.toString()) }
             } catch (e: Exception) {
                 _historyError.value = e.message ?: "Нет связи с таблицей"
             }

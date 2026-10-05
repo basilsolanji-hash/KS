@@ -12,8 +12,10 @@ android {
         applicationId = "com.knit.calculator"
         minSdk = 24
         targetSdk = 35
-        versionCode = 14
-        versionName = "1.8.1"
+        // Номер сборки CI в версии: 1.9.052 — каждая правка получает свой номер.
+        val build = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
+        versionCode = 1000 + build
+        versionName = "1.9.%03d".format(build)
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

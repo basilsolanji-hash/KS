@@ -176,8 +176,14 @@ function route_(req) {
       }
       case 'salary':
         return json_({ ok: true, salary: salary_(ss, who, String(req.month || '')) });
-      case 'finance':
-        return json_({ ok: true, finance: finance_(ss) });
+      case 'finance': {
+        // Отчёты МойСклад считаются долго — 5 минут из кэша (сброс при правке таблицы); свайп на телефоне — заново.
+        var finKey = 'fin:' + cacheGen_();
+        if (req.fresh) {
+          try { CacheService.getScriptCache().remove(finKey); } catch (e) {}
+        }
+        return json_({ ok: true, finance: cached_(finKey, 300, function () { return finance_(ss); }) });
+      }
       case 'innLookup':
         return json_({ ok: true, party: dadataParty_(String(req.inn || '')) });
       case 'msBarcode':
@@ -347,6 +353,18 @@ function finance_(ss) {
     out.actualOut = msAll_('/entity/paymentout?filter=' + encodeURIComponent('moment>=' + weeks8)).map(function (d) {
       return { date: msTime_(d.moment), amount: (Number(d.sum) || 0) / 100 };
     });
+    // Отгрузки по месяцам (₽ и шт) — один запрос к отчёту «Показатели продаж».
+    out.shipments = [];
+    try {
+      var from = new Date(); from.setDate(1); from.setMonth(from.getMonth() - 6);
+      var series = ms_('get', '/report/sales/plotseries?interval=month&momentFrom=' + encodeURIComponent(msMoment_(from)) +
+        '&momentTo=' + encodeURIComponent(msMoment_(new Date()))).series || [];
+      out.shipments = series.map(function (r) {
+        return { date: msTime_(r.date), sum: (Number(r.sum) || 0) / 100, qty: Number(r.quantity) || 0 };
+      });
+    } catch (err) {
+      out.shipError = String((err && err.message) || err);
+    }
     return {};
   });
   if (ms && ms.error) out.msError = ms.error;

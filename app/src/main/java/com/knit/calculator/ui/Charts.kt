@@ -152,3 +152,162 @@ private fun Legend(color: Color, label: String) {
         Text(" $label", color = LocalKnitColors.current.textSecondary, fontSize = 12.sp)
     }
 }
+
+/** Целое число с разделением разрядов: 1 234 567. */
+fun wholeNumber(v: BigDecimal): String =
+    java.text.NumberFormat.getIntegerInstance(java.util.Locale("ru")).format(v.setScale(0, java.math.RoundingMode.HALF_UP))
+
+/**
+ * Современный график динамики: плавные линии с градиентной заливкой, крупное значение
+ * выбранного месяца и изменение к предыдущему (▲/▼), необязательная линия плана
+ * и переключатель единиц (₽ / шт). Нажатие на месяц выбирает его.
+ */
+@Composable
+fun TrendChart(
+    title: String,
+    months: List<String>,
+    series: List<Pair<String, List<BigDecimal>>>,
+    colors: List<Color>,
+    plan: BigDecimal? = null,
+    planLabel: String = "",
+    unit: String = "₽",
+    toggle: Pair<List<String>, Int>? = null,
+    onToggle: (Int) -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
+    val theme = LocalKnitColors.current
+    var selected by remember(months) { mutableStateOf(months.lastIndex) }
+    val reveal = remember { androidx.compose.animation.core.Animatable(0f) }
+    androidx.compose.runtime.LaunchedEffect(series) {
+        reveal.snapTo(0f)
+        reveal.animateTo(1f, androidx.compose.animation.core.tween(500))
+    }
+    val max = (series.flatMap { it.second } + listOfNotNull(plan)).maxOrNull()?.takeIf { it.signum() > 0 } ?: BigDecimal.ONE
+    val fmt: (BigDecimal) -> String = { wholeNumber(it) + " " + unit }
+    Surface(shape = RoundedCornerShape(20.dp), color = theme.panel, modifier = modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(title, color = theme.textSecondary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                if (toggle != null) Segmented(toggle.first, toggle.second, onToggle)
+            }
+            if (months.isEmpty()) return@Column
+            val i = selected.coerceIn(0, months.lastIndex)
+            // Крупно — значение выбранного месяца, рядом изменение к прошлому месяцу.
+            series.forEachIndexed { s, (name, v) ->
+                val value = v.getOrNull(i) ?: BigDecimal.ZERO
+                val prev = v.getOrNull(i - 1)
+                Row(verticalAlignment = Alignment.Bottom) {
+                    if (series.size > 1) {
+                        Canvas(Modifier.padding(bottom = 7.dp, end = 6.dp).size(8.dp)) { drawCircle(colors[s]) }
+                    }
+                    Text(
+                        fmt(value), color = theme.textPrimary,
+                        fontSize = if (series.size > 1) 18.sp else 24.sp, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.semantics { contentDescription = "$name ${shortMonth(months[i])}: ${fmt(value)}" },
+                    )
+                    if (series.size > 1) Text("  $name", color = theme.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(bottom = 2.dp))
+                    if (prev != null && prev.signum() > 0) {
+                        val pct = value.subtract(prev).multiply(BigDecimal(100)).divide(prev, 0, java.math.RoundingMode.HALF_UP)
+                        val up = pct.signum() >= 0
+                        Text(
+                            (if (up) "  ▲ " else "  ▼ ") + pct.abs().toPlainString() + "% к " + shortMonth(months[i - 1]),
+                            color = if (up) Color(0xFF2E9E5B) else Color(0xFFD9534F),
+                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 3.dp),
+                        )
+                    }
+                }
+            }
+            if (plan != null) {
+                val v = series.firstOrNull()?.second?.getOrNull(i) ?: BigDecimal.ZERO
+                val pct = v.multiply(BigDecimal(100)).divide(plan.max(BigDecimal.ONE), 0, java.math.RoundingMode.HALF_UP)
+                Text("$planLabel ${compactRub(plan)} · выполнено $pct%", color = theme.textSecondary, fontSize = 12.sp)
+            }
+            val grid = theme.textSecondary.copy(alpha = 0.18f)
+            val planColor = theme.textSecondary
+            val guide = theme.textSecondary.copy(alpha = 0.45f)
+            val panel = theme.panel
+            Canvas(
+                Modifier.fillMaxWidth().height(120.dp).padding(top = 6.dp)
+                    .semantics { contentDescription = title }
+                    .pointerInput(months) {
+                        detectTapGestures { p ->
+                            selected = (p.x / (size.width.toFloat() / months.size)).toInt().coerceIn(0, months.lastIndex)
+                        }
+                    },
+            ) {
+                val slot = size.width / months.size
+                val top = 6.dp.toPx()
+                val h = size.height - top
+                fun y(v: BigDecimal) = top + h - (v.toFloat() / max.toFloat()) * h * reveal.value
+                for (g in 0..2) {
+                    val gy = top + h * g / 2f
+                    drawLine(grid, Offset(0f, gy), Offset(size.width, gy), strokeWidth = 1.dp.toPx())
+                }
+                drawLine(guide, Offset(slot * (i + 0.5f), top), Offset(slot * (i + 0.5f), size.height), strokeWidth = 1.dp.toPx(),
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)))
+                series.forEachIndexed { s, (_, values) ->
+                    val pts = months.indices.map { Offset(slot * (it + 0.5f), y(values.getOrNull(it) ?: BigDecimal.ZERO)) }
+                    val line = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(pts[0].x, pts[0].y)
+                        for (k in 1 until pts.size) {
+                            val mid = (pts[k - 1].x + pts[k].x) / 2
+                            cubicTo(mid, pts[k - 1].y, mid, pts[k].y, pts[k].x, pts[k].y)
+                        }
+                    }
+                    val fill = androidx.compose.ui.graphics.Path().apply {
+                        addPath(line)
+                        lineTo(pts.last().x, size.height)
+                        lineTo(pts.first().x, size.height)
+                        close()
+                    }
+                    val alpha = if (series.size > 1) 0.18f else 0.32f
+                    drawPath(fill, androidx.compose.ui.graphics.Brush.verticalGradient(
+                        listOf(colors[s].copy(alpha = alpha), colors[s].copy(alpha = 0f)), startY = top, endY = size.height,
+                    ))
+                    drawPath(line, colors[s], style = androidx.compose.ui.graphics.drawscope.Stroke(
+                        width = 2.5.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                        join = androidx.compose.ui.graphics.StrokeJoin.Round,
+                    ))
+                    drawCircle(panel, 5.dp.toPx(), pts[i])
+                    drawCircle(colors[s], 3.5.dp.toPx(), pts[i])
+                }
+                if (plan != null) {
+                    val py = y(plan)
+                    drawLine(planColor, Offset(0f, py), Offset(size.width, py), strokeWidth = 1.5.dp.toPx(),
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f)))
+                }
+            }
+            Row(Modifier.fillMaxWidth()) {
+                months.forEachIndexed { m, k ->
+                    Text(
+                        shortMonth(k), color = if (m == i) theme.textPrimary else theme.textSecondary, fontSize = 12.sp,
+                        fontWeight = if (m == i) FontWeight.Bold else FontWeight.Normal,
+                        modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Маленький переключатель-«таблетка»: ₽ | шт. */
+@Composable
+private fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+    val theme = LocalKnitColors.current
+    Surface(shape = RoundedCornerShape(50), color = theme.background) {
+        Row(Modifier.padding(2.dp)) {
+            options.forEachIndexed { k, label ->
+                val on = k == selected
+                Surface(
+                    onClick = { onSelect(k) }, shape = RoundedCornerShape(50),
+                    color = if (on) theme.accent else Color.Transparent,
+                ) {
+                    Text(
+                        label, color = if (on) theme.background else theme.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    )
+                }
+            }
+        }
+    }
+}

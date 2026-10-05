@@ -288,6 +288,11 @@ context.UrlFetchApp.fetch = (url, options) => {
     return rows.filter((r) => (m[2] === '=' ? String(r[m[1]] || '') === m[3] : String(r[m[1]] || '').includes(m[3])));
   };
   if (path === '/report/stock/bystore/current') return msRespond(200, [{ assortmentId: 'p1', storeId: 'st1', stock: 120 }]);
+  if (path === '/report/sales/plotseries') {
+    assert.strictEqual(params.interval, 'month');
+    assert.ok(params.momentFrom && params.momentTo);
+    return msRespond(200, { series: [{ date: '2099-01-01 00:00:00.000', quantity: 1200, sum: 45000000 }, { date: '2099-02-01 00:00:00.000', quantity: 0, sum: 0 }] });
+  }
   if (path === '/report/money/byaccount') return msRespond(200, { rows: [{ balance: 50000000 }, { balance: 2500000 }] });
   if (path === '/entity/assortment') {
     const code = filter.replace(/^barcode=/, '');
@@ -517,6 +522,14 @@ assert.strictEqual(fin.balanceSource, 'ms');
 assert.deepStrictEqual(fin.supplier.map((x) => [x.name, x.amount]), [['Счёт поставщика № 00012', 100000]]);
 assert.ok(fin.supplier[0].due > Date.UTC(2098, 0, 1));
 assert.deepStrictEqual(fin.actualOut.map((x) => x.amount), [30000]);
+assert.deepStrictEqual(fin.shipments.map((x) => [x.sum, x.qty]), [[450000, 1200], [0, 0]]);
+assert.ok(fin.shipments[0].date > Date.UTC(2098, 0, 1));
+// Повтор — из кэша скрипта, fresh — заново из МойСклад.
+const finCalls = msCalls.length;
+call({ action: 'finance' });
+assert.strictEqual(msCalls.length, finCalls);
+call({ action: 'finance', fresh: true });
+assert.ok(msCalls.length > finCalls);
 
 // ---- Зарплата менеджеров: оклад 60 000 + 3 % от оплат месяца по КП менеджера.
 const ym = new Date().toISOString().slice(0, 7);

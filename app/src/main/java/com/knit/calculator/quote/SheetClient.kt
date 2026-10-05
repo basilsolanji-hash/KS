@@ -86,26 +86,13 @@ class SheetClient(private val config: SyncConfig) {
     }
 
     /** КП: последние [limit]; [month] — все КП месяца («2026-10»); [light] — все КП без данных черновика. */
-    suspend fun quotes(limit: Int = 50, month: String = "", light: Boolean = false): List<RemoteQuote> {
-        val array = get("quotes", "limit" to limit.toString(), "month" to month, "light" to (if (light) "1" else ""))
+    suspend fun quotes(limit: Int = 50, month: String = "", light: Boolean = false): List<RemoteQuote> =
+        parseQuotes(quotesJson(limit, month, light))
+
+    /** Сырой ответ «quotes» — его можно сохранить на телефоне и разобрать позже ([parseQuotes]). */
+    suspend fun quotesJson(limit: Int = 50, month: String = "", light: Boolean = false): JSONArray =
+        get("quotes", "limit" to limit.toString(), "month" to month, "light" to (if (light) "1" else ""))
             .optJSONArray("quotes") ?: JSONArray()
-        return (0 until array.length()).mapNotNull { array.optJSONObject(it) }.map {
-            RemoteQuote(
-                number = it.optInt("number"),
-                date = it.optString("date"),
-                client = it.optString("client"),
-                total = it.optDouble("total", 0.0),
-                author = it.optString("author"),
-                id = it.optString("id"),
-                data = it.optString("data"),
-                status = QuoteStatus.from(it.optString("status")),
-                profit = if (it.isNull("profit") || it.optString("profit").isBlank()) null else it.optDouble("profit"),
-                month = it.optString("month"),
-                validUntil = it.optLong("validUntil", 0),
-                products = it.optJSONObject("products")?.let { p -> p.keys().asSequence().associateWith { k -> p.optDouble(k) } }.orEmpty(),
-            )
-        }
-    }
 
     /**
      * Сохраняет КП и возвращает номер (новый или прежний для того же ID) и ответ МойСклад
@@ -127,7 +114,8 @@ class SheetClient(private val config: SyncConfig) {
     suspend fun salary(month: String = ""): JSONObject = get("salary", "month" to month).optJSONObject("salary") ?: JSONObject()
 
     /** Платёжный календарь: остаток, регулярные платежи, счета поставщиков, факт (только директору). */
-    suspend fun finance(): JSONObject = get("finance").optJSONObject("finance") ?: JSONObject()
+    suspend fun finance(fresh: Boolean = false): JSONObject =
+        get("finance", "fresh" to if (fresh) "1" else "").optJSONObject("finance") ?: JSONObject()
 
     /** Реквизиты организации по ИНН (DaData через скрипт таблицы). */
     suspend fun innLookup(inn: String): JSONObject =
@@ -278,5 +266,25 @@ class SheetClient(private val config: SyncConfig) {
     private companion object {
         const val MAX_REDIRECTS = 5
         const val TIMEOUT_MS = 25_000
+    }
+}
+
+/** Разбор списка КП из ответа таблицы. */
+fun parseQuotes(array: JSONArray): List<RemoteQuote> {
+    return (0 until array.length()).mapNotNull { array.optJSONObject(it) }.map {
+        RemoteQuote(
+            number = it.optInt("number"),
+            date = it.optString("date"),
+            client = it.optString("client"),
+            total = it.optDouble("total", 0.0),
+            author = it.optString("author"),
+            id = it.optString("id"),
+            data = it.optString("data"),
+            status = QuoteStatus.from(it.optString("status")),
+            profit = if (it.isNull("profit") || it.optString("profit").isBlank()) null else it.optDouble("profit"),
+            month = it.optString("month"),
+            validUntil = it.optLong("validUntil", 0),
+            products = it.optJSONObject("products")?.let { p -> p.keys().asSequence().associateWith { k -> p.optDouble(k) } }.orEmpty(),
+        )
     }
 }

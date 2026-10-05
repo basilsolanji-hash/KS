@@ -101,6 +101,7 @@ class OpsUiTest {
         repeat(3) { compose.onNodeWithContentDescription("Назад").performClick() }
         // Главный экран директора: графики продаж и прихода (КП согласовано, оплата 50 000 ₽).
         compose.waitUntil(10_000) { compose.onAllNodes(hasText("Динамика продаж (согласованные КП)")).fetchSemanticsNodes().isNotEmpty() }
+        Shots.take("47_home_top", compose)
         compose.onNodeWithText("Приход и расход денег").performScrollTo()
         Shots.take("48_home_charts", compose)
         compose.onNodeWithText("Оплаты и долги").performScrollTo().performClick()

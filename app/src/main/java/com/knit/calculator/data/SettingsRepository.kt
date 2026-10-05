@@ -14,7 +14,7 @@ class SettingsRepository(context: Context) {
     var themeMode: ThemeMode
         get() = prefs.getString(KEY_THEME, null)
             ?.let { name -> ThemeMode.entries.firstOrNull { it.name == name } }
-            ?: ThemeMode.SYSTEM
+            ?: ThemeMode.DARK // по умолчанию — тёмная тема
         set(value) = prefs.edit().putString(KEY_THEME, value.name).apply()
 
     private companion object {
