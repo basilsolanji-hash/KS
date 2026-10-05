@@ -518,6 +518,30 @@ assert.deepStrictEqual(fin.supplier.map((x) => [x.name, x.amount]), [['Счёт 
 assert.ok(fin.supplier[0].due > Date.UTC(2098, 0, 1));
 assert.deepStrictEqual(fin.actualOut.map((x) => x.amount), [30000]);
 
+// ---- Зарплата менеджеров: оклад 60 000 + 3 % от оплат месяца по КП менеджера.
+const ym = new Date().toISOString().slice(0, 7);
+const qRow = new Array(23).fill('');
+qRow[0] = 900; qRow[10] = 'Иван / Pixel 8'; qRow[11] = 'qS';
+sheets['КП'].data.push(qRow);
+msDb.customerorder.push({ id: 'coS', name: 'КП-900', externalCode: 'qS', meta: { href: MS + '/entity/customerorder/coS' } });
+msDb.paymentin.push({ id: 'piS', moment: ym + '-05 10:00:00.000', sum: 10000000, operations: [{ meta: { href: MS + '/entity/customerorder/coS' }, linkedSum: 10000000 }] });
+msDb.paymentin.push({ id: 'piOld', moment: '2000-01-05 10:00:00.000', sum: 999, operations: [{ meta: { href: MS + '/entity/customerorder/coS' } }] });
+const sal = call({ action: 'salary', month: ym }).salary;
+assert.strictEqual(sal.source, 'ms');
+assert.deepStrictEqual([sal.base, sal.percent], [60000, 3]);
+const ivan = sal.rows.find((r) => r.name === 'Иван');
+assert.deepStrictEqual([ivan.paid, ivan.bonus, ivan.total], [100000, 3000, 63000]);
+assert.ok(!sal.rows.some((r) => r.name === 'Пётр'), 'отключённый менеджер не считается');
+const mine = asManager({ action: 'salary', month: ym }).salary;
+assert.deepStrictEqual(mine.rows.map((r) => r.name), ['Иван']);
+// Без МойСклад — по листу «Оплаты».
+delete context.PropertiesService.props.MS_TOKEN;
+sheets['Оплаты'].data.push([new Date(), 900, 'qS', 'ООО', '50 000', '', '', 'pS', '']);
+const salSheet = call({ action: 'salary', month: ym }).salary;
+assert.strictEqual(salSheet.source, 'sheet');
+assert.strictEqual(salSheet.rows.find((r) => r.name === 'Иван').bonus, 1500);
+context.PropertiesService.props.MS_TOKEN = 'tok';
+
 // ---- Журнал действий: успешные изменения записываются, ошибки и чтение — нет.
 const journal = sheets['Журнал'];
 assert.ok(journal, 'лист «Журнал» создан');

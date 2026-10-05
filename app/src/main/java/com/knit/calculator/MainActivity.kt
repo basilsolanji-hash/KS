@@ -107,8 +107,11 @@ class MainActivity : FragmentActivity() {
                 if (screen == Screen.HOME) {
                     quoteViewModel.loadDealsIfStale()
                     opsViewModel.loadIfStale()
+                    if (!director) quoteViewModel.loadMySalaryIfStale()
                 }
             }
+            val mySalary by quoteViewModel.mySalary.collectAsStateWithLifecycle()
+            val myPay = if (director) null else mySalary?.rows?.firstOrNull()?.let { Triple(it.total, it.paid, it.bonus) }
             val day = androidx.compose.runtime.remember(deals, ops) {
                 deals?.let { list ->
                     val parse = java.text.SimpleDateFormat("dd.MM.yyyy", java.util.Locale.US)
@@ -132,7 +135,7 @@ class MainActivity : FragmentActivity() {
                     return@KnitTheme
                 }
                 when (screen) {
-                    Screen.HOME -> HomeScreen(sync, themeMode, director, onTheme = viewModel::cycleTheme, day = day, version = version) { action ->
+                    Screen.HOME -> HomeScreen(sync, themeMode, director, onTheme = viewModel::cycleTheme, day = day, version = version, myPay = myPay) { action ->
                         open(
                             when (action) {
                                 HomeAction.QUOTE -> Screen.QUOTE

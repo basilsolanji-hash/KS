@@ -123,6 +123,9 @@ class SheetClient(private val config: SyncConfig) {
     suspend fun msCatalog(fresh: Boolean = false): JSONObject? =
         get("msCatalog", "fresh" to if (fresh) "1" else "").optJSONObject("ms")?.takeIf { it.optBoolean("enabled") }
 
+    /** Зарплата за месяц (yyyy-MM): директору — все менеджеры, менеджеру — только он. */
+    suspend fun salary(month: String = ""): JSONObject = get("salary", "month" to month).optJSONObject("salary") ?: JSONObject()
+
     /** Платёжный календарь: остаток, регулярные платежи, счета поставщиков, факт (только директору). */
     suspend fun finance(): JSONObject = get("finance").optJSONObject("finance") ?: JSONObject()
 

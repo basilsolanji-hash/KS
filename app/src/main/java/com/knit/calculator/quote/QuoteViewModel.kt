@@ -601,6 +601,20 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
     /** Все КП таблицы (без данных черновика) — для долгов; без таблицы — архив телефона. */
     val deals: StateFlow<List<HistoryItem>?> = _deals.asStateFlow()
 
+    private val _mySalary = MutableStateFlow<SalaryData?>(null)
+    /** Заработок менеджера в этом месяце (для главного экрана). */
+    val mySalary: StateFlow<SalaryData?> = _mySalary.asStateFlow()
+    private var salaryLoadedAt = 0L
+
+    fun loadMySalaryIfStale(maxAgeMs: Long = 10 * 60_000L) {
+        val config = _syncConfig.value
+        if (!config.enabled || System.currentTimeMillis() - salaryLoadedAt < maxAgeMs) return
+        salaryLoadedAt = System.currentTimeMillis()
+        viewModelScope.launch {
+            _mySalary.value = runCatching { SalaryData.parse(SheetClient(config).salary()) }.getOrNull()
+        }
+    }
+
     private var dealsLoadedAt = 0L
 
     /** Для панели «Сегодня»: не чаще раза в [maxAgeMs], чтобы главный экран не ждал таблицу. */

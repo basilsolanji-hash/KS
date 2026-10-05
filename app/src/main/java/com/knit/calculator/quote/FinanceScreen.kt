@@ -80,7 +80,29 @@ data class FinanceData(
     }
 }
 
+/** Зарплата менеджера за месяц: оклад + % от оплат по его КП. */
+data class SalaryRow(val name: String, val paid: BigDecimal, val bonus: BigDecimal, val total: BigDecimal)
+
+data class SalaryData(val month: String, val base: BigDecimal, val percent: BigDecimal, val rows: List<SalaryRow>) {
+    companion object {
+        private fun money(v: Any?): BigDecimal = v?.toString()?.toBigDecimalOrNull() ?: BigDecimal.ZERO
+
+        fun parse(o: JSONObject): SalaryData {
+            val a = o.optJSONArray("rows") ?: JSONArray()
+            return SalaryData(
+                o.optString("month"), money(o.opt("base")), money(o.opt("percent")),
+                (0 until a.length()).mapNotNull { a.optJSONObject(it) }.map {
+                    SalaryRow(it.optString("name"), money(it.opt("paid")), money(it.opt("bonus")), money(it.opt("total")))
+                },
+            )
+        }
+    }
+}
+
 class FinanceViewModel(application: Application) : AndroidViewModel(application) {
+    private val _salary = MutableStateFlow<SalaryData?>(null)
+    val salary: StateFlow<SalaryData?> = _salary.asStateFlow()
+
     private val store = QuoteStore(application)
     private val _data = MutableStateFlow<FinanceData?>(null)
     val data: StateFlow<FinanceData?> = _data.asStateFlow()
@@ -100,7 +122,9 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         _error.value = null
         viewModelScope.launch {
             try {
-                _data.value = FinanceData.parse(SheetClient(config).finance())
+                val client = SheetClient(config)
+                _data.value = FinanceData.parse(client.finance())
+                _salary.value = runCatching { SalaryData.parse(client.salary()) }.getOrNull()
             } catch (e: Exception) {
                 _error.value = e.message ?: "Нет связи с таблицей"
             } finally {
@@ -158,7 +182,11 @@ fun FinanceScreen(quoteVm: QuoteViewModel, opsVm: OpsViewModel, financeVm: Finan
         val d = data ?: return@FormScreen
         d.msError?.let { Text(stringResource(R.string.ms_error, it), color = colors.textSecondary, fontSize = 13.sp) }
         val list = deals.orEmpty()
-        if (tab == 0) CashTab(d, list, ops, settings, now) else ReportTab(d, list, ops, now)
+        if (tab == 0) CashTab(d, list, ops, settings, now) else {
+            ReportTab(d, list, ops, now)
+            val salary by financeVm.salary.collectAsStateWithLifecycle()
+            salary?.let { SalaryBlock(it) }
+        }
     }
 }
 
@@ -271,6 +299,25 @@ private fun ReportTab(d: FinanceData, deals: List<HistoryItem>, ops: OpsData, no
     AbcBlock(R.string.report_abc_clients, DirectorReport.clients(sales))
     AbcBlock(R.string.report_abc_products, DirectorReport.products(sales))
     Text(stringResource(R.string.report_abc_hint), color = colors.textSecondary, fontSize = 13.sp)
+}
+
+@Composable
+private fun SalaryBlock(s: SalaryData) {
+    val colors = LocalKnitColors.current
+    SectionTitle(R.string.salary_title)
+    Text(stringResource(R.string.salary_rule, s.month, rub(s.base), s.percent.stripTrailingZeros().toPlainString()), color = colors.textSecondary, fontSize = 13.sp)
+    if (s.rows.isEmpty()) Text(stringResource(R.string.salary_empty), color = colors.textSecondary, fontSize = 13.sp)
+    s.rows.forEach { r ->
+        Row {
+            Column(Modifier.weight(1f)) {
+                Text(r.name, color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.salary_line, rub(r.paid), rub(r.bonus)), color = colors.textSecondary, fontSize = 13.sp)
+            }
+            Text(rub(r.total), color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+    val total = s.rows.fold(BigDecimal.ZERO) { a, r -> a + r.total }
+    if (s.rows.size > 1) Text(stringResource(R.string.salary_total, rub(total)), color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
 }
 
 @Composable

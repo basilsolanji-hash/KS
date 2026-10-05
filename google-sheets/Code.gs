@@ -59,7 +59,8 @@ var DIRECTOR_ONLY = ['deletePayment', 'finance'];
 // Строки «Настроек», которые менеджеру не нужны и не должны попадать на его телефон.
 var PRIVATE_SETTINGS = ['Ключ доступа', 'PIN директора', 'Постоянные расходы в месяц, ₽', 'План выпуска, шт/мес',
   'Комиссия, %', 'Целевая рентабельность, %', 'Папка: логотип (ID)', 'Папка: фото (ID)', 'Папка: КП (ID)',
-  'Папка: документы (ID)', 'Начальный номер КП', 'Начальный номер счёта'];
+  'Папка: документы (ID)', 'Начальный номер КП', 'Начальный номер счёта',
+  'Остаток денег, ₽ (если нет МойСклад)', 'Оклад менеджера, ₽', 'Процент менеджера от оплат, %'];
 
 /**
  * Кто обращается: ключ из «Настроек» — владелец (директор); ключи из листа «Менеджеры» — свои у каждого,
@@ -173,6 +174,8 @@ function route_(req) {
         }
         return json_({ ok: true, ms: msEnabled_() ? cached_(msKey, 900, function () { return msCatalog_(ss, director); }) : msCatalog_(ss, director) });
       }
+      case 'salary':
+        return json_({ ok: true, salary: salary_(ss, who, String(req.month || '')) });
       case 'finance':
         return json_({ ok: true, finance: finance_(ss) });
       case 'innLookup':
@@ -347,6 +350,73 @@ function finance_(ss) {
   });
   if (ms && ms.error) out.msError = ms.error;
   return out;
+}
+
+// ---------------------------------------------------------------- Зарплата менеджеров
+
+var SALARY_BASE_SETTING = 'Оклад менеджера, ₽';
+var SALARY_PERCENT_SETTING = 'Процент менеджера от оплат, %';
+
+/**
+ * Зарплата за месяц (yyyy-MM): оклад + % от оплат, поступивших в этом месяце по КП менеджера.
+ * Оплаты — из МойСклад (входящие платежи, привязанные к заказу «КП-N»), иначе — лист «Оплаты».
+ * Директор видит всех, менеджер — только себя.
+ */
+function salary_(ss, who, month) {
+  var s = settings_(ss);
+  var tz = ss.getSpreadsheetTimeZone();
+  if (!/^\d{4}-\d{2}$/.test(month)) month = Utilities.formatDate(new Date(), tz, 'yyyy-MM');
+  var base = String(s[SALARY_BASE_SETTING] || '').trim() ? money_(s[SALARY_BASE_SETTING]) : 60000;
+  var percent = String(s[SALARY_PERCENT_SETTING] || '').trim() ? money_(s[SALARY_PERCENT_SETTING]) : 3;
+  var monthOf = function (d) { return Utilities.formatDate(d instanceof Date ? d : new Date(d), tz, 'yyyy-MM'); };
+  var person = function (author) { return String(author || '').split(' / ')[0].trim(); };
+
+  var authorById = {};
+  ss.getSheetByName(SHEETS.quotes).getDataRange().getValues().slice(1).forEach(function (r) {
+    if (r[Q.id - 1]) authorById[String(r[Q.id - 1])] = person(r[Q.author - 1]);
+  });
+  var paid = {};
+  var add = function (quoteId, amount) {
+    var name = authorById[String(quoteId)];
+    if (!name) return;
+    paid[name] = (paid[name] || 0) + amount;
+  };
+  var fromMs = false;
+  if (msEnabled_()) {
+    var ms = msTry_(function () {
+      var orderQuote = {};
+      msAll_('/entity/customerorder?filter=name~' + encodeURIComponent(MS_ORDER_PREFIX)).forEach(function (o) {
+        if (o.externalCode) orderQuote[o.id] = o.externalCode;
+      });
+      var start = month + '-01 00:00:00';
+      msAll_('/entity/paymentin?filter=' + encodeURIComponent('moment>=' + start)).forEach(function (p) {
+        if (monthOf(msTime_(p.moment)) !== month) return;
+        (p.operations || []).forEach(function (op) {
+          var q = orderQuote[msIdOf_(op)];
+          if (q) add(q, (Number(op.linkedSum != null ? op.linkedSum : p.sum) || 0) / 100);
+        });
+      });
+      return {};
+    });
+    fromMs = !(ms && ms.error);
+  }
+  if (!fromMs) {
+    var pays = ss.getSheetByName(SHEETS.payments);
+    (pays ? pays.getDataRange().getValues().slice(1) : []).forEach(function (r) {
+      if (r[0] && monthOf(r[0]) === month) add(r[2], money_(r[4]));
+    });
+  }
+  // Все активные менеджеры — даже без оплат (оклад есть всегда).
+  cachedRows_(ss, MANAGERS_SHEET, true).slice(1).forEach(function (r) {
+    var name = String(r[1] || '').trim();
+    if (name && !/^(нет|no|false|0)$/i.test(String(r[3]).trim()) && !/директор/i.test(String(r[2])) && !(name in paid)) paid[name] = 0;
+  });
+  var rows = Object.keys(paid).sort().map(function (name) {
+    var bonus = Math.round(paid[name] * percent) / 100;
+    return { name: name, paid: Math.round(paid[name] * 100) / 100, bonus: bonus, total: Math.round((base + bonus) * 100) / 100 };
+  });
+  if (who.role !== 'director') rows = rows.filter(function (r) { return r.name === person(who.name); });
+  return { month: month, base: base, percent: percent, source: fromMs ? 'ms' : 'sheet', rows: rows };
 }
 
 // ---------------------------------------------------------------- Журнал действий

@@ -57,6 +57,8 @@ fun HomeScreen(
     onTheme: () -> Unit,
     day: DaySummary? = null,
     version: String = "",
+    /** Заработок менеджера в этом месяце: (итого, оплаты, процент). */
+    myPay: Triple<java.math.BigDecimal, java.math.BigDecimal, java.math.BigDecimal>? = null,
     onAction: (HomeAction) -> Unit,
 ) {
     val colors = LocalKnitColors.current
@@ -113,6 +115,18 @@ fun HomeScreen(
             }
         }
         if (day != null && !day.isEmpty) DayPanel(day, onAction)
+        if (myPay != null) {
+            Surface(shape = RoundedCornerShape(20.dp), color = colors.panel, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                    Text(stringResource(R.string.salary_mine), color = colors.textSecondary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text(QuoteCalculator.formatMoney(myPay.first) + " ₽", color = colors.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        stringResource(R.string.salary_mine_line, QuoteCalculator.formatMoney(myPay.second), QuoteCalculator.formatMoney(myPay.third)),
+                        color = colors.textSecondary, fontSize = 13.sp,
+                    )
+                }
+            }
+        }
         val tiles = listOfNotNull(
             // Финансы — только директору.
             if (director) Triple(HomeAction.FINANCE, R.string.home_finance, R.drawable.ic_payments) else null,
