@@ -112,6 +112,9 @@ class MoySkladUiTest {
         Shots.take("52_labels", compose)
         // Товар без штрихкода: предложение создать его в МойСклад.
         compose.onNodeWithText("Добавить товар").performScrollTo().performClick()
+        // Сверху — «Недавние» (первый товар); второй находим поиском.
+        compose.onNodeWithText("Недавние").assertExists()
+        compose.onNode(hasSetTextAction() and hasText("Поиск: название или артикул")).performTextInput("чёрный")
         compose.onNodeWithText("Подвяз трикотажный 2×2 Чёрный, 16х100 см").performScrollTo().performClick()
         compose.onNodeWithText("Нет штрихкода в МойСклад").assertExists()
         compose.onNodeWithText("Создать в МойСклад").assertExists()

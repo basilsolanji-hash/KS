@@ -591,10 +591,28 @@
     <string name="about_error">ошибка: %1$s</string>
     <string name="about_ms_on">%1$d товаров · склад %2$s · обновлено %3$s</string>
     <string name="about_news">Что нового</string>
+    <string name="about_news_161">1.6.1 — настройки разделами; подключение телефона по QR-коду из таблицы; КП по шагам «Клиент → Позиции → Итог», итог и «Сохранить» всегда внизу; ежедневная сводка в 9:00 (долги, отгрузки, просрочки, КП без ответа).</string>
     <string name="about_news_160">1.6.0 — проверка ИНН, e-mail и телефона; реквизиты клиента по ИНН (DaData); КПП и адрес клиента в счёте и договоре; контроль минимальной цены; «Отменить» удаление позиции; избранные и недавние товары; поиск в истории КП; панель «Сегодня»; экран «О версии».</string>
     <string name="about_news_151">1.5.1 — этикетки 120×75 мм со штрихкодом EAN-13 на Bluetooth-термопринтер (Xprinter, TSC, Zebra).</string>
     <string name="about_news_150">1.5.0 — модификации МойСклад с фильтрами и значками, личные ключи менеджеров, себестоимость только директору, защита писем.</string>
     <string name="about_news_140">1.4 — интеграция с МойСклад: товары, цены, остатки, клиенты, заказы, счета, оплаты.</string>
     <string name="about_news_130">1.3 — счета, договоры, прайс-лист, оплаты и долги, производство, склад пряжи.</string>
     <string name="about_support">Вопросы и предложения: Sale@fabrika-ks.ru</string>
+    <!-- v1.6.1 -->
+    <string name="settings_tab_connect">Подключение</string>
+    <string name="settings_tab_requisites">Реквизиты</string>
+    <string name="settings_tab_terms">Условия КП</string>
+    <string name="settings_tab_legal">Юр. тексты</string>
+    <string name="settings_tab_role">Роль и экономика</string>
+    <string name="sync_qr">Подключить по QR-коду</string>
+    <string name="digest_channel">Ежедневная сводка</string>
+    <string name="digest_title">Фабрика KS — сводка на сегодня</string>
+    <string name="digest_ship">Отгрузка сегодня–завтра: %1$d заказ(ов)</string>
+    <string name="digest_setting">Ежедневная сводка в 9:00</string>
+    <string name="digest_setting_hint">Долги, отгрузки, просроченные заказы и КП без ответа — уведомлением.</string>
+    <string name="quote_step_client">1 · Клиент</string>
+    <string name="quote_step_items">2 · Позиции</string>
+    <string name="quote_step_total">3 · Итог</string>
+    <string name="quote_bar_total">Итого</string>
+    <string name="quote_bar_save">Сохранить</string>
 </resources>

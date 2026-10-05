@@ -16,6 +16,8 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.core.content.ContextCompat
 import com.knit.calculator.core.Client
 import com.knit.calculator.core.Validation
@@ -254,14 +256,38 @@ fun QuoteScreen(
         }
         SyncBar(sync, onRefresh = viewModel::refresh, onSetup = onOpenCompany)
 
+        // КП по шагам: Клиент → Позиции → Итог (переход к разделу; текущий подсвечен).
+        val scroll = rememberScrollState()
+        val stepY = remember { mutableStateOf(listOf(0, 0, 0)) }
+        val current = stepY.value.indexOfLast { it <= scroll.value + 40 }.coerceAtLeast(0)
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(R.string.quote_step_client, R.string.quote_step_items, R.string.quote_step_total).forEachIndexed { i, label ->
+                androidx.compose.material3.FilterChip(
+                    selected = current == i,
+                    onClick = { scope.launch { scroll.animateScrollTo(stepY.value[i]) } },
+                    label = { Text(stringResource(label), fontSize = 13.sp) },
+                    colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = colors.equalsKey,
+                        selectedLabelColor = colors.equalsKeyText,
+                        labelColor = colors.textPrimary,
+                    ),
+                )
+            }
+        }
+        fun mark(i: Int) = Modifier.onGloballyPositioned { c ->
+            val y = c.positionInParent().y.toInt()
+            if (stepY.value[i] != y) stepY.value = stepY.value.toMutableList().also { it[i] = y }
+        }
+
         Column(
             Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scroll)
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            Spacer(mark(0))
             SectionTitle(R.string.quote_section_client)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (!sync.connected) KnitField(
@@ -328,6 +354,7 @@ fun QuoteScreen(
                 }
             }
 
+            Spacer(mark(1))
             SectionTitle(R.string.quote_section_items)
             if (views.isEmpty()) {
                 Text(
@@ -381,6 +408,7 @@ fun QuoteScreen(
                 text = true, singleLine = false, maxLength = 500,
             )
 
+            Spacer(mark(2))
             SectionTitle(R.string.quote_section_total)
             TotalsCard(totals, settings)
             if (views.any { it.line != null }) {
@@ -419,6 +447,21 @@ fun QuoteScreen(
                 Text(stringResource(R.string.quote_new), color = colors.textSecondary)
             }
             Spacer(Modifier.height(24.dp))
+        }
+        // Итог и «Сохранить» — всегда внизу экрана.
+        if (totals.lines.isNotEmpty()) {
+            Surface(color = colors.panel, modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.quote_bar_total), color = colors.textSecondary, fontSize = 13.sp)
+                        Text(
+                            QuoteCalculator.formatMoney(totals.total) + " ₽",
+                            color = colors.textPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    ActionButton(R.string.quote_bar_save, R.drawable.ic_cloud, primary = true, Modifier) { run(QuoteAction.SAVE) }
+                }
+            }
         }
         // «Позиция удалена — Отменить» (6 секунд).
         removed?.let {

@@ -53,4 +53,24 @@ class V16UiTest {
         compose.onNodeWithText("Google Таблица").assertExists()
         Shots.take("62_about", compose)
     }
+
+    @Test fun settingsTabsAndQuoteSteps() {
+        compose.onNodeWithText("Коммерческое предложение").performClick()
+        compose.onNodeWithText("3 · Итог").assertExists()
+        compose.onNodeWithText("Добавить позицию").performScrollTo().performClick()
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Подвяз трикотажный")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Подвяз трикотажный").performClick()
+        // Итог и «Сохранить» — внизу экрана, без прокрутки.
+        compose.onNodeWithText("Итого").assertExists()
+        compose.onNodeWithText("Сохранить").assertExists()
+        compose.onNodeWithText("1 · Клиент").performClick()
+        Shots.take("63_quote_steps", compose)
+
+        compose.onNodeWithContentDescription("Реквизиты фабрики").performClick()
+        compose.onNodeWithText("Подключить по QR-коду").assertExists()
+        compose.onNodeWithText("Ежедневная сводка в 9:00").assertExists()
+        compose.onNodeWithText("Реквизиты").performClick()
+        compose.onNodeWithText("Подключить по QR-коду").assertDoesNotExist()
+        Shots.take("64_settings_tabs", compose)
+    }
 }

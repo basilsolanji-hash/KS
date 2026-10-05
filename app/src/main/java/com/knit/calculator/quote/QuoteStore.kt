@@ -162,6 +162,11 @@ class QuoteStore(context: Context) {
         set(value) = prefs.edit().putString("server_manager", value).apply()
 
     /** PIN, которым на этом телефоне открыт режим директора. */
+    /** Ежедневная сводка в 9:00 (долги, отгрузки, КП без ответа). */
+    var digestEnabled: Boolean
+        get() = prefs.getBoolean("digest", true)
+        set(v) { prefs.edit().putBoolean("digest", v).apply() }
+
     /** Избранные товары МойСклад (ID МойСклад). */
     var favoriteMs: Set<String>
         get() = prefs.getStringSet("fav_ms", emptySet()).orEmpty().toSet()

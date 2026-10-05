@@ -365,114 +365,169 @@ fun CompanyScreen(viewModel: QuoteViewModel, onBack: () -> Unit) {
     var message by rememberSaveable { mutableStateOf<String?>(null) }
     val connectedMessage = stringResource(R.string.sync_connected)
 
+    // Настройки разделами: на экране — только выбранный раздел.
+    var section by rememberSaveable { mutableStateOf(0) }
+    val sections = listOf(
+        R.string.settings_tab_connect, R.string.settings_tab_requisites, R.string.settings_tab_terms,
+        R.string.settings_tab_legal, R.string.settings_tab_role,
+    )
     FormScreen(stringResource(R.string.settings_title), onBack) {
-        SectionTitle(R.string.sync_section)
-        Text(stringResource(if (config.enabled) R.string.sync_hint_connected else R.string.sync_hint), color = colors.textSecondary, fontSize = 14.sp)
-        KnitField(url, { url = it.trim() }, R.string.sync_url, text = true, keyboardType = KeyboardType.Uri, maxLength = 300, enabled = !config.enabled)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            KnitField(key, { key = it.trim() }, R.string.sync_key, text = true, keyboardType = KeyboardType.Password, maxLength = 64, enabled = !config.enabled, modifier = Modifier.weight(1f))
-            KnitField(manager, { manager = it; if (config.enabled) viewModel.updateManager(it) }, R.string.sync_manager, text = true, maxLength = 60, modifier = Modifier.weight(1f))
+        androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(sections.size) { i ->
+                androidx.compose.material3.FilterChip(
+                    selected = section == i,
+                    onClick = { section = i },
+                    label = { Text(stringResource(sections[i])) },
+                    colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = colors.equalsKey,
+                        selectedLabelColor = colors.equalsKeyText,
+                        labelColor = colors.textPrimary,
+                    ),
+                )
+            }
         }
-        if (config.enabled) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                ActionButton(R.string.sync_open_sheet, R.drawable.ic_list, primary = true, Modifier.weight(1f)) { openUrl(context, sync.sheetUrl) }
-                ActionButton(R.string.sync_disconnect, R.drawable.ic_close, primary = false, Modifier.weight(1f)) {
-                    viewModel.disconnect()
+        when (section) {
+            0 -> {
+            SectionTitle(R.string.sync_section)
+            Text(stringResource(if (config.enabled) R.string.sync_hint_connected else R.string.sync_hint), color = colors.textSecondary, fontSize = 14.sp)
+            KnitField(url, { url = it.trim() }, R.string.sync_url, text = true, keyboardType = KeyboardType.Uri, maxLength = 300, enabled = !config.enabled)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                KnitField(key, { key = it.trim() }, R.string.sync_key, text = true, keyboardType = KeyboardType.Password, maxLength = 64, enabled = !config.enabled, modifier = Modifier.weight(1f))
+                KnitField(manager, { manager = it; if (config.enabled) viewModel.updateManager(it) }, R.string.sync_manager, text = true, maxLength = 60, modifier = Modifier.weight(1f))
+            }
+            if (config.enabled) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    ActionButton(R.string.sync_open_sheet, R.drawable.ic_list, primary = true, Modifier.weight(1f)) { openUrl(context, sync.sheetUrl) }
+                    ActionButton(R.string.sync_disconnect, R.drawable.ic_close, primary = false, Modifier.weight(1f)) {
+                        viewModel.disconnect()
+                        message = null
+                    }
+                }
+            } else {
+                ActionButton(R.string.sync_connect, R.drawable.ic_share, primary = true, Modifier.fillMaxWidth()) {
                     message = null
+                    viewModel.connect(url, key, manager) { error -> message = error ?: connectedMessage }
+                }
+                // QR-код из таблицы (меню «Фабрика KS → QR для подключения телефона»): адрес, ключ и имя — без ручного ввода.
+                ActionButton(R.string.sync_qr, R.drawable.ic_qr, primary = false, Modifier.fillMaxWidth()) {
+                    message = null
+                    QrConnect.scan(context, onResult = { qr ->
+                        url = qr.url
+                        key = qr.key
+                        if (qr.name.isNotBlank()) manager = qr.name
+                        viewModel.connect(qr.url, qr.key, manager) { error -> message = error ?: connectedMessage }
+                    }, onError = { message = it })
                 }
             }
-        } else {
-            ActionButton(R.string.sync_connect, R.drawable.ic_share, primary = true, Modifier.fillMaxWidth()) {
-                message = null
-                viewModel.connect(url, key, manager) { error -> message = error ?: connectedMessage }
+            if (sync.loading) Text(stringResource(R.string.sync_loading), color = colors.textSecondary, fontSize = 14.sp)
+            // Ежедневная сводка: включение и выключение.
+            var digest by rememberSaveable { mutableStateOf(QuoteStore(context).digestEnabled) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.digest_setting), color = colors.textPrimary, fontSize = 16.sp)
+                    Text(stringResource(R.string.digest_setting_hint), color = colors.textSecondary, fontSize = 13.sp)
+                }
+                Switch(
+                    checked = digest,
+                    onCheckedChange = { v ->
+                        digest = v
+                        QuoteStore(context).digestEnabled = v
+                        DailyDigest.schedule(context, v)
+                    },
+                    colors = SwitchDefaults.colors(checkedTrackColor = colors.equalsKey, checkedThumbColor = colors.equalsKeyText),
+                )
             }
-        }
-        if (sync.loading) Text(stringResource(R.string.sync_loading), color = colors.textSecondary, fontSize = 14.sp)
-        message?.let { Text(it, color = colors.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
-
-        SectionTitle(R.string.company_section_requisites)
-        if (!editable) Text(stringResource(R.string.company_from_sheet), color = colors.textSecondary, fontSize = 14.sp)
-        KnitField(s.brand, { v -> set { it.copy(brand = v) } }, R.string.company_brand, enabled = editable, text = true, maxLength = 100)
-        KnitField(s.legalName, { v -> set { it.copy(legalName = v) } }, R.string.company_legal, enabled = editable, text = true, maxLength = 100)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            KnitField(s.inn, { v -> set { it.copy(inn = v.filter(Char::isDigit).take(12)) } }, R.string.company_inn, enabled = editable, keyboardType = KeyboardType.Number, text = true, modifier = Modifier.weight(1f))
-            KnitField(s.city, { v -> set { it.copy(city = v) } }, R.string.company_city, enabled = editable, text = true, modifier = Modifier.weight(1f))
-        }
-        KnitField(s.phone, { v -> set { it.copy(phone = v) } }, R.string.company_phone, enabled = editable, text = true, keyboardType = KeyboardType.Phone)
-        KnitField(s.email, { v -> set { it.copy(email = v.trim()) } }, R.string.company_email, enabled = editable, text = true, keyboardType = KeyboardType.Email, maxLength = 100)
-        KnitField(s.website, { v -> set { it.copy(website = v.trim()) } }, R.string.company_site, enabled = editable, text = true, keyboardType = KeyboardType.Uri, maxLength = 100)
-        KnitField(s.legalFullName, { v -> set { it.copy(legalFullName = v) } }, R.string.company_legal_full, enabled = editable, text = true, singleLine = false, maxLength = 200)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            KnitField(s.kpp, { v -> set { it.copy(kpp = v) } }, R.string.company_kpp, enabled = editable, text = true, keyboardType = KeyboardType.Number, maxLength = 25, modifier = Modifier.weight(1f))
-            KnitField(s.ogrn, { v -> set { it.copy(ogrn = v) } }, R.string.company_ogrn, enabled = editable, text = true, keyboardType = KeyboardType.Number, maxLength = 25, modifier = Modifier.weight(1f))
-        }
-        KnitField(s.legalAddress, { v -> set { it.copy(legalAddress = v) } }, R.string.company_legal_address, enabled = editable, text = true, singleLine = false, maxLength = 200)
-        KnitField(s.factAddress, { v -> set { it.copy(factAddress = v) } }, R.string.company_fact_address, enabled = editable, text = true, singleLine = false, maxLength = 200)
-        KnitField(s.director, { v -> set { it.copy(director = v) } }, R.string.company_director, enabled = editable, text = true, maxLength = 100)
-        KnitField(s.bank, { v -> set { it.copy(bank = v) } }, R.string.company_bank, enabled = editable, text = true, maxLength = 100)
-        KnitField(s.account, { v -> set { it.copy(account = v) } }, R.string.company_account, enabled = editable, text = true, keyboardType = KeyboardType.Number, maxLength = 25)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            KnitField(s.bik, { v -> set { it.copy(bik = v) } }, R.string.company_bik, enabled = editable, text = true, keyboardType = KeyboardType.Number, maxLength = 25, modifier = Modifier.weight(1f))
-            KnitField(s.corrAccount, { v -> set { it.copy(corrAccount = v) } }, R.string.company_corr, enabled = editable, text = true, keyboardType = KeyboardType.Number, maxLength = 25, modifier = Modifier.weight(1f))
-        }
-
-        SectionTitle(R.string.company_section_terms)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            KnitField(s.vatRate, { v -> set { it.copy(vatRate = v) } }, R.string.company_vat_rate, enabled = editable, modifier = Modifier.weight(1f))
-            KnitField(s.validityDays, { v -> set { it.copy(validityDays = v.filter(Char::isDigit).take(3)) } }, R.string.company_validity, enabled = editable, modifier = Modifier.weight(1f))
-        }
-        KnitField(s.prepayPercent, { v -> set { it.copy(prepayPercent = v) } }, R.string.company_prepay, enabled = editable)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(stringResource(R.string.company_vat_included), color = colors.textPrimary, fontSize = 16.sp)
-                Text(stringResource(R.string.company_vat_included_hint), color = colors.textSecondary, fontSize = 13.sp)
+            message?.let { Text(it, color = colors.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
             }
-            Switch(
-                enabled = editable,
-                checked = s.vatIncluded,
-                onCheckedChange = { v -> set { it.copy(vatIncluded = v) } },
-                colors = SwitchDefaults.colors(
-                    checkedTrackColor = colors.equalsKey,
-                    checkedThumbColor = colors.equalsKeyText,
-                ),
-            )
-        }
-        KnitField(s.leadTime, { v -> set { it.copy(leadTime = v) } }, R.string.company_lead_time, enabled = editable, text = true, maxLength = 100)
-        KnitField(s.freeDeliveryFrom, { v -> set { it.copy(freeDeliveryFrom = v) } }, R.string.company_free_delivery, enabled = editable)
-        KnitField(s.deliveryArea, { v -> set { it.copy(deliveryArea = v) } }, R.string.company_delivery_area, enabled = editable, text = true, maxLength = 150)
-        KnitField(s.terms, { v -> set { it.copy(terms = v) } }, R.string.company_terms, enabled = editable, text = true, singleLine = false, maxLength = 500)
-        KnitField(s.signature, { v -> set { it.copy(signature = v) } }, R.string.company_signature, enabled = editable, text = true, maxLength = 120)
-        KnitField(s.shopUrl, { v -> set { it.copy(shopUrl = v.trim()) } }, R.string.company_shop, enabled = editable, text = true, keyboardType = KeyboardType.Uri, maxLength = 200)
+            1 -> {
+            SectionTitle(R.string.company_section_requisites)
+            if (!editable) Text(stringResource(R.string.company_from_sheet), color = colors.textSecondary, fontSize = 14.sp)
+            KnitField(s.brand, { v -> set { it.copy(brand = v) } }, R.string.company_brand, enabled = editable, text = true, maxLength = 100)
+            KnitField(s.legalName, { v -> set { it.copy(legalName = v) } }, R.string.company_legal, enabled = editable, text = true, maxLength = 100)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                KnitField(s.inn, { v -> set { it.copy(inn = v.filter(Char::isDigit).take(12)) } }, R.string.company_inn, enabled = editable, keyboardType = KeyboardType.Number, text = true, modifier = Modifier.weight(1f))
+                KnitField(s.city, { v -> set { it.copy(city = v) } }, R.string.company_city, enabled = editable, text = true, modifier = Modifier.weight(1f))
+            }
+            KnitField(s.phone, { v -> set { it.copy(phone = v) } }, R.string.company_phone, enabled = editable, text = true, keyboardType = KeyboardType.Phone)
+            KnitField(s.email, { v -> set { it.copy(email = v.trim()) } }, R.string.company_email, enabled = editable, text = true, keyboardType = KeyboardType.Email, maxLength = 100)
+            KnitField(s.website, { v -> set { it.copy(website = v.trim()) } }, R.string.company_site, enabled = editable, text = true, keyboardType = KeyboardType.Uri, maxLength = 100)
+            KnitField(s.legalFullName, { v -> set { it.copy(legalFullName = v) } }, R.string.company_legal_full, enabled = editable, text = true, singleLine = false, maxLength = 200)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                KnitField(s.kpp, { v -> set { it.copy(kpp = v) } }, R.string.company_kpp, enabled = editable, text = true, keyboardType = KeyboardType.Number, maxLength = 25, modifier = Modifier.weight(1f))
+                KnitField(s.ogrn, { v -> set { it.copy(ogrn = v) } }, R.string.company_ogrn, enabled = editable, text = true, keyboardType = KeyboardType.Number, maxLength = 25, modifier = Modifier.weight(1f))
+            }
+            KnitField(s.legalAddress, { v -> set { it.copy(legalAddress = v) } }, R.string.company_legal_address, enabled = editable, text = true, singleLine = false, maxLength = 200)
+            KnitField(s.factAddress, { v -> set { it.copy(factAddress = v) } }, R.string.company_fact_address, enabled = editable, text = true, singleLine = false, maxLength = 200)
+            KnitField(s.director, { v -> set { it.copy(director = v) } }, R.string.company_director, enabled = editable, text = true, maxLength = 100)
+            KnitField(s.bank, { v -> set { it.copy(bank = v) } }, R.string.company_bank, enabled = editable, text = true, maxLength = 100)
+            KnitField(s.account, { v -> set { it.copy(account = v) } }, R.string.company_account, enabled = editable, text = true, keyboardType = KeyboardType.Number, maxLength = 25)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                KnitField(s.bik, { v -> set { it.copy(bik = v) } }, R.string.company_bik, enabled = editable, text = true, keyboardType = KeyboardType.Number, maxLength = 25, modifier = Modifier.weight(1f))
+                KnitField(s.corrAccount, { v -> set { it.copy(corrAccount = v) } }, R.string.company_corr, enabled = editable, text = true, keyboardType = KeyboardType.Number, maxLength = 25, modifier = Modifier.weight(1f))
+            }
+            }
+            2 -> {
+            SectionTitle(R.string.company_section_terms)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                KnitField(s.vatRate, { v -> set { it.copy(vatRate = v) } }, R.string.company_vat_rate, enabled = editable, modifier = Modifier.weight(1f))
+                KnitField(s.validityDays, { v -> set { it.copy(validityDays = v.filter(Char::isDigit).take(3)) } }, R.string.company_validity, enabled = editable, modifier = Modifier.weight(1f))
+            }
+            KnitField(s.prepayPercent, { v -> set { it.copy(prepayPercent = v) } }, R.string.company_prepay, enabled = editable)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.company_vat_included), color = colors.textPrimary, fontSize = 16.sp)
+                    Text(stringResource(R.string.company_vat_included_hint), color = colors.textSecondary, fontSize = 13.sp)
+                }
+                Switch(
+                    enabled = editable,
+                    checked = s.vatIncluded,
+                    onCheckedChange = { v -> set { it.copy(vatIncluded = v) } },
+                    colors = SwitchDefaults.colors(
+                        checkedTrackColor = colors.equalsKey,
+                        checkedThumbColor = colors.equalsKeyText,
+                    ),
+                )
+            }
+            KnitField(s.leadTime, { v -> set { it.copy(leadTime = v) } }, R.string.company_lead_time, enabled = editable, text = true, maxLength = 100)
+            KnitField(s.freeDeliveryFrom, { v -> set { it.copy(freeDeliveryFrom = v) } }, R.string.company_free_delivery, enabled = editable)
+            KnitField(s.deliveryArea, { v -> set { it.copy(deliveryArea = v) } }, R.string.company_delivery_area, enabled = editable, text = true, maxLength = 150)
+            KnitField(s.terms, { v -> set { it.copy(terms = v) } }, R.string.company_terms, enabled = editable, text = true, singleLine = false, maxLength = 500)
+            KnitField(s.signature, { v -> set { it.copy(signature = v) } }, R.string.company_signature, enabled = editable, text = true, maxLength = 120)
+            KnitField(s.shopUrl, { v -> set { it.copy(shopUrl = v.trim()) } }, R.string.company_shop, enabled = editable, text = true, keyboardType = KeyboardType.Uri, maxLength = 200)
+            }
+            3 -> {
+            SectionTitle(R.string.company_section_legal)
+            KnitField(s.termOffer, { v -> set { it.copy(termOffer = v) } }, R.string.company_term_offer, enabled = editable, text = true, singleLine = false, maxLength = 600)
+            KnitField(s.termPayment, { v -> set { it.copy(termPayment = v) } }, R.string.company_term_payment, enabled = editable, text = true, singleLine = false, maxLength = 600)
+            KnitField(s.termQuality, { v -> set { it.copy(termQuality = v) } }, R.string.company_term_quality, enabled = editable, text = true, singleLine = false, maxLength = 600)
+            KnitField(s.termRights, { v -> set { it.copy(termRights = v) } }, R.string.company_term_rights, enabled = editable, text = true, singleLine = false, maxLength = 600)
+            KnitField(s.termConfidential, { v -> set { it.copy(termConfidential = v) } }, R.string.company_term_confidential, enabled = editable, text = true, singleLine = false, maxLength = 600)
+            KnitField(s.termPersonal, { v -> set { it.copy(termPersonal = v) } }, R.string.company_term_personal, enabled = editable, text = true, singleLine = false, maxLength = 600)
+            KnitField(s.emailDisclaimer, { v -> set { it.copy(emailDisclaimer = v) } }, R.string.company_email_disclaimer, enabled = editable, text = true, singleLine = false, maxLength = 600)
+            }
+            else -> {
+            SectionTitle(R.string.company_section_role)
+            DirectorSection(viewModel, s, director, editable)
 
-        SectionTitle(R.string.company_section_legal)
-        KnitField(s.termOffer, { v -> set { it.copy(termOffer = v) } }, R.string.company_term_offer, enabled = editable, text = true, singleLine = false, maxLength = 600)
-        KnitField(s.termPayment, { v -> set { it.copy(termPayment = v) } }, R.string.company_term_payment, enabled = editable, text = true, singleLine = false, maxLength = 600)
-        KnitField(s.termQuality, { v -> set { it.copy(termQuality = v) } }, R.string.company_term_quality, enabled = editable, text = true, singleLine = false, maxLength = 600)
-        KnitField(s.termRights, { v -> set { it.copy(termRights = v) } }, R.string.company_term_rights, enabled = editable, text = true, singleLine = false, maxLength = 600)
-        KnitField(s.termConfidential, { v -> set { it.copy(termConfidential = v) } }, R.string.company_term_confidential, enabled = editable, text = true, singleLine = false, maxLength = 600)
-        KnitField(s.termPersonal, { v -> set { it.copy(termPersonal = v) } }, R.string.company_term_personal, enabled = editable, text = true, singleLine = false, maxLength = 600)
-        KnitField(s.emailDisclaimer, { v -> set { it.copy(emailDisclaimer = v) } }, R.string.company_email_disclaimer, enabled = editable, text = true, singleLine = false, maxLength = 600)
-
-        SectionTitle(R.string.company_section_role)
-        DirectorSection(viewModel, s, director, editable)
-
-        if (director) SectionTitle(R.string.company_section_economics)
-        if (director) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            KnitField(s.fixedMonthly, { v -> set { it.copy(fixedMonthly = v) } }, R.string.company_fixed, enabled = editable, modifier = Modifier.weight(1f))
-            KnitField(s.planQuantity, { v -> set { it.copy(planQuantity = v) } }, R.string.company_plan, enabled = editable, modifier = Modifier.weight(1f))
-        }
-        if (director) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            KnitField(s.commissionPercent, { v -> set { it.copy(commissionPercent = v) } }, R.string.company_commission, enabled = editable, modifier = Modifier.weight(1f))
-            KnitField(s.targetMarginPercent, { v -> set { it.copy(targetMarginPercent = v) } }, R.string.company_target, enabled = editable, modifier = Modifier.weight(1f))
-        }
-        if (director) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            KnitField(s.maxDiscountPercent, { v -> set { it.copy(maxDiscountPercent = v) } }, R.string.company_max_discount, enabled = editable, modifier = Modifier.weight(1f))
-            KnitField(s.reminderDays, { v -> set { it.copy(reminderDays = v) } }, R.string.company_reminder, enabled = editable, modifier = Modifier.weight(1f))
-        }
-        if (director) KnitField(s.yarnWastePercent, { v -> set { it.copy(yarnWastePercent = v) } }, R.string.company_yarn_waste, enabled = editable)
-        if (editable && director) {
-            TextButton(onClick = viewModel::resetSettings, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                Text(stringResource(R.string.company_reset), color = colors.textSecondary)
+            if (director) SectionTitle(R.string.company_section_economics)
+            if (director) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                KnitField(s.fixedMonthly, { v -> set { it.copy(fixedMonthly = v) } }, R.string.company_fixed, enabled = editable, modifier = Modifier.weight(1f))
+                KnitField(s.planQuantity, { v -> set { it.copy(planQuantity = v) } }, R.string.company_plan, enabled = editable, modifier = Modifier.weight(1f))
+            }
+            if (director) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                KnitField(s.commissionPercent, { v -> set { it.copy(commissionPercent = v) } }, R.string.company_commission, enabled = editable, modifier = Modifier.weight(1f))
+                KnitField(s.targetMarginPercent, { v -> set { it.copy(targetMarginPercent = v) } }, R.string.company_target, enabled = editable, modifier = Modifier.weight(1f))
+            }
+            if (director) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                KnitField(s.maxDiscountPercent, { v -> set { it.copy(maxDiscountPercent = v) } }, R.string.company_max_discount, enabled = editable, modifier = Modifier.weight(1f))
+                KnitField(s.reminderDays, { v -> set { it.copy(reminderDays = v) } }, R.string.company_reminder, enabled = editable, modifier = Modifier.weight(1f))
+            }
+            if (director) KnitField(s.yarnWastePercent, { v -> set { it.copy(yarnWastePercent = v) } }, R.string.company_yarn_waste, enabled = editable)
+            if (editable && director) {
+                TextButton(onClick = viewModel::resetSettings, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                    Text(stringResource(R.string.company_reset), color = colors.textSecondary)
+                }
+            }
             }
         }
     }

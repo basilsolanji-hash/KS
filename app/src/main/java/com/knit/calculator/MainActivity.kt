@@ -48,6 +48,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Ежедневная сводка (9:00): долги, отгрузки, просрочки, КП без ответа.
+        com.knit.calculator.quote.DailyDigest.schedule(this, com.knit.calculator.quote.QuoteStore(this).digestEnabled)
         enableEdgeToEdge()
         setContent {
             val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()

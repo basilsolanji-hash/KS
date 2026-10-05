@@ -783,9 +783,53 @@ var MS_STATE_COLOR = 3200456; // #30D5C8
 
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Фабрика KS')
+    .addItem('QR для подключения телефона…', 'qrConnect')
     .addItem('Подключить МойСклад…', 'msConnect')
     .addItem('Отключить МойСклад', 'msDisconnect')
     .addToUi();
+}
+
+/** Кому можно выдать QR: директор (главный ключ) и активные менеджеры. */
+function qrPeople_(ss) {
+  var people = [];
+  var main = String(settings_(ss)[KEY_SETTING] || '').trim();
+  if (main) people.push({ title: 'Директор (главный ключ)', key: main, name: '' });
+  cachedRows_(ss, MANAGERS_SHEET, true).slice(1).forEach(function (r) {
+    var key = String(r[0] || '').trim();
+    if (!key || /^(нет|no|false|0)$/i.test(String(r[3]).trim())) return;
+    people.push({ title: String(r[1] || key) + ' (' + (/директор/i.test(String(r[2])) ? 'директор' : 'менеджер') + ')', key: key, name: String(r[1] || '') });
+  });
+  return people;
+}
+
+/**
+ * Меню: QR-код для подключения телефона — адрес веб-приложения, ключ и имя. Код рисуется в браузере
+ * (данные никуда не отправляются); телефон: Настройки → «Подключить по QR-коду».
+ */
+function qrConnect() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var people = qrPeople_(ss);
+  var url = '';
+  try { url = ScriptApp.getService().getUrl() || ''; } catch (e) {}
+  var data = JSON.stringify({ url: url, people: people }).replace(/</g, '\\u003c');
+  var html = '<!doctype html><html><head><meta charset="utf-8">' +
+    '<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>' +
+    '<style>body{font-family:Arial,sans-serif;font-size:14px;margin:8px}select,input{width:100%;margin:4px 0 10px;padding:6px;box-sizing:border-box}' +
+    '#qr{text-align:center}#qr svg{width:300px;height:300px}.warn{color:#b00020;font-size:12px}</style></head><body>' +
+    '<label>Кому</label><select id="who"></select>' +
+    '<label>Адрес веб-приложения (…/exec)</label><input id="url">' +
+    '<div id="qr"></div>' +
+    '<p>Телефон: Настройки → Подключение → «Подключить по QR-коду».</p>' +
+    '<p class="warn">В коде — ключ доступа. Не показывайте и не пересылайте его посторонним.</p>' +
+    '<script>var D=' + data + ';var who=document.getElementById("who"),url=document.getElementById("url");' +
+    'D.people.forEach(function(p,i){var o=document.createElement("option");o.value=i;o.textContent=p.title;who.appendChild(o);});' +
+    'url.value=D.url.replace(/\\/dev$/,"/exec");' +
+    'function draw(){var p=D.people[who.value];if(!p){document.getElementById("qr").textContent="Нет ключей: заполните «Ключ доступа» в Настройках или лист «Менеджеры».";return;}' +
+    'qrcode.stringToBytes=qrcode.stringToBytesFuncs["UTF-8"];var q=qrcode(0,"M");' +
+    'q.addData(JSON.stringify({ks:1,u:url.value.trim(),k:p.key,n:p.name}));q.make();' +
+    'document.getElementById("qr").innerHTML=q.createSvgTag({cellSize:6,margin:4});}' +
+    'who.onchange=draw;url.oninput=draw;draw();</script></body></html>';
+  SpreadsheetApp.getUi().showModalDialog(HtmlService.createHtmlOutput(html).setWidth(420).setHeight(600), 'QR для подключения телефона');
 }
 
 /** Меню: сохранить токен МойСклад (проверяется запросом к МойСклад). */
