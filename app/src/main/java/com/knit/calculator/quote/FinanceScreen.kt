@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
@@ -20,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -62,6 +64,8 @@ data class FinanceData(
     val actualIn: List<Pair<Long, BigDecimal>> = emptyList(),
     val actualOut: List<Pair<Long, BigDecimal>> = emptyList(),
     val msError: String? = null,
+    /** Расходы со статьями (МойСклад) — для анализа по статьям. */
+    val expenses: List<com.knit.calculator.core.Expense> = emptyList(),
     /** Отгрузки МойСклад: дата, сумма ₽, штуки. */
     val shipments: List<Triple<Long, BigDecimal, BigDecimal>> = emptyList(),
     /** `false` — МойСклад не подключён, отгрузок нет. */
@@ -80,6 +84,9 @@ data class FinanceData(
             actualIn = o.optJSONArray("actualIn").objects().map { it.optLong("date") to money(it.opt("amount")) },
             actualOut = o.optJSONArray("actualOut").objects().map { it.optLong("date") to money(it.opt("amount")) },
             msError = o.optString("msError").ifBlank { null },
+            expenses = o.optJSONArray("actualOut").objects().map {
+                com.knit.calculator.core.Expense(it.optLong("date"), money(it.opt("amount")), it.optString("category"))
+            },
             shipments = o.optJSONArray("shipments").objects().map { Triple(it.optLong("date"), money(it.opt("sum")), money(it.opt("qty"))) },
             hasShipments = o.has("shipments"),
         )
@@ -196,7 +203,7 @@ fun FinanceScreen(quoteVm: QuoteViewModel, opsVm: OpsViewModel, financeVm: Finan
         KnitIconButton(R.drawable.ic_arrow_down, stringResource(R.string.sync_refresh), { financeVm.load(); quoteVm.loadDeals(); opsVm.load() })
     }) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(R.string.finance_tab_cash, R.string.finance_tab_report).forEachIndexed { i, label ->
+            listOf(R.string.finance_tab_cash, R.string.finance_tab_report, R.string.finance_tab_expenses).forEachIndexed { i, label ->
                 FilterChip(
                     selected = tab == i, onClick = { tab = i }, label = { Text(stringResource(label)) },
                     colors = FilterChipDefaults.filterChipColors(selectedContainerColor = colors.equalsKey, selectedLabelColor = colors.equalsKeyText, labelColor = colors.textPrimary),
@@ -208,7 +215,7 @@ fun FinanceScreen(quoteVm: QuoteViewModel, opsVm: OpsViewModel, financeVm: Finan
         val d = data ?: return@FormScreen
         d.msError?.let { Text(stringResource(R.string.ms_error, it), color = colors.textSecondary, fontSize = 13.sp) }
         val list = deals.orEmpty()
-        if (tab == 0) CashTab(d, list, ops, settings, now) else {
+        if (tab == 0) CashTab(d, list, ops, settings, now) else if (tab == 2) ExpensesTab(d, now) else {
             ReportTab(d, list, ops, now)
             val salary by financeVm.salary.collectAsStateWithLifecycle()
             salary?.let { SalaryBlock(it) }
@@ -325,6 +332,63 @@ private fun ReportTab(d: FinanceData, deals: List<HistoryItem>, ops: OpsData, no
     AbcBlock(R.string.report_abc_clients, DirectorReport.clients(sales))
     AbcBlock(R.string.report_abc_products, DirectorReport.products(sales))
     Text(stringResource(R.string.report_abc_hint), color = colors.textSecondary, fontSize = 13.sp)
+}
+
+/** Расходы по статьям за период: доля, сумма и изменение к предыдущему периоду. */
+@Composable
+private fun ExpensesTab(d: FinanceData, now: Long) {
+    val colors = LocalKnitColors.current
+    var period by rememberSaveable { mutableStateOf(com.knit.calculator.core.ExpensePeriod.THIS_MONTH) }
+    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(com.knit.calculator.core.ExpensePeriod.entries.size) { i ->
+            val p = com.knit.calculator.core.ExpensePeriod.entries[i]
+            FilterChip(
+                selected = p == period, onClick = { period = p }, label = { Text(p.title) },
+                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = colors.equalsKey, selectedLabelColor = colors.equalsKeyText, labelColor = colors.textPrimary),
+            )
+        }
+    }
+    if (d.expenses.isEmpty()) {
+        Text(stringResource(R.string.expenses_need_ms), color = colors.textSecondary, fontSize = 14.sp)
+        return
+    }
+    val rows = remember(d, period) { com.knit.calculator.core.ExpenseReport.byCategory(d.expenses, period, now) }
+    val total = rows.fold(BigDecimal.ZERO) { a, r -> a + r.sum }
+    val before = rows.fold(BigDecimal.ZERO) { a, r -> a + r.previous }
+    Card {
+        Text(stringResource(R.string.expenses_total), color = colors.textSecondary, fontSize = 14.sp)
+        Text(rub(total), color = colors.textPrimary, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        if (before.signum() > 0) {
+            val pct = total.subtract(before).multiply(BigDecimal(100)).divide(before, 0, java.math.RoundingMode.HALF_UP).toInt()
+            Text(
+                stringResource(R.string.expenses_vs_prev, (if (pct >= 0) "▲ " else "▼ ") + kotlin.math.abs(pct) + "%", rub(before)),
+                color = if (pct > 0) RED else Color(0xFF2E9E5B), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
+    if (rows.isEmpty()) Text(stringResource(R.string.expenses_empty), color = colors.textSecondary, fontSize = 14.sp)
+    val bar = com.knit.calculator.ui.ChartColors.outflow(colors.isDark)
+    rows.forEach { r ->
+        Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(r.category, color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Text(rub(r.sum), color = colors.textPrimary, fontSize = 15.sp)
+            }
+            // Полоса доли статьи в расходах периода.
+            androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().padding(vertical = 3.dp).height(8.dp)) {
+                val r8 = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx())
+                drawRoundRect(bar.copy(alpha = 0.18f), cornerRadius = r8)
+                drawRoundRect(bar, size = size.copy(width = size.width * (r.share.toFloat() / 100f).coerceIn(0.01f, 1f)), cornerRadius = r8)
+            }
+            val change = r.changePercent
+            Text(
+                r.share.stripTrailingZeros().toPlainString() + " %" +
+                    (if (change != null) " · " + (if (change >= 0) "▲ " else "▼ ") + kotlin.math.abs(change) + "% к прошлому периоду" else " · новая статья"),
+                color = if (change != null && change > 20) RED else colors.textSecondary, fontSize = 12.sp,
+            )
+        }
+    }
+    Text(stringResource(R.string.expenses_hint), color = colors.textSecondary, fontSize = 12.sp)
 }
 
 @Composable

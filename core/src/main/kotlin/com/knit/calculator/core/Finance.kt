@@ -193,3 +193,56 @@ object DirectorReport {
         return if (won.isEmpty()) BigDecimal.ZERO else won.fold(BigDecimal.ZERO) { a, x -> a + x.total }.divide(BigDecimal(won.size), 2, RoundingMode.HALF_UP)
     }
 }
+
+/** Расход по статье (МойСклад: исходящий платёж или расходный ордер). */
+data class Expense(val date: Long, val amount: BigDecimal, val category: String)
+
+/** Строка отчёта по статьям: сумма за период, доля, сумма за предыдущий такой же период. */
+data class ExpenseRow(val category: String, val sum: BigDecimal, val share: BigDecimal, val previous: BigDecimal) {
+    /** Изменение к предыдущему периоду, %; `null` — раньше расходов не было. */
+    val changePercent: Int?
+        get() = if (previous.signum() <= 0) null else sum.subtract(previous).multiply(BigDecimal(100)).divide(previous, 0, RoundingMode.HALF_UP).toInt()
+}
+
+/** Периоды анализа расходов. */
+enum class ExpensePeriod(val title: String) { THIS_MONTH("Этот месяц"), LAST_MONTH("Прошлый месяц"), QUARTER("3 месяца"), HALF_YEAR("6 месяцев") }
+
+/** Расходы по статьям за период с сравнением с предыдущим периодом той же длины. */
+object ExpenseReport {
+    private val TZ: TimeZone = TimeZone.getTimeZone("Europe/Moscow")
+
+    private fun monthStart(now: Long, back: Int): Long = Calendar.getInstance(TZ).apply {
+        timeInMillis = now
+        set(Calendar.DAY_OF_MONTH, 1); set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        add(Calendar.MONTH, -back)
+    }.timeInMillis
+
+    /** Период [from, to) и предыдущий такой же [prevFrom, from). */
+    fun range(period: ExpensePeriod, now: Long): Triple<Long, Long, Long> = when (period) {
+        // Этот месяц сравниваем с тем же числом прошлого месяца — честно для неполного месяца.
+        ExpensePeriod.THIS_MONTH -> Triple(monthStart(now, 0), now + 1, monthStart(now, 1))
+        ExpensePeriod.LAST_MONTH -> Triple(monthStart(now, 1), monthStart(now, 0), monthStart(now, 2))
+        ExpensePeriod.QUARTER -> Triple(monthStart(now, 2), now + 1, monthStart(now, 5))
+        ExpensePeriod.HALF_YEAR -> Triple(monthStart(now, 5), now + 1, monthStart(now, 11))
+    }
+
+    fun byCategory(items: List<Expense>, period: ExpensePeriod, now: Long): List<ExpenseRow> {
+        val (from, to, prevFrom) = range(period, now)
+        // Для текущего месяца предыдущий период — до того же дня прошлого месяца.
+        val prevTo = if (period == ExpensePeriod.THIS_MONTH) {
+            Calendar.getInstance(TZ).apply { timeInMillis = now; add(Calendar.MONTH, -1) }.timeInMillis + 1
+        } else from
+        fun sums(a: Long, b: Long) = items.filter { it.date in a until b }.groupBy { it.category.ifBlank { "Без статьи" } }
+            .mapValues { (_, xs) -> xs.fold(BigDecimal.ZERO) { s, x -> s + x.amount } }
+        val now1 = sums(from, to)
+        val before = sums(prevFrom, prevTo)
+        val total = now1.values.fold(BigDecimal.ZERO, BigDecimal::add)
+        return now1.map { (cat, sum) ->
+            ExpenseRow(
+                cat, sum,
+                if (total.signum() == 0) BigDecimal.ZERO else sum.multiply(BigDecimal(100)).divide(total, 1, RoundingMode.HALF_UP),
+                before[cat] ?: BigDecimal.ZERO,
+            )
+        }.sortedByDescending { it.sum }
+    }
+}

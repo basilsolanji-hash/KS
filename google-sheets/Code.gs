@@ -350,9 +350,17 @@ function finance_(ss) {
     out.actualIn = msAll_('/entity/paymentin?filter=' + encodeURIComponent('moment>=' + weeks8)).map(function (d) {
       return { date: msTime_(d.moment), amount: (Number(d.sum) || 0) / 100 };
     });
-    out.actualOut = msAll_('/entity/paymentout?filter=' + encodeURIComponent('moment>=' + weeks8)).map(function (d) {
-      return { date: msTime_(d.moment), amount: (Number(d.sum) || 0) / 100 };
-    });
+    // Расход — исходящие платежи и расходные ордера со статьёй расходов («Аренда», «Пряжа»…).
+    var items = {};
+    msAll_('/entity/expenseitem').forEach(function (e) { items[e.id] = e.name; });
+    var expense = function (d) {
+      return {
+        date: msTime_(d.moment), amount: (Number(d.sum) || 0) / 100,
+        category: (d.expenseItem && items[msIdOf_(d.expenseItem)]) || 'Без статьи',
+      };
+    };
+    out.actualOut = msAll_('/entity/paymentout?filter=' + encodeURIComponent('moment>=' + weeks8)).map(expense)
+      .concat(msAll_('/entity/cashout?filter=' + encodeURIComponent('moment>=' + weeks8)).map(expense));
     // Отгрузки по месяцам (₽ и шт) — один запрос к отчёту «Показатели продаж».
     out.shipments = [];
     try {

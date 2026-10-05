@@ -229,7 +229,12 @@ const msDb = {
   customerorder: [],
   invoiceout: [],
   paymentin: [],
-  paymentout: [{ id: 'po1', moment: '2099-01-02 10:00:00.000', sum: 3000000 }, { id: 'po0', moment: '2000-01-01 10:00:00.000', sum: 1 }],
+  paymentout: [
+    { id: 'po1', moment: '2099-01-02 10:00:00.000', sum: 3000000, expenseItem: { meta: { href: MS + '/entity/expenseitem/ex1' } } },
+    { id: 'po0', moment: '2000-01-01 10:00:00.000', sum: 1 },
+  ],
+  cashout: [{ id: 'co1', moment: '2099-01-03 10:00:00.000', sum: 50000 }],
+  expenseitem: [{ id: 'ex1', name: 'Аренда' }],
   invoicein: [
     { id: 'ii1', name: '00012', sum: 12000000, payedSum: 2000000, paymentPlannedMoment: '2099-01-10 00:00:00.000' },
     { id: 'ii2', name: '00013', sum: 500000, payedSum: 500000, paymentPlannedMoment: '2099-01-11 00:00:00.000' },
@@ -521,7 +526,7 @@ assert.strictEqual(fin.balance, 525000);
 assert.strictEqual(fin.balanceSource, 'ms');
 assert.deepStrictEqual(fin.supplier.map((x) => [x.name, x.amount]), [['Счёт поставщика № 00012', 100000]]);
 assert.ok(fin.supplier[0].due > Date.UTC(2098, 0, 1));
-assert.deepStrictEqual(fin.actualOut.map((x) => x.amount), [30000]);
+assert.deepStrictEqual(fin.actualOut.map((x) => [x.amount, x.category]), [[30000, 'Аренда'], [500, 'Без статьи']]);
 assert.deepStrictEqual(fin.shipments.map((x) => [x.sum, x.qty]), [[450000, 1200], [0, 0]]);
 assert.ok(fin.shipments[0].date > Date.UTC(2098, 0, 1));
 // Повтор — из кэша скрипта, fresh — заново из МойСклад.

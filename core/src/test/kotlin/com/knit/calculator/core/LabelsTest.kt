@@ -291,3 +291,34 @@ class PinLockTest {
         assertEquals(PinLock.MAX_FAILS, a.left())
     }
 }
+
+class ExpenseReportTest {
+    private val tz = java.util.TimeZone.getTimeZone("Europe/Moscow")
+    private fun t(y: Int, m: Int, d: Int) = java.util.Calendar.getInstance(tz).apply { clear(); set(y, m - 1, d, 12, 0) }.timeInMillis
+    private val now = t(2026, 10, 15)
+    private val items = listOf(
+        Expense(t(2026, 10, 3), BigDecimal("150000"), "Аренда"),
+        Expense(t(2026, 10, 10), BigDecimal("50000"), "Пряжа"),
+        Expense(t(2026, 9, 3), BigDecimal("100000"), "Аренда"),
+        Expense(t(2026, 9, 20), BigDecimal("999"), "Аренда"), // после 15 сентября — не в сравнении для «этого месяца»
+        Expense(t(2026, 8, 5), BigDecimal("70000"), ""),
+    )
+
+    @Test fun thisMonthComparedToSameDayLastMonth() {
+        val rows = ExpenseReport.byCategory(items, ExpensePeriod.THIS_MONTH, now)
+        assertEquals(listOf("Аренда", "Пряжа"), rows.map { it.category })
+        assertEquals(BigDecimal("75.0"), rows[0].share)
+        assertEquals(BigDecimal("100000"), rows[0].previous)
+        assertEquals(50, rows[0].changePercent)
+        assertEquals(null, rows[1].changePercent)
+    }
+
+    @Test fun lastMonthAndQuarter() {
+        val last = ExpenseReport.byCategory(items, ExpensePeriod.LAST_MONTH, now)
+        assertEquals(BigDecimal("100999"), last.single().sum)
+        assertEquals(0, last.single().previous.signum()) // в августе — только «Без статьи»
+        val q = ExpenseReport.byCategory(items, ExpensePeriod.QUARTER, now)
+        assertEquals(listOf("Аренда", "Без статьи", "Пряжа"), q.map { it.category })
+        assertEquals(BigDecimal("250999"), q[0].sum)
+    }
+}

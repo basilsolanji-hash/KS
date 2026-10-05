@@ -673,6 +673,12 @@
     <string name="finance_need_sheet">Финансы работают с подключённой Google Таблицей.</string>
     <string name="finance_tab_cash">Платёжный календарь</string>
     <string name="finance_tab_report">Отчёт директора</string>
+    <string name="finance_tab_expenses">Расходы</string>
+    <string name="expenses_total">Расходы за период</string>
+    <string name="expenses_vs_prev">%1$s к прошлому периоду (%2$s)</string>
+    <string name="expenses_empty">За этот период расходов нет.</string>
+    <string name="expenses_need_ms">Расходы по статьям берутся из МойСклад (исходящие платежи и расходные ордера со статьёй расходов).</string>
+    <string name="expenses_hint">Статью расходов указывайте в платеже МойСклад — иначе он попадёт в «Без статьи». Этот месяц сравнивается с тем же числом прошлого месяца.</string>
     <string name="finance_balance">Деньги сейчас</string>
     <string name="finance_balance_ms">по счетам МойСклад</string>
     <string name="finance_balance_sheet">из «Настроек» таблицы</string>
