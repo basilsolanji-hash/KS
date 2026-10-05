@@ -20,6 +20,7 @@ class ResetAppRule(private val theme: String = "LIGHT") : TestWatcher() {
             targetContext.getSharedPreferences(it, Context.MODE_PRIVATE).edit().clear().commit()
         }
         targetContext.getSharedPreferences("calculator_settings", Context.MODE_PRIVATE).edit().putString("theme", theme).commit()
+        File(targetContext.filesDir, "moysklad.json").delete()
     }
 }
 

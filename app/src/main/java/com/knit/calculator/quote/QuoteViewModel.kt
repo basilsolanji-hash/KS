@@ -225,7 +225,8 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
             _catalog.value = localCatalog
             _settings.value = localSettings
             _clients.value = store.loadLocalClients()
-            _sync.update { SyncStatus(connected = config.enabled, loading = it.loading, error = it.error) }
+            // Поля МойСклад не сбрасываем: товары могут быть загружены и без копии справочников.
+            _sync.update { it.copy(connected = config.enabled, lastSync = null, warnings = emptyList(), sheetUrl = "") }
         }
     }
 
