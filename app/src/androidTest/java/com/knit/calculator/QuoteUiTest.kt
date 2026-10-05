@@ -87,6 +87,8 @@ class QuoteUiTest {
         compose.waitUntil(10_000) { compose.onAllNodes(hasText("Статус: Отправлено", substring = true)).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Статус: Отправлено", substring = true).performClick()
         compose.onNodeWithText("Оплачено").performClick()
+        // «Оплачено» и «Отказ» — с подтверждением.
+        compose.onNodeWithText("Сменить").performClick()
         compose.waitUntil(10_000) { compose.onAllNodes(hasText("Статус: Оплачено", substring = true)).fetchSemanticsNodes().isNotEmpty() }
         Shots.take("38_history_status", compose)
         compose.onNodeWithContentDescription("Назад").performClick()
