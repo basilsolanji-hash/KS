@@ -322,3 +322,17 @@ class ExpenseReportTest {
         assertEquals(BigDecimal("250999"), q[0].sum)
     }
 }
+
+class CostEconomicsTest {
+    @Test fun breakEvenAndTargetPrice() {
+        val settings = CostSettings(targetMarginPercent = BigDecimal(30), vat = VatSettings(BigDecimal(22), included = true))
+        val unit = CostCalculator.unitCost(ProductCost(yarnPerUnit = BigDecimal(50), knitMinutes = BigDecimal(2), minutePrice = BigDecimal(10)), settings, BigDecimal(50))
+        assertEquals(BigDecimal(70), unit.total.stripTrailingZeros().let { BigDecimal(it.toInt()) })
+        val e = CostCalculator.economics(unit, settings, BigDecimal("122"), BigDecimal(100))
+        // 122 ₽ с НДС 22 % → 100 ₽ фабрике; прибыль 30 ₽/шт, 3 000 ₽ на тираж.
+        assertEquals(BigDecimal("30.00"), e.unitProfit)
+        assertEquals(BigDecimal("3000.00"), e.totalProfit)
+        assertEquals(BigDecimal("86"), e.breakEvenPrice) // 70 × 1,22 = 85,4 → 86
+        assertEquals(BigDecimal("112"), e.targetPrice)
+    }
+}

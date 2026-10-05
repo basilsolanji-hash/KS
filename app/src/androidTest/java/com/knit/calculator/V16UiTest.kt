@@ -57,7 +57,7 @@ class V16UiTest {
         compose.onNodeWithText("Слишком простой PIN: цифры подряд").assertExists()
         "2580".forEach { compose.onNodeWithContentDescription(it.toString()).performClick() }
         compose.onNodeWithText("Повторите PIN-код").assertExists()
-        Shots.take("65_pin_setup", compose)
+        Shots.take("67_pin_setup", compose)
         "2580".forEach { compose.onNodeWithContentDescription(it.toString()).performClick() }
         compose.onNodeWithText("PIN-код сохранён").performScrollTo().assertExists()
     }
@@ -120,6 +120,21 @@ class V16UiTest {
         compose.waitUntil(10_000) { compose.onAllNodes(hasText("КП: 1 на", substring = true)).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Новое КП для клиента").assertExists()
         Shots.take("66_client_card", compose)
+    }
+
+    @Test fun costCalculatorMakesQuote() {
+        // Без PIN директора все — директор: «Себестоимость» на главном.
+        compose.onNodeWithText("Себестоимость").performScrollTo().performClick()
+        compose.onNodeWithText("Выберите изделие (или считайте вручную)").performClick()
+        compose.waitUntil(15_000) { compose.onAllNodes(hasText("Подвяз трикотажный")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Подвяз трикотажный").performClick()
+        compose.onNodeWithText("Себестоимость 1 шт").assertExists()
+        compose.onNodeWithText("Без убытка от").assertExists()
+        compose.onNodeWithText("Подставить рекомендованную цену").performClick()
+        Shots.take("68_cost_calculator", compose)
+        compose.onNodeWithText("Создать КП с этой ценой").performScrollTo().performClick()
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Итого")).fetchSemanticsNodes().isNotEmpty() }
+        Shots.take("69_cost_quote", compose)
     }
 
     @Test fun financeNeedsSheet() {

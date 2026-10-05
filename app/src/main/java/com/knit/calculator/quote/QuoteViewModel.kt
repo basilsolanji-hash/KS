@@ -886,6 +886,32 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         store.recentMs = next
     }
 
+    // ---------- Калькулятор себестоимости (директор) ----------
+
+    /** Затраты изделия из листа «Себестоимость» (по коду изделия). */
+    fun productCost(p: Product): com.knit.calculator.core.ProductCost? = parsedExtras.costs[p.code.lowercase()]
+
+    /** Пряжа на 1 шт по весу, составу и ценам пряжи (или «Пряжа, ₽/шт» из листа). */
+    fun yarnPerUnit(p: Product, cost: com.knit.calculator.core.ProductCost): BigDecimal =
+        CostCalculator.yarnCost(cost, p.weightGrams, p.composition, parsedExtras.yarnPrices)
+
+    /**
+     * КП с ценой из калькулятора: позиция изделия тиражом [qty], скидка подбирается так, чтобы цена за штуку была [price].
+     * Незаполненный черновик заменяется новым КП, иначе позиция добавляется в текущее.
+     */
+    fun quoteAtPrice(p: Product, qty: BigDecimal, price: BigDecimal) {
+        val d = _draft.value
+        if (d.saved || d.lines.isEmpty()) newQuote()
+        addLine(p)
+        val list = QuoteCalculator.unitPrice(p, emptyMap(), qty).first
+        val discount = if (list.signum() > 0 && price < list) {
+            (BigDecimal.ONE - price.divide(list, 10, java.math.RoundingMode.HALF_UP)).multiply(BigDecimal(100))
+                .setScale(2, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString().replace('.', ',')
+        } else ""
+        val id = _draft.value.lines.last().id
+        updateLine(id) { it.copy(quantity = qty.stripTrailingZeros().toPlainString().replace('.', ','), discount = discount) }
+    }
+
     fun addLine(product: Product) = updateDraft { d ->
         rememberPicked(product)
         val quantity = product.minOrder.takeIf { it.signum() > 0 }

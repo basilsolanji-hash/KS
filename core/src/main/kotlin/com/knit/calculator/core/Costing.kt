@@ -130,12 +130,16 @@ object CostCalculator {
     ): LineEconomics? {
         cost ?: return null
         val unit = unitCost(cost, settings, yarnCost(cost, line.weightGrams, line.composition, yarnPrices))
+        return economics(unit, settings, line.unitPrice, line.quantity, line.setupFee)
+    }
+
+    /** Экономика продажи по цене [unitPrice] (как в КП) тиражом [qty] при себестоимости [unit]. */
+    fun economics(unit: UnitCost, settings: CostSettings, unitPrice: BigDecimal, qty: BigDecimal, setupFee: BigDecimal = BigDecimal.ZERO): LineEconomics {
         val share = netShare(settings)
-        val netRevenue = line.unitPrice * share
+        val netRevenue = unitPrice * share
         val unitProfit = netRevenue - unit.total
-        val qty = line.quantity
         val totalCost = unit.total * qty
-        val setupNet = line.setupFee * share
+        val setupNet = setupFee * share
         val totalProfit = unitProfit * qty + setupNet
         val margin = if (totalCost.signum() == 0) BigDecimal.ZERO else div(totalProfit * HUNDRED, totalCost)
         val breakEven = if (share.signum() > 0) div(unit.total, share) else BigDecimal.ZERO

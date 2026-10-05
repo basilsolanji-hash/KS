@@ -61,7 +61,7 @@ data class HomeCharts(
 )
 
 /** Разделы, доступные с главного экрана. */
-enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, FINANCE }
+enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, FINANCE, COST }
 
 /** Группа кнопок главного экрана. */
 private data class HomeGroup(val title: Int, val tiles: List<Triple<HomeAction, Int, Int>>)
@@ -196,6 +196,7 @@ fun HomeScreen(
                 listOfNotNull(
                     Triple(HomeAction.PAYMENTS, R.string.home_payments, R.drawable.ic_payments),
                     if (director) Triple(HomeAction.FINANCE, R.string.home_finance, R.drawable.ic_report) else null,
+                    if (director) Triple(HomeAction.COST, R.string.home_cost, R.drawable.ic_calculator) else null,
                 ),
             ),
             HomeGroup(
