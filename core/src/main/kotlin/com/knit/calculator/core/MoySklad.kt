@@ -18,6 +18,7 @@ data class MsItem(
     val type: String = "product",
     val chars: Map<String, String> = emptyMap(),
     val badges: List<String> = emptyList(),
+    val barcode: String = "",
 )
 
 /** Товары МойСклад в виде позиций ассортимента КП. */
@@ -53,6 +54,8 @@ object MoySklad {
             attributes = item.chars,
             badges = item.badges,
             externalType = item.type,
+            barcode = item.barcode.takeIf { Ean13.isValid(it) }.orEmpty(),
+            baseName = item.name,
         )
     }
 

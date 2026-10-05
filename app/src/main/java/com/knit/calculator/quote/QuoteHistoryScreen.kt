@@ -54,6 +54,7 @@ fun QuoteHistoryScreen(
     onBack: () -> Unit,
     onOpenProduction: () -> Unit,
     onOpened: () -> Unit,
+    onOpenLabels: (HistoryItem) -> Unit = {},
 ) {
     val history by viewModel.history.collectAsStateWithLifecycle()
     val error by viewModel.historyError.collectAsStateWithLifecycle()
@@ -107,7 +108,7 @@ fun QuoteHistoryScreen(
                                 Toast.makeText(context, openError, Toast.LENGTH_LONG).show()
                             }
                         },
-                        onDeal = { action -> request = q to action },
+                        onDeal = { action -> if (action == DealAction.LABELS) onOpenLabels(q) else request = q to action },
                         onStatus = { status ->
                             if (status == QuoteStatus.REJECTED || status == QuoteStatus.PAID) pendingStatus = q to status
                             else applyStatus(q, status)
@@ -189,6 +190,7 @@ private fun HistoryCard(
                             DealAction.CONTRACT to R.string.deal_contract,
                             DealAction.ORDER to R.string.deal_order,
                             DealAction.PAYMENT to R.string.deal_payment,
+                            DealAction.LABELS to R.string.deal_labels,
                         ).forEach { (action, label) ->
                             DropdownMenuItem(
                                 text = { Text(stringResource(label), color = colors.textPrimary) },

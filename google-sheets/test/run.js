@@ -210,7 +210,7 @@ const msDb = {
   paymentin: [],
   states: [{ id: 'sw', name: 'В работе', meta: { href: MS + '/entity/customerorder/metadata/states/sw' } }],
   product: [
-    { id: 'p1', name: 'Подвяз 1×1 белый 14×100', article: '11-001', pathName: 'Подвязы', weight: 84.9, buyPrice: { value: 14395 }, minPrice: { value: 14395 },
+    { id: 'p1', name: 'Подвяз 1×1 белый 14×100', article: '11-001', pathName: 'Подвязы', weight: 84.9, barcodes: [{ ean13: '2000000000015' }], buyPrice: { value: 14395 }, minPrice: { value: 14395 },
       salePrices: [['1 штук', 20153], ['10 штук', 19433], ['20 штук', 18713], ['50 штук', 17274], ['от 100 штук', 16554], ['от 500 штук', 15834], ['Премиум', 28790]]
         .map(([n, v]) => ({ value: v, priceType: { name: n } })) },
     { id: 'p2', name: 'Без цены', salePrices: [{ value: 0, priceType: { name: '1 штук' } }] },
@@ -225,6 +225,7 @@ const msDb = {
         { name: 'Артикул', value: '10252211693' }, { name: 'Уход (рекомендации)', value: 'Стирка 30' }, { name: 'Метка 1', value: 'Топ-продажа' },
         { name: 'Состав / материала', value: 'хлопок 95% резинка 5%' }] },
     { id: 'v2', product: { meta: { href: MS + '/entity/product/p3' } }, salePrices: [{ value: 16000, priceType: { name: '1 штук' } }],
+      barcodes: [{ code128: 'X1' }, { ean13: '2900000000018' }],
       characteristics: [{ name: 'Цвет', value: 'чёрный' }, { name: 'Размер', value: '115х16 см' }] },
   ],
 };
@@ -248,6 +249,10 @@ context.UrlFetchApp.fetch = (url, options) => {
     return rows.filter((r) => (m[2] === '=' ? String(r[m[1]] || '') === m[3] : String(r[m[1]] || '').includes(m[3])));
   };
   if (path === '/report/stock/bystore/current') return msRespond(200, [{ assortmentId: 'p1', storeId: 'st1', stock: 120 }]);
+  if (path === '/entity/assortment') {
+    const code = filter.replace(/^barcode=/, '');
+    return list(msDb.product.concat(msDb.variant).filter((r) => (r.barcodes || []).some((b) => Object.values(b).includes(code))));
+  }
   if (path === '/entity/customerorder/metadata') return msRespond(200, { states: msDb.states });
   if (path === '/entity/customerorder/metadata/states' && method === 'post') {
     const st = Object.assign({ id: 'state' + ++msSeq }, body);
@@ -360,6 +365,15 @@ assert.strictEqual(failed.ok, true);
 assert.ok(failed.number > 0);
 assert.ok(/нет прав/.test(failed.ms.error));
 context.UrlFetchApp.fetch = realFetch;
+
+// Штрихкоды EAN-13: из карточки; нет — создаётся внутренний (префикс 2), занятый код пропускается.
+assert.deepStrictEqual(msCat.products.map((p) => p.barcode), ['2000000000015', '', '2900000000018']);
+assert.strictEqual(call({ action: 'msBarcode', msType: 'product', msId: 'p1' }).barcode, '2000000000015');
+const made = call({ action: 'msBarcode', msType: 'variant', msId: 'v1' });
+assert.strictEqual(made.barcode, '2900000000025');
+assert.deepStrictEqual(msDb.variant[0].barcodes, [{ ean13: '2900000000025' }]);
+assert.strictEqual(call({ action: 'msBarcode', msType: 'variant', msId: 'v1' }).barcode, '2900000000025');
+assert.ok(/Неверный товар/.test(call({ action: 'msBarcode', msType: 'counterparty', msId: 'c1' }).error));
 
 // Позиция-модификация → в заказ как variant.
 call({ action: 'saveQuote', quote: Object.assign({}, msQuote, { id: 'q-var', lines: [{ msId: 'v1', msType: 'variant', product: 'Подвяз', qty: 10, price: 150 }] }) });

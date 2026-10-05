@@ -514,4 +514,37 @@
     <string name="ok">OK</string>
     <string name="ms_filters">Фильтры</string>
     <string name="ms_filters_reset">Сбросить</string>
+    <!-- Этикетки (v1.5.1) -->
+    <string name="home_labels">Этикетки</string>
+    <string name="deal_labels">Этикетки</string>
+    <string name="label_title">Этикетки со штрихкодом</string>
+    <string name="label_need_ms">Товары и штрихкоды берутся из МойСклад: подключите Google Таблицу и МойСклад.</string>
+    <string name="label_add">Добавить товар</string>
+    <string name="label_preview">Предпросмотр этикетки 120×75 мм</string>
+    <string name="label_remove">Убрать из печати</string>
+    <string name="label_barcode">EAN-13: %1$s</string>
+    <string name="label_no_barcode">Нет штрихкода в МойСклад</string>
+    <string name="label_create_barcode">Создать в МойСклад</string>
+    <string name="label_barcode_error">Не удалось создать штрихкод</string>
+    <string name="label_copies">Копий</string>
+    <string name="label_pack">В упаковке</string>
+    <string name="label_made_date">Дата изготовления (мм.гггг)</string>
+    <string name="label_printer">Принтер</string>
+    <string name="label_printer_none">Принтер не выбран</string>
+    <string name="label_printer_choose">Выбрать</string>
+    <string name="label_choose_printer">Bluetooth-принтер</string>
+    <string name="label_bt_off">Bluetooth выключен — включите его в настройках телефона.</string>
+    <string name="label_no_devices">Нет сопряжённых устройств. Включите принтер и выполните сопряжение в настройках Bluetooth телефона (PIN обычно 0000 или 1234).</string>
+    <string name="label_bt_permission">Без разрешения «Устройства поблизости» печать по Bluetooth невозможна.</string>
+    <string name="label_rotated">Рулон 75 мм (этикетка идёт узкой стороной)</string>
+    <string name="label_density">Плотность 1–15</string>
+    <string name="label_gap">Зазор</string>
+    <string name="label_print">Печать</string>
+    <string name="label_empty">Добавьте товар для этикетки.</string>
+    <string name="label_no_barcode_block">У части товаров нет штрихкода. Нажмите «Создать в МойСклад» или уберите их из печати.</string>
+    <string name="label_busy">Печать…</string>
+    <string name="label_printed">Отправлено на принтер: %1$d эт.</string>
+    <string name="label_print_error">Ошибка печати</string>
+    <string name="label_hint">Xprinter и TSC — язык TSPL, Zebra — ZPL. Если печать сдвигается, проверьте зазор и выполните калибровку принтера (кнопка FEED при включении).</string>
+    <string name="label_from_order_empty">В этом КП нет товаров МойСклад для этикеток.</string>
 </resources>

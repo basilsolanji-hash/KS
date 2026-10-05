@@ -104,6 +104,10 @@ data class Product(
     val badges: List<String> = emptyList(),
     /** «product» или «variant» — тип позиции в МойСклад. */
     val externalType: String = "product",
+    /** Штрихкод EAN-13 из МойСклад (для этикетки); пусто — нет. */
+    val barcode: String = "",
+    /** Название товара МойСклад без характеристик (заголовок этикетки); пусто — как [name]. */
+    val baseName: String = "",
 )
 
 /** Выбор клиента: изделие, варианты параметров (id группы → id варианта) и количество. */

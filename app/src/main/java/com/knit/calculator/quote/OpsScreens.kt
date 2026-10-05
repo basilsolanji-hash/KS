@@ -69,7 +69,7 @@ private fun rub(v: BigDecimal) = QuoteCalculator.formatMoney(v) + " ₽"
 private val DEBT_RED = Color(0xFFD93B3B)
 
 /** Действия со сделкой из истории КП. */
-enum class DealAction { INVOICE, CONTRACT, ORDER, PAYMENT }
+enum class DealAction { INVOICE, CONTRACT, ORDER, PAYMENT, LABELS }
 
 /** Готовый документ: отправить клиенту письмом, поделиться или напечатать. */
 private data class ReadyDoc(
@@ -251,6 +251,8 @@ fun DealActionHost(
                 if (error == null) onOpenProduction()
             } }
         }
+        // Этикетки открываются отдельным экраном (история КП → «Этикетки»).
+        DealAction.LABELS -> LaunchedEffect(item) { onDismiss() }
         DealAction.PAYMENT -> {
             var amount by remember(item) { mutableStateOf(QuoteCalculator.money(remaining).stripTrailingZeros().toPlainString().replace('.', ',')) }
             var note by remember(item) { mutableStateOf("") }

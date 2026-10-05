@@ -123,6 +123,13 @@ class SheetClient(private val config: SyncConfig) {
     suspend fun msCatalog(): JSONObject? =
         get("msCatalog").optJSONObject("ms")?.takeIf { it.optBoolean("enabled") }
 
+    /** EAN-13 товара или модификации МойСклад; если штрихкода нет — скрипт создаёт его в МойСклад. */
+    suspend fun msBarcode(type: String, id: String): String {
+        val code = get("msBarcode", "msType" to type, "msId" to id).optString("barcode")
+        if (!com.knit.calculator.core.Ean13.isValid(code)) throw SheetException("МойСклад не вернул штрихкод")
+        return code
+    }
+
     /** Загружает фото образца, PDF КП или документ (kind = "doc") в папку Диска; возвращает id файла. */
     suspend fun uploadFile(
         kind: String, name: String, bytes: ByteArray, mime: String, quoteId: String? = null, invoiceNumber: Int? = null,

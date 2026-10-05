@@ -16,7 +16,7 @@ val targetContext: Context get() = InstrumentationRegistry.getInstrumentation().
 /** Сбрасывает данные приложения перед запуском экрана; [theme] — «LIGHT»/«DARK» для скриншотов. */
 class ResetAppRule(private val theme: String = "LIGHT") : TestWatcher() {
     override fun starting(description: Description) {
-        listOf("calculator_history", "calculator_settings", "yarn_calculator", "quote", "ops").forEach {
+        listOf("calculator_history", "calculator_settings", "yarn_calculator", "quote", "ops", "labels").forEach {
             targetContext.getSharedPreferences(it, Context.MODE_PRIVATE).edit().clear().commit()
         }
         targetContext.getSharedPreferences("calculator_settings", Context.MODE_PRIVATE).edit().putString("theme", theme).commit()

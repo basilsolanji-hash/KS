@@ -1,6 +1,7 @@
 package com.knit.calculator
 
 import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onFirst
@@ -35,8 +36,8 @@ class MoySkladUiTest {
             store.saveSyncConfig(SyncConfig("https://script.google.com/macros/s/test/exec", "k", "Тест"))
             fun product(
                 id: String, name: String, article: String, group: String, stock: Int, prices: List<Pair<Int, String>>,
-                chars: Map<String, String> = emptyMap(), badges: List<String> = emptyList(),
-            ) = JSONObject().put("id", id).put("name", name).put("article", article).put("group", group).put("type", "variant")
+                chars: Map<String, String> = emptyMap(), badges: List<String> = emptyList(), barcode: String = "",
+            ) = JSONObject().put("barcode", barcode).put("id", id).put("name", name).put("article", article).put("group", group).put("type", "variant")
                 .put("weight", 84.9).put("buyPrice", "143.95").put("minPrice", "143.95").put("stock", stock)
                 .put("tiers", JSONArray().apply { prices.forEach { (q, p) -> put(JSONObject().put("from", q).put("price", p)) } })
                 .put("chars", JSONObject(chars)).put("badges", JSONArray(badges))
@@ -49,7 +50,11 @@ class MoySkladUiTest {
                             .put(
                                 product(
                                     "p1", "Подвяз трикотажный 1×1 (ПЭ) Белый, 14х100 см", "11-001 0067", "Подвязы/Полиэстер", 120, tiers,
-                                    mapOf("Цвет" to "Белый", "Тип резинки" to "1х1", "Артикул производитель" to "AP-77"), listOf("Топ-продажа"),
+                                    mapOf(
+                                        "Цвет" to "Белый", "Тип резинки" to "1х1", "Артикул производитель" to "AP-77",
+                                        "Размер" to "14х100 см", "Артикул" to "11-001 0067",
+                                    ),
+                                    listOf("Топ-продажа"), barcode = "4601234567893",
                                 ),
                             )
                             .put(product("p2", "Подвяз трикотажный 2×2 Чёрный, 16х100 см", "22-013", "Подвязы/Хлопок", 0, tiers, mapOf("Цвет" to "Чёрный", "Тип резинки" to "2х2")))
@@ -96,5 +101,40 @@ class MoySkladUiTest {
         // Клиент из МойСклад — в подсказках.
         compose.onNodeWithText("Компания клиента").performScrollTo().performTextInput("БРЕНД")
         compose.onAllNodes(hasText("БРЕНД СИТИ", substring = true)).onFirst().assertExists()
+    }
+
+    @Test fun labelsWithEan13() {
+        compose.onNodeWithText("Этикетки").performScrollTo().performClick()
+        compose.onNodeWithText("Добавить товар").performClick()
+        compose.onNodeWithText("Подвяз трикотажный 1×1 (ПЭ) Белый, 14х100 см").performScrollTo().performClick()
+        compose.onNodeWithText("EAN-13: 4 601234 567893").assertExists()
+        compose.onNode(hasTestTag("labelPreview")).assertExists()
+        Shots.take("52_labels", compose)
+        // Товар без штрихкода: предложение создать его в МойСклад.
+        compose.onNodeWithText("Добавить товар").performScrollTo().performClick()
+        compose.onNodeWithText("Подвяз трикотажный 2×2 Чёрный, 16х100 см").performScrollTo().performClick()
+        compose.onNodeWithText("Нет штрихкода в МойСклад").assertExists()
+        compose.onNodeWithText("Создать в МойСклад").assertExists()
+        compose.onNodeWithText("Принтер не выбран").performScrollTo().assertExists()
+        Shots.take("53_labels_list", compose)
+
+        // Этикетка в точках принтера (203 dpi): макет 959×592, команды TSPL для рулона 75 мм.
+        val product = com.knit.calculator.core.Product(
+            1, "Подвяз трикотажный 1×1 (ПЭ) Белый, 14х100 см", "шт", BigDecimal.ONE, code = "11-001 0067", barcode = "4601234567893",
+            attributes = mapOf("Цвет" to "Белый", "Размер" to "14х100 см", "Состав / материала" to "полиэстер 100%"),
+        )
+        val spec = com.knit.calculator.core.LabelSpec()
+        val content = com.knit.calculator.label.labelContent(
+            com.knit.calculator.label.LabelJob(product, 2, "50"), com.knit.calculator.quote.CompanySettings(), "10.2026",
+        )
+        val bitmap = com.knit.calculator.label.LabelRenderer.render(content, spec)
+        org.junit.Assert.assertEquals(959, bitmap.width)
+        org.junit.Assert.assertEquals(592, bitmap.height)
+        Shots.save(bitmap, "54_label_203dpi")
+        val mono = com.knit.calculator.label.LabelRenderer.toMono(bitmap)
+        val cmd = String(com.knit.calculator.core.LabelPrinter.commands(spec, mono, 2), Charsets.ISO_8859_1)
+        org.junit.Assert.assertTrue(cmd.startsWith("SIZE 75 mm,120 mm"))
+        org.junit.Assert.assertTrue(cmd.contains("BITMAP 0,0,74,959,0,"))
+        org.junit.Assert.assertTrue(cmd.endsWith("PRINT 2,1\r\n"))
     }
 }

@@ -36,7 +36,7 @@ import com.knit.calculator.yarn.YarnScreen
 import com.knit.calculator.yarn.YarnViewModel
 
 /** Экраны приложения; переход «назад» описан у каждого экрана. */
-private enum class Screen { HOME, CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY, REPORT, ORDER_YARN, SHOP, PAYMENTS, PRODUCTION, STOCK }
+private enum class Screen { HOME, CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY, REPORT, ORDER_YARN, SHOP, PAYMENTS, PRODUCTION, STOCK, LABELS }
 
 class MainActivity : ComponentActivity() {
 
@@ -44,6 +44,7 @@ class MainActivity : ComponentActivity() {
     private val yarnViewModel: YarnViewModel by viewModels()
     private val quoteViewModel: QuoteViewModel by viewModels()
     private val opsViewModel: OpsViewModel by viewModels()
+    private val labelViewModel: com.knit.calculator.label.LabelViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -88,6 +89,7 @@ class MainActivity : ComponentActivity() {
                                 HomeAction.PAYMENTS -> Screen.PAYMENTS
                                 HomeAction.PRODUCTION -> Screen.PRODUCTION
                                 HomeAction.STOCK -> Screen.STOCK
+                                HomeAction.LABELS -> Screen.LABELS
                             },
                         )
                     }
@@ -106,6 +108,18 @@ class MainActivity : ComponentActivity() {
                         opsViewModel = opsViewModel,
                         onBack = ::back,
                         onOpenProduction = { open(Screen.PRODUCTION) },
+                        onOpenLabels = { item ->
+                            // Этикетки на все позиции МойСклад заказа: по одной копии, в упаковке — количество из КП.
+                            val items = quoteViewModel.labelProducts(item)
+                            if (items.isEmpty()) {
+                                android.widget.Toast.makeText(this@MainActivity, R.string.label_from_order_empty, android.widget.Toast.LENGTH_LONG).show()
+                            } else {
+                                labelViewModel.setJobs(
+                                    items.map { (p, qty) -> com.knit.calculator.label.LabelJob(p, 1, com.knit.calculator.core.QuoteCalculator.formatQuantity(qty).filter { it.isDigit() }) },
+                                )
+                                open(Screen.LABELS)
+                            }
+                        },
                         onOpened = {
                             // Из истории — в КП; повторное «назад» вернёт туда, откуда пришли.
                             stack = stack.dropLast(1).let { if (it.lastOrNull() == Screen.QUOTE.name) it else it + Screen.QUOTE.name }
@@ -127,6 +141,7 @@ class MainActivity : ComponentActivity() {
                     Screen.PAYMENTS -> PaymentsScreen(quoteViewModel, opsViewModel, onBack = ::back, onOpenProduction = { open(Screen.PRODUCTION) })
                     Screen.PRODUCTION -> ProductionScreen(quoteViewModel, opsViewModel, onBack = ::back)
                     Screen.STOCK -> StockScreen(quoteViewModel, opsViewModel, onBack = ::back)
+                    Screen.LABELS -> com.knit.calculator.label.LabelScreen(quoteViewModel, labelViewModel, onBack = ::back)
                 }
                 notice?.let { text ->
                     androidx.compose.material3.AlertDialog(

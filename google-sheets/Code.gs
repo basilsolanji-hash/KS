@@ -143,6 +143,8 @@ function handle_(req) {
       }
       case 'msCatalog':
         return json_({ ok: true, ms: msCatalog_(ss, director) });
+      case 'msBarcode':
+        return json_({ ok: true, barcode: msCreateBarcode_(String(req.msType || ''), String(req.msId || '')) });
       case 'uploadFile':
         return json_({ ok: true, file: uploadFile_(ss, req) });
       case 'getFile':
@@ -744,6 +746,57 @@ function msIdOf_(entity) {
   return href.substring(href.lastIndexOf('/') + 1).split('?')[0];
 }
 
+/** Первый EAN-13 из штрихкодов карточки МойСклад. */
+function msEan13_(entity) {
+  var codes = (entity && entity.barcodes) || [];
+  for (var i = 0; i < codes.length; i++) {
+    if (codes[i].ean13 && ean13Valid_(String(codes[i].ean13))) return String(codes[i].ean13);
+  }
+  return '';
+}
+
+function ean13Check_(first12) {
+  var sum = 0;
+  for (var i = 0; i < 12; i++) sum += Number(first12.charAt(i)) * (i % 2 === 0 ? 1 : 3);
+  return String((10 - sum % 10) % 10);
+}
+
+function ean13Valid_(code) {
+  return /^\d{13}$/.test(code) && ean13Check_(code.substring(0, 12)) === code.charAt(12);
+}
+
+/**
+ * Внутренний EAN-13 (префикс 2 — для своих товаров) для товара или модификации без штрихкода.
+ * Номер — по счётчику скрипта, с проверкой, что такого кода в МойСклад ещё нет. Уже есть EAN-13 — возвращается он.
+ */
+function msCreateBarcode_(type, id) {
+  if (!msEnabled_()) throw new Error('МойСклад не подключён');
+  if ((type !== 'product' && type !== 'variant') || !/^[\w-]{1,64}$/.test(id)) throw new Error('Неверный товар');
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var entity = ms_('get', '/entity/' + type + '/' + id);
+    var existing = msEan13_(entity);
+    if (existing) return existing;
+    var props = PropertiesService.getScriptProperties();
+    var next = Number(props.getProperty('EAN_COUNTER') || '0');
+    for (var attempt = 0; attempt < 20; attempt++) {
+      next += 1;
+      var body = '2' + ('00000000000' + (90000000000 + next)).slice(-11);
+      var code = body + ean13Check_(body);
+      var taken = ms_('get', '/entity/assortment?filter=barcode=' + code).rows || [];
+      if (taken.length) continue;
+      props.setProperty('EAN_COUNTER', String(next));
+      var barcodes = (entity.barcodes || []).concat([{ ean13: code }]);
+      ms_('put', '/entity/' + type + '/' + id, { barcodes: barcodes });
+      return code;
+    }
+    throw new Error('Не удалось подобрать свободный штрихкод');
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 var msCache_ = {};
 
 function msFirst_(path) {
@@ -894,6 +947,8 @@ function msCatalog_(ss, director) {
       stock: store ? (stock[id] || 0) : null,
       chars: chars,
       badges: badges,
+      // EAN-13 для этикетки: у модификации — свой, у товара без модификаций — товара.
+      barcode: msEan13_(own),
     };
     if (director) out.buyPrice = msMoney_(own.buyPrice) || msMoney_(parent.buyPrice);
     return out;

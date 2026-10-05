@@ -188,6 +188,7 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
                     type = p.optString("type").ifBlank { "product" },
                     chars = p.optJSONObject("chars")?.let { c -> c.keys().asSequence().associateWith { k -> c.optString(k) } }.orEmpty(),
                     badges = strings(p.optJSONArray("badges")),
+                    barcode = p.optString("barcode"),
                 ),
                 clientChars,
             )
@@ -225,6 +226,42 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
+    /**
+     * Штрихкод для этикетки: из МойСклад, а если его нет — создаётся там же (внутренний EAN-13).
+     * Новый код сразу попадает в каталог на телефоне.
+     */
+    suspend fun ensureBarcode(product: Product): Result<String> {
+        if (product.barcode.isNotBlank()) return Result.success(product.barcode)
+        val config = _syncConfig.value
+        if (!config.enabled || product.externalId.isBlank()) return Result.failure(SheetException("Нужно подключение к МойСклад"))
+        return try {
+            val code = SheetClient(config).msBarcode(product.externalType, product.externalId)
+            val updated = product.copy(barcode = code)
+            _msProducts.update { list -> list.map { if (it.id == product.id) updated else it } }
+            msIndex = msIndex + (product.id to updated)
+            store.loadMsCatalog()?.let { o ->
+                o.optJSONArray("products")?.let { a ->
+                    for (i in 0 until a.length()) a.optJSONObject(i)?.takeIf { it.optString("id") == product.externalId }?.put("barcode", code)
+                }
+                store.saveMsCatalog(o)
+            }
+            Result.success(code)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /** Позиции МойСклад заказа (КП) с количеством — для этикеток. */
+    fun labelProducts(item: HistoryItem): List<Pair<Product, java.math.BigDecimal>> {
+        val draft = QuoteStore.draftFromJson(fullItem(item).data) ?: return emptyList()
+        return draft.lines.mapNotNull { l ->
+            val p = msIndex[l.productId] ?: return@mapNotNull null
+            p to (com.knit.calculator.core.YarnCalculator.parseDecimal(l.quantity) ?: java.math.BigDecimal.ONE)
+        }
+    }
+
+    fun msProduct(id: Long): Product? = msIndex[id]
 
     init {
         if (_syncConfig.value.enabled) applyMs(store.loadMsCatalog())
