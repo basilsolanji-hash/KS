@@ -129,6 +129,24 @@ class SheetClient(private val config: SyncConfig) {
         return request(URL(config.url.trim()), body.toString())
     }
 
+    // ---------- Склад: отгрузка и инвентаризация по сканеру ----------
+
+    suspend fun msShipList(): JSONArray = get("msShipList").optJSONArray("orders") ?: JSONArray()
+
+    suspend fun msShipOrder(orderId: String): JSONArray = get("msShipOrder", "orderId" to orderId).optJSONArray("positions") ?: JSONArray()
+
+    /** Отгрузка по заказу: [items] — {id, qty}. Возвращает {name, positions}. */
+    suspend fun msShip(orderId: String, items: JSONArray): JSONObject {
+        val body = JSONObject().put("action", "msShip").put("key", config.key).put("orderId", orderId).put("items", items)
+        return request(URL(config.url.trim()), body.toString()).optJSONObject("demand") ?: JSONObject()
+    }
+
+    /** Инвентаризация: [items] — {id, type, qty}. */
+    suspend fun msInventory(items: JSONArray): JSONObject {
+        val body = JSONObject().put("action", "msInventory").put("key", config.key).put("items", items)
+        return request(URL(config.url.trim()), body.toString()).optJSONObject("inventory") ?: JSONObject()
+    }
+
     /** Первое фото товара МойСклад; `null` — фото нет. */
     suspend fun msImage(type: String, id: String): ByteArray? {
         val data = get("msImage", "msType" to type, "msId" to id).optString("image")

@@ -61,7 +61,7 @@ data class HomeCharts(
 )
 
 /** Разделы, доступные с главного экрана. */
-enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, FINANCE, COST, COMMS }
+enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, FINANCE, COST, COMMS, WAREHOUSE }
 
 /** Группа кнопок главного экрана. */
 private data class HomeGroup(val title: Int, val tiles: List<Triple<HomeAction, Int, Int>>)
@@ -207,6 +207,7 @@ fun HomeScreen(
                     Triple(HomeAction.YARN, R.string.home_yarn, R.drawable.ic_yarn),
                     // С МойСклад склад пряжи ведётся там.
                     if (!sync.msEnabled) Triple(HomeAction.STOCK, R.string.home_stock, R.drawable.ic_inventory) else null,
+                    if (sync.msEnabled) Triple(HomeAction.WAREHOUSE, R.string.home_warehouse, R.drawable.ic_scan) else null,
                 ),
             ),
         )

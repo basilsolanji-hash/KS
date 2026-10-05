@@ -233,6 +233,8 @@ const msDb = {
     { id: 'po1', moment: '2099-01-02 10:00:00.000', sum: 3000000, expenseItem: { meta: { href: MS + '/entity/expenseitem/ex1' } } },
     { id: 'po0', moment: '2000-01-01 10:00:00.000', sum: 1 },
   ],
+  demand: [],
+  inventory: [],
   cashout: [{ id: 'co1', moment: '2099-01-03 10:00:00.000', sum: 50000 }],
   expenseitem: [{ id: 'ex1', name: 'Аренда' }],
   invoicein: [
@@ -263,6 +265,7 @@ const msDb = {
 };
 const msCalls = [];
 let msSeq = 0;
+const msIdOf = (e) => { const h = (e && e.meta && e.meta.href) || ''; return h.substring(h.lastIndexOf('/') + 1).split('?')[0]; };
 function msRespond(code, body) { return { getResponseCode: () => code, getContentText: () => (body === undefined ? '' : JSON.stringify(body)) }; }
 context.UrlFetchApp.fetch = (url, options) => {
   const method = options.method;
@@ -297,6 +300,14 @@ context.UrlFetchApp.fetch = (url, options) => {
     assert.strictEqual(params.interval, 'month');
     assert.ok(params.momentFrom && params.momentTo);
     return msRespond(200, { series: [{ date: '2099-01-01 00:00:00.000', quantity: 1200, sum: 45000000 }, { date: '2099-02-01 00:00:00.000', quantity: 0, sum: 0 }] });
+  }
+  if (path === '/entity/demand/new' && method === 'put') {
+    const order = msDb.customerorder.find((o) => o.id === msIdOf(body.customerOrder));
+    return msRespond(200, { customerOrder: body.customerOrder, agent: order.agent || {}, positions: { rows: order.positions.map((p) => Object.assign({}, p)) } });
+  }
+  if (/^\/entity\/customerorder\/[^/]+\/positions$/.test(path) && params.expand === 'assortment') {
+    const order = msDb.customerorder.find((o) => o.id === parts[2]);
+    return list(order.positions.map((p) => Object.assign({}, p, { assortment: Object.assign({ meta: p.assortment.meta }, msDb.product.concat(msDb.variant).find((x) => x.id === msIdOf(p.assortment))) })));
   }
   if (path === '/entity/product/p1/images') {
     return msRespond(200, { rows: [{ size: 10, meta: { downloadHref: MS + '/download/img1' }, miniature: { downloadHref: MS + '/download/mini1' } }] });
@@ -560,6 +571,31 @@ assert.ok(call({ action: 'msUpdateProduct', msType: 'bad', msId: 'p1', changes: 
 const imgRes = call({ action: 'msImage', msType: 'product', msId: 'p1' });
 assert.strictEqual(imgRes.image, 'AQID');
 assert.strictEqual(call({ action: 'msImage', msType: 'variant', msId: 'v1' }).image, null);
+
+// Склад: заказы к отгрузке, позиции со штрихкодами, отгрузка отсканированного и инвентаризация.
+msDb.customerorder.push({
+  id: 'coShip', name: '00077', sum: 300000, shippedSum: 0, applicable: true, moment: '2099-02-01 10:00:00.000', agent: { name: 'ООО Склад' },
+  meta: { href: MS + '/entity/customerorder/coShip' },
+  positions: [
+    { assortment: { meta: { href: MS + '/entity/product/p1', type: 'product' } }, quantity: 10, shipped: 0, price: 20000 },
+    { assortment: { meta: { href: MS + '/entity/variant/v2', type: 'variant' } }, quantity: 5, shipped: 0, price: 16000 },
+  ],
+});
+const shipList = call({ action: 'msShipList' }).orders;
+assert.ok(shipList.some((o) => o.id === 'coShip' && o.client === 'ООО Склад'));
+const shipPos = call({ action: 'msShipOrder', orderId: 'coShip' }).positions;
+assert.deepStrictEqual(shipPos.map((p) => [p.id, p.type, p.quantity, p.barcode]), [['p1', 'product', 10, '2000000000015'], ['v2', 'variant', 5, '2900000000018']]);
+const shipped = call({ action: 'msShip', orderId: 'coShip', items: [{ id: 'p1', qty: 4 }, { id: 'p1', qty: 2 }] }).demand;
+assert.strictEqual(shipped.positions, 1);
+const dem = msDb.demand[msDb.demand.length - 1];
+assert.deepStrictEqual(dem.positions.map((p) => p.quantity), [6]);
+assert.ok(/st1/.test(dem.store.meta.href));
+assert.ok(/нет отсканированных/.test(call({ action: 'msShip', orderId: 'coShip', items: [{ id: 'zzz', qty: 1 }] }).error));
+assert.ok(/Ничего/.test(call({ action: 'msShip', orderId: 'coShip', items: [] }).error));
+assert.ok(call({ action: 'msShipOrder', orderId: '../x' }).error);
+const inv = call({ action: 'msInventory', items: [{ id: 'p1', type: 'product', qty: 118 }, { id: 'bad id', type: 'product', qty: 1 }] }).inventory;
+assert.strictEqual(inv.positions, 1);
+assert.strictEqual(msDb.inventory[0].positions[0].quantity, 118);
 
 // ---- Зарплата менеджеров: оклад 60 000 + 3 % от оплат месяца по КП менеджера.
 const ym = new Date().toISOString().slice(0, 7);

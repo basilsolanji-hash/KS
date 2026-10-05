@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
@@ -117,6 +118,21 @@ class MoySkladUiTest {
         // Ручной сканер вводит штрихкод в поиск — товар выбирается сам.
         compose.onNode(hasSetTextAction() and hasText("Поиск: название или артикул")).performTextInput("4601234567893")
         compose.waitUntil(5_000) { compose.onAllNodes(hasSetTextAction() and hasText("Количество")).fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    @Test fun inventoryByScanner() {
+        compose.onNodeWithText("Склад: сканер").performScrollTo().performClick()
+        compose.onNodeWithText("Инвентаризация").performClick()
+        val field = compose.onNode(hasSetTextAction() and hasText("Код со сканера"))
+        // Ручной сканер: код и Enter.
+        field.performTextInput("4601234567893")
+        field.performImeAction()
+        field.performTextInput("4601234567893")
+        field.performImeAction()
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Посчитано 2 · по МойСклад 120 · разница -118")).fetchSemanticsNodes().isNotEmpty() }
+        Shots.take("57_inventory", compose)
+        compose.onNodeWithText("Отгрузка").performClick()
+        compose.onNodeWithText("Выберите заказ МойСклад — затем сканируйте товары.").assertExists()
     }
 
     @Test fun labelsWithEan13() {

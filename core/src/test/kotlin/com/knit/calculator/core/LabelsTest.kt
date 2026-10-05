@@ -336,3 +336,37 @@ class CostEconomicsTest {
         assertEquals(BigDecimal("112"), e.targetPrice)
     }
 }
+
+class WarehouseTest {
+    private val catalog = listOf(
+        MoySklad.product(MsItem("v9", "Подвяз красный", article = "R-1", tiers = listOf(BigDecimal.ONE to BigDecimal.TEN), barcode = "4600000000022"))!!,
+        MoySklad.product(MsItem("x1", "Чужой товар", article = "X-1", tiers = listOf(BigDecimal.ONE to BigDecimal.TEN), barcode = "4600000000015"))!!,
+    )
+    private val lines = listOf(
+        ShipLine("p1", "product", "Подвяз белый", "W-1", "2000000000015", BigDecimal(10), BigDecimal(4)),
+        ShipLine("v9", "variant", "Подвяз красный", "", "", BigDecimal(5)),
+    )
+
+    @Test fun matchesByBarcodeArticleOrCatalog() {
+        assertEquals(ScanResult.Matched(0), Warehouse.match(lines, "2000000000015", catalog))
+        assertEquals(ScanResult.Matched(0), Warehouse.match(lines, "w-1", catalog))
+        assertEquals(ScanResult.Matched(1), Warehouse.match(lines, "4600000000022", catalog))
+        assertEquals(ScanResult.NotInOrder("Чужой товар"), Warehouse.match(lines, "4600000000015", catalog))
+        assertEquals(ScanResult.Unknown, Warehouse.match(lines, "123", catalog))
+    }
+
+    @Test fun countsRemainingAndOver() {
+        var l = lines
+        repeat(6) { l = Warehouse.add(l, 0) }
+        assertTrue(l[0].done)
+        assertEquals(BigDecimal(6), l[0].remaining)
+        l = Warehouse.add(l, 0)
+        assertTrue(l[0].over)
+        l = Warehouse.add(l, 1, BigDecimal(-3))
+        assertEquals(BigDecimal.ZERO, l[1].scanned)
+        val s = Warehouse.summary(l)
+        assertEquals(BigDecimal(7), s.scanned)
+        assertEquals(listOf("v9"), s.short.map { it.id })
+        assertEquals(listOf("p1"), s.over.map { it.id })
+    }
+}

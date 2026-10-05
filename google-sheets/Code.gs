@@ -191,6 +191,14 @@ function route_(req) {
         ['ms:d', 'ms:m'].forEach(function (k) { try { CacheService.getScriptCache().remove(k); } catch (e) {} });
         return json_({ ok: true, product: updated });
       }
+      case 'msShipList':
+        return json_({ ok: true, orders: msShipList_() });
+      case 'msShipOrder':
+        return json_({ ok: true, positions: msShipOrder_(String(req.orderId || '')) });
+      case 'msShip':
+        return json_({ ok: true, demand: msShip_(ss, String(req.orderId || ''), req.items || []) });
+      case 'msInventory':
+        return json_({ ok: true, inventory: msInventory_(ss, req.items || []) });
       case 'msImage':
         return json_({ ok: true, image: msImage_(String(req.msType || ''), String(req.msId || '')) });
       case 'msBarcode':
@@ -1449,6 +1457,83 @@ function msUpdateProduct_(type, id, changes) {
   var tiers = msTiers_(fresh.salePrices);
   if (!tiers.length && type === 'variant') tiers = msTiers_(ms_('get', '/entity/product/' + parentId).salePrices);
   return { id: id, tiers: tiers };
+}
+
+// ---------------------------------------------------------------- Склад: отгрузка и инвентаризация по сканеру
+
+function msCheckId_(id) {
+  if (!/^[\w-]+$/.test(String(id || ''))) throw new Error('Неверный документ');
+  return id;
+}
+
+/** Заказы покупателей, отгруженные не полностью (последние 100). */
+function msShipList_() {
+  if (!msEnabled_()) throw new Error('МойСклад не подключён');
+  var rows = ms_('get', '/entity/customerorder?limit=100&order=moment,desc&expand=agent&filter=' + encodeURIComponent('applicable=true')).rows || [];
+  return rows.map(function (o) {
+    return {
+      id: o.id, name: o.name, client: (o.agent && o.agent.name) || '', moment: msTime_(o.moment),
+      sum: (Number(o.sum) || 0) / 100, shipped: (Number(o.shippedSum) || 0) / 100, quoteId: String(o.externalCode || ''),
+    };
+  }).filter(function (o) { return o.sum > 0 && o.shipped + 0.009 < o.sum; });
+}
+
+/** Позиции заказа: сколько заказано и уже отгружено, штрихкод — для сверки при сканировании. */
+function msShipOrder_(orderId) {
+  if (!msEnabled_()) throw new Error('МойСклад не подключён');
+  msCheckId_(orderId);
+  var rows = ms_('get', '/entity/customerorder/' + orderId + '/positions?limit=100&expand=assortment').rows || [];
+  return rows.filter(function (p) { return p.assortment && p.assortment.meta && p.assortment.meta.type !== 'service'; }).map(function (p) {
+    var a = p.assortment;
+    return {
+      id: msIdOf_(a), type: a.meta.type, name: a.name || '', article: a.article || a.code || '',
+      barcode: msEan13_(a), quantity: Number(p.quantity) || 0, shipped: Number(p.shipped) || 0,
+    };
+  });
+}
+
+/** Отгрузка по заказу: только отсканированные количества; склад — из «Настроек». */
+function msShip_(ss, orderId, items) {
+  if (!msEnabled_()) throw new Error('МойСклад не подключён');
+  msCheckId_(orderId);
+  var qty = {};
+  (items || []).forEach(function (i) { if (Number(i.qty) > 0) qty[String(i.id)] = (qty[String(i.id)] || 0) + Number(i.qty); });
+  if (!Object.keys(qty).length) throw new Error('Ничего не отсканировано');
+  var template = ms_('put', '/entity/demand/new', { customerOrder: msMeta_('customerorder', orderId) });
+  var positions = ((template.positions && template.positions.rows) || template.positions || []).map(function (p) {
+    var id = msIdOf_(p.assortment);
+    if (!qty[id]) return null;
+    var out = { assortment: p.assortment, quantity: qty[id], price: p.price, vat: p.vat, discount: p.discount };
+    delete qty[id];
+    return out;
+  }).filter(function (p) { return p; });
+  if (Object.keys(qty).length) throw new Error('В заказе нет отсканированных товаров: ' + Object.keys(qty).length);
+  var body = {};
+  Object.keys(template).forEach(function (k) { if (k !== 'positions') body[k] = template[k]; });
+  body.positions = positions;
+  var store = msStore_(ss);
+  if (store) body.store = msMeta_('store', store.id);
+  var demand = ms_('post', '/entity/demand', body);
+  return { id: demand.id, name: demand.name, positions: positions.length };
+}
+
+/** Инвентаризация склада из «Настроек»: отсканированные товары и посчитанное количество. */
+function msInventory_(ss, items) {
+  if (!msEnabled_()) throw new Error('МойСклад не подключён');
+  var store = msStore_(ss);
+  if (!store) throw new Error('МойСклад: склад из «Настроек» не найден');
+  var positions = (items || []).filter(function (i) {
+    return (i.type === 'product' || i.type === 'variant') && /^[\w-]+$/.test(String(i.id)) && Number(i.qty) >= 0;
+  }).map(function (i) {
+    return { assortment: msMeta_(i.type, String(i.id)), quantity: Number(i.qty) };
+  });
+  if (!positions.length) throw new Error('Ничего не отсканировано');
+  var doc = ms_('post', '/entity/inventory', {
+    organization: msMeta_('organization', msOrganization_(ss).id),
+    store: msMeta_('store', store.id),
+    positions: positions,
+  });
+  return { id: doc.id, name: doc.name, positions: positions.length };
 }
 
 /** Первое фото товара МойСклад (у модификации без фото — фото товара) в base64; `null` — фото нет. */
