@@ -229,6 +229,12 @@ const msDb = {
   customerorder: [],
   invoiceout: [],
   paymentin: [],
+  paymentout: [{ id: 'po1', moment: '2099-01-02 10:00:00.000', sum: 3000000 }, { id: 'po0', moment: '2000-01-01 10:00:00.000', sum: 1 }],
+  invoicein: [
+    { id: 'ii1', name: '00012', sum: 12000000, payedSum: 2000000, paymentPlannedMoment: '2099-01-10 00:00:00.000' },
+    { id: 'ii2', name: '00013', sum: 500000, payedSum: 500000, paymentPlannedMoment: '2099-01-11 00:00:00.000' },
+    { id: 'ii0', name: '00001', sum: 100, payedSum: 0, paymentPlannedMoment: '2000-01-01 00:00:00.000' },
+  ],
   states: [{ id: 'sw', name: 'В работе', meta: { href: MS + '/entity/customerorder/metadata/states/sw' } }],
   product: [
     { id: 'p1', name: 'Подвяз 1×1 белый 14×100', article: '11-001', pathName: 'Подвязы', weight: 84.9, barcodes: [{ ean13: '2000000000015' }], buyPrice: { value: 14395 }, minPrice: { value: 14395 },
@@ -276,11 +282,13 @@ context.UrlFetchApp.fetch = (url, options) => {
   const list = (rows) => msRespond(200, { rows: rows.slice(Number(params.offset || 0), Number(params.offset || 0) + Number(params.limit || 1000)) });
   const match = (rows) => {
     if (!filter) return rows;
-    const m = filter.match(/^(\w+)(=|~)(.*)$/);
+    const m = filter.match(/^(\w+)(>=|=|~)(.*)$/);
     if (m[1] === 'archived') return rows;
+    if (m[2] === '>=') return rows.filter((r) => String(r[m[1]] || '') >= m[3]);
     return rows.filter((r) => (m[2] === '=' ? String(r[m[1]] || '') === m[3] : String(r[m[1]] || '').includes(m[3])));
   };
   if (path === '/report/stock/bystore/current') return msRespond(200, [{ assortmentId: 'p1', storeId: 'st1', stock: 120 }]);
+  if (path === '/report/money/byaccount') return msRespond(200, { rows: [{ balance: 50000000 }, { balance: 2500000 }] });
   if (path === '/entity/assortment') {
     const code = filter.replace(/^barcode=/, '');
     return list(msDb.product.concat(msDb.variant).filter((r) => (r.barcodes || []).some((b) => Object.values(b).includes(code))));
@@ -490,6 +498,25 @@ call({ action: 'msCatalog' });
 assert.strictEqual(msCalls.length, msBefore);
 call({ action: 'msCatalog', fresh: true });
 assert.ok(msCalls.length > msBefore);
+
+// ---- Финансы: только директору; регулярные платежи, остаток, счета поставщиков МойСклад.
+sheets['Регулярные платежи'] = makeSheet('Регулярные платежи', [
+  ['Название', 'Сумма, ₽', 'День месяца', 'Категория', 'Активен'],
+  ['Аренда', '150 000', 5, 'Аренда', 'да'],
+  ['Кредит', 50000, 20, 'Кредит', 'нет'],
+  ['Пустая', '', 10, '', 'да'],
+]);
+sheets['Настройки'].data.push(['План продаж в месяц, ₽', '3500000']);
+api.onEdit({});
+assert.ok(/директора/.test(asManager({ action: 'finance' }).error));
+const fin = call({ action: 'finance' }).finance;
+assert.strictEqual(fin.plan, 3500000);
+assert.deepStrictEqual(fin.regular, [{ name: 'Аренда', amount: 150000, day: 5, category: 'Аренда' }]);
+assert.strictEqual(fin.balance, 525000);
+assert.strictEqual(fin.balanceSource, 'ms');
+assert.deepStrictEqual(fin.supplier.map((x) => [x.name, x.amount]), [['Счёт поставщика № 00012', 100000]]);
+assert.ok(fin.supplier[0].due > Date.UTC(2098, 0, 1));
+assert.deepStrictEqual(fin.actualOut.map((x) => x.amount), [30000]);
 
 // ---- Журнал действий: успешные изменения записываются, ошибки и чтение — нет.
 const journal = sheets['Журнал'];

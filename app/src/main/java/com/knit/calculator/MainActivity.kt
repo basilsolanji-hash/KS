@@ -36,7 +36,7 @@ import com.knit.calculator.yarn.YarnScreen
 import com.knit.calculator.yarn.YarnViewModel
 
 /** Экраны приложения; переход «назад» описан у каждого экрана. */
-private enum class Screen { HOME, CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY, REPORT, ORDER_YARN, SHOP, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, CLIENT }
+private enum class Screen { HOME, CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY, REPORT, ORDER_YARN, SHOP, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, CLIENT, FINANCE }
 
 class MainActivity : FragmentActivity() {
 
@@ -65,6 +65,7 @@ class MainActivity : FragmentActivity() {
     private val quoteViewModel: QuoteViewModel by viewModels()
     private val opsViewModel: OpsViewModel by viewModels()
     private val labelViewModel: com.knit.calculator.label.LabelViewModel by viewModels()
+    private val financeViewModel: com.knit.calculator.quote.FinanceViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -147,6 +148,7 @@ class MainActivity : FragmentActivity() {
                                 HomeAction.LABELS -> Screen.LABELS
                                 HomeAction.ABOUT -> Screen.ABOUT
                                 HomeAction.PRODUCTS -> Screen.PRODUCTS
+                                HomeAction.FINANCE -> Screen.FINANCE
                             },
                         )
                     }
@@ -200,6 +202,7 @@ class MainActivity : FragmentActivity() {
                     Screen.PRODUCTION -> ProductionScreen(quoteViewModel, opsViewModel, onBack = ::back)
                     Screen.STOCK -> StockScreen(quoteViewModel, opsViewModel, onBack = ::back)
                     Screen.LABELS -> com.knit.calculator.label.LabelScreen(quoteViewModel, labelViewModel, onBack = ::back)
+                    Screen.FINANCE -> com.knit.calculator.quote.FinanceScreen(quoteViewModel, opsViewModel, financeViewModel, onBack = ::back)
                     Screen.CLIENT -> com.knit.calculator.quote.ClientScreen(
                         quoteViewModel, opsViewModel, clientName, onBack = ::back, onNewQuote = { open(Screen.QUOTE) },
                     )

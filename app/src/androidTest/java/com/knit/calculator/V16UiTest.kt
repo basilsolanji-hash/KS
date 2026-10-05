@@ -105,4 +105,11 @@ class V16UiTest {
         compose.onNodeWithText("Новое КП для клиента").assertExists()
         Shots.take("66_client_card", compose)
     }
+
+    @Test fun financeNeedsSheet() {
+        // Без PIN директора все — директор: плитка «Финансы» видна.
+        compose.onNodeWithText("Финансы").performScrollTo().performClick()
+        compose.onNodeWithText("Платёжный календарь").assertExists()
+        compose.onNodeWithText("Финансы работают с подключённой Google Таблицей.").assertExists()
+    }
 }

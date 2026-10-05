@@ -64,7 +64,7 @@ fun AboutScreen(
         SectionTitle(R.string.about_news)
         Card {
             listOf(
-                R.string.about_news_170, R.string.about_news_162, R.string.about_news_161, R.string.about_news_160, R.string.about_news_151, R.string.about_news_150, R.string.about_news_140, R.string.about_news_130,
+                R.string.about_news_180, R.string.about_news_170, R.string.about_news_162, R.string.about_news_161, R.string.about_news_160, R.string.about_news_151, R.string.about_news_150, R.string.about_news_140, R.string.about_news_130,
             ).forEach { Text(stringResource(it), color = colors.textPrimary, fontSize = 14.sp, modifier = Modifier.padding(vertical = 4.dp)) }
         }
         Text(stringResource(R.string.about_support), color = colors.textSecondary, fontSize = 13.sp)

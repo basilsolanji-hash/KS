@@ -123,6 +123,9 @@ class SheetClient(private val config: SyncConfig) {
     suspend fun msCatalog(fresh: Boolean = false): JSONObject? =
         get("msCatalog", "fresh" to if (fresh) "1" else "").optJSONObject("ms")?.takeIf { it.optBoolean("enabled") }
 
+    /** Платёжный календарь: остаток, регулярные платежи, счета поставщиков, факт (только директору). */
+    suspend fun finance(): JSONObject = get("finance").optJSONObject("finance") ?: JSONObject()
+
     /** Реквизиты организации по ИНН (DaData через скрипт таблицы). */
     suspend fun innLookup(inn: String): JSONObject =
         get("innLookup", "inn" to inn).optJSONObject("party") ?: throw SheetException("DaData не вернула реквизиты")

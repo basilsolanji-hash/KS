@@ -55,7 +55,7 @@ var BRAND_SETTING = 'Название для КП';
 var EMAIL_SETTING = 'E-mail';
 var MANAGERS_SHEET = 'Менеджеры'; // Ключ | Имя | Роль (менеджер / директор) | Активен (да / нет)
 var MAIL_LIMIT_SETTING = 'Писем в день с одного ключа';
-var DIRECTOR_ONLY = ['deletePayment'];
+var DIRECTOR_ONLY = ['deletePayment', 'finance'];
 // Строки «Настроек», которые менеджеру не нужны и не должны попадать на его телефон.
 var PRIVATE_SETTINGS = ['Ключ доступа', 'PIN директора', 'Постоянные расходы в месяц, ₽', 'План выпуска, шт/мес',
   'Комиссия, %', 'Целевая рентабельность, %', 'Папка: логотип (ID)', 'Папка: фото (ID)', 'Папка: КП (ID)',
@@ -173,6 +173,8 @@ function route_(req) {
         }
         return json_({ ok: true, ms: msEnabled_() ? cached_(msKey, 900, function () { return msCatalog_(ss, director); }) : msCatalog_(ss, director) });
       }
+      case 'finance':
+        return json_({ ok: true, finance: finance_(ss) });
       case 'innLookup':
         return json_({ ok: true, party: dadataParty_(String(req.inn || '')) });
       case 'msBarcode':
@@ -276,6 +278,75 @@ function cacheBump_() {
   try {
     CacheService.getScriptCache().put('gen', newGen_(), 21600);
   } catch (e) {}
+}
+
+// ---------------------------------------------------------------- Финансы: платёжный календарь
+
+var REGULAR_SHEET = 'Регулярные платежи';
+var PLAN_SETTING = 'План продаж в месяц, ₽';
+var BALANCE_SETTING = 'Остаток денег, ₽ (если нет МойСклад)';
+
+function money_(v) {
+  var n = Number(String(v == null ? '' : v).replace(/\s/g, '').replace(',', '.'));
+  return isFinite(n) ? n : 0;
+}
+
+/** Регулярные платежи из листа: активные строки с суммой и днём месяца. */
+function regularPayments_(ss) {
+  var sheet = ss.getSheetByName(REGULAR_SHEET);
+  if (!sheet) return [];
+  return sheet.getDataRange().getValues().slice(1).filter(function (r) {
+    return String(r[0]).trim() && money_(r[1]) > 0 && !/^(нет|no|false|0)$/i.test(String(r[4]).trim());
+  }).map(function (r) {
+    return { name: String(r[0]).trim(), amount: money_(r[1]), day: Math.min(31, Math.max(1, Math.round(money_(r[2])) || 1)), category: String(r[3] || '').trim() };
+  });
+}
+
+function msMoment_(date) {
+  return Utilities.formatDate(date, 'Europe/Moscow', 'yyyy-MM-dd HH:mm:ss');
+}
+
+function msTime_(moment) {
+  return moment ? new Date(String(moment).replace(' ', 'T').substring(0, 19) + '+03:00').getTime() : 0;
+}
+
+/**
+ * Данные платёжного календаря: остаток денег (МойСклад или «Настройки»), регулярные платежи,
+ * неоплаченные счета поставщиков (МойСклад) и фактические поступления/выплаты за 8 недель.
+ */
+function finance_(ss) {
+  var s = settings_(ss);
+  var out = {
+    plan: money_(s[PLAN_SETTING]) || 0,
+    regular: regularPayments_(ss),
+    balance: String(s[BALANCE_SETTING] || '').trim() ? money_(s[BALANCE_SETTING]) : null,
+    balanceSource: String(s[BALANCE_SETTING] || '').trim() ? 'sheet' : '',
+    supplier: [],
+    actualIn: [],
+    actualOut: [],
+  };
+  var ms = msTry_(function () {
+    var report = ms_('get', '/report/money/byaccount');
+    var rows = report.rows || [];
+    if (rows.length) {
+      out.balance = rows.reduce(function (a, r) { return a + (Number(r.balance) || 0); }, 0) / 100;
+      out.balanceSource = 'ms';
+    }
+    var since = msMoment_(new Date(Date.now() - 120 * 86400000));
+    out.supplier = msAll_('/entity/invoicein?filter=' + encodeURIComponent('paymentPlannedMoment>=' + since)).map(function (d) {
+      return { name: 'Счёт поставщика № ' + d.name, amount: ((Number(d.sum) || 0) - (Number(d.payedSum) || 0)) / 100, due: msTime_(d.paymentPlannedMoment || d.moment) };
+    }).filter(function (x) { return x.amount > 0.009; });
+    var weeks8 = msMoment_(new Date(Date.now() - 56 * 86400000));
+    out.actualIn = msAll_('/entity/paymentin?filter=' + encodeURIComponent('moment>=' + weeks8)).map(function (d) {
+      return { date: msTime_(d.moment), amount: (Number(d.sum) || 0) / 100 };
+    });
+    out.actualOut = msAll_('/entity/paymentout?filter=' + encodeURIComponent('moment>=' + weeks8)).map(function (d) {
+      return { date: msTime_(d.moment), amount: (Number(d.sum) || 0) / 100 };
+    });
+    return {};
+  });
+  if (ms && ms.error) out.msError = ms.error;
+  return out;
 }
 
 // ---------------------------------------------------------------- Журнал действий

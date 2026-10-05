@@ -155,3 +155,73 @@ class PaymentQrTest {
         assertTrue(QrCode.matrix(t).size >= 25)
     }
 }
+
+class FinanceTest {
+    private val day = 86_400_000L
+    // 2026-10-05 (понедельник) 12:00 МСК.
+    private val now = 1_791_190_800_000L
+
+    @Test fun weekStartIsMonday() {
+        val mon = CashFlow.weekStart(now)
+        assertEquals(mon, CashFlow.weekStart(now + 3 * day))
+        assertEquals(mon + 7 * day, CashFlow.weekStart(now + 7 * day))
+    }
+
+    @Test fun regularPaymentsByDayOfMonth() {
+        val items = CashFlow.regular(listOf(RegularPayment("Аренда", BigDecimal(150_000), 5), RegularPayment("Конец", BigDecimal(1), 31)), now, now + 62 * day)
+        // Аренда: 5 октября (сегодня, 12:00), 5 ноября, 5 декабря.
+        assertEquals(3, items.count { it.label == "Аренда" })
+        assertTrue(items.all { !it.inflow })
+        // 31-е: в ноябре — 30-е.
+        assertEquals(2, items.count { it.label == "Конец" })
+    }
+
+    @Test fun inflowsPrepayAndRest() {
+        val deals = listOf(
+            Deal("a", 1, "А", BigDecimal(100_000), QuoteStatus.APPROVED),
+            Deal("b", 2, "Б", BigDecimal(50_000), QuoteStatus.IN_WORK),
+            Deal("c", 3, "В", BigDecimal(70_000), QuoteStatus.SENT),
+        )
+        val payments = listOf(Payment("p", "b", 2, "Б", 0, BigDecimal(25_000)))
+        val orders = listOf(ProductionOrder("b", 2, "Б", created = 0, due = now + 10 * day))
+        val items = CashFlow.expectedInflows(deals, payments, orders, BigDecimal(50), now)
+        assertEquals(
+            listOf("Предоплата КП № 1 · А" to 50_000, "Остаток КП № 1 · А" to 50_000, "Остаток КП № 2 · Б" to 25_000),
+            items.map { it.label to it.amount.toInt() },
+        )
+        assertEquals(now + 21 * day, items[1].date)
+        assertEquals(now + 10 * day, items[2].date)
+    }
+
+    @Test fun weeksAndGap() {
+        val items = listOf(
+            CashItem(now - day, BigDecimal(10_000), "просрочено", inflow = false),
+            CashItem(now + 8 * day, BigDecimal(100_000), "аренда", inflow = false),
+            CashItem(now + 15 * day, BigDecimal(200_000), "оплата", inflow = true),
+        )
+        val w = CashFlow.weeks(BigDecimal(50_000), items, now, 4)
+        assertEquals(listOf(40_000, -60_000, 140_000, 140_000), w.map { it.balance.toInt() })
+        assertEquals(listOf(false, true, false, false), w.map { it.gap })
+    }
+
+    @Test fun abcAndManagers() {
+        val sales = listOf(
+            Sale("1", 1, "Крупный", BigDecimal(800), QuoteStatus.PAID, now, "Иван / Pixel", BigDecimal(200), mapOf("Подвяз" to BigDecimal(800))),
+            Sale("2", 2, "Средний", BigDecimal(150), QuoteStatus.APPROVED, now, "Иван", null, mapOf("Поло" to BigDecimal(150))),
+            Sale("3", 3, "Малый", BigDecimal(50), QuoteStatus.IN_WORK, now, "Мария", null, mapOf("Манжеты" to BigDecimal(50))),
+            Sale("4", 4, "Отказник", BigDecimal(999), QuoteStatus.REJECTED, now, "Мария"),
+        )
+        assertEquals(listOf('A', 'B', 'C'), DirectorReport.clients(sales).map { it.group })
+        assertEquals(listOf("Подвяз", "Поло", "Манжеты"), DirectorReport.products(sales).map { it.name })
+        val m = DirectorReport.managers(sales)
+        assertEquals(listOf("Иван", "Мария"), m.map { it.name })
+        assertEquals(100, m[0].conversion)
+        assertEquals(50, m[1].conversion)
+        assertEquals(0, BigDecimal(200).compareTo(m[0].profit))
+        assertEquals(0, BigDecimal("333.33").compareTo(DirectorReport.averageCheck(sales)))
+        val months = DirectorReport.months(sales, listOf(Payment("p", "1", 1, "", now, BigDecimal(1_750_000))), BigDecimal(3_500_000), now, 2)
+        assertEquals(4, months[0].quotes)
+        assertEquals(50, months[0].planPercent)
+        assertEquals(0, months[1].quotes)
+    }
+}

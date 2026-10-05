@@ -46,7 +46,7 @@ import java.util.Date
 import java.util.Locale
 
 /** Разделы, доступные с главного экрана. */
-enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS }
+enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, FINANCE }
 
 /** Главный экран: логотип и крупные кнопки разделов. */
 @Composable
@@ -113,7 +113,9 @@ fun HomeScreen(
             }
         }
         if (day != null && !day.isEmpty) DayPanel(day, onAction)
-        val tiles = listOf(
+        val tiles = listOfNotNull(
+            // Финансы — только директору.
+            if (director) Triple(HomeAction.FINANCE, R.string.home_finance, R.drawable.ic_payments) else null,
             Triple(HomeAction.HISTORY, R.string.home_history, R.drawable.ic_history),
             Triple(HomeAction.PAYMENTS, R.string.home_payments, R.drawable.ic_payments),
             Triple(HomeAction.PRODUCTION, R.string.home_production, R.drawable.ic_factory),

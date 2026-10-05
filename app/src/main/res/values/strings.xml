@@ -656,4 +656,35 @@
     <string name="client_history">Все КП клиента</string>
     <string name="client_no_quotes">КП этому клиенту ещё нет.</string>
     <string name="client_row_debt">долг %1$s</string>
+    <!-- v1.8.0: финансы -->
+    <string name="home_finance">Финансы</string>
+    <string name="finance_title">Финансы</string>
+    <string name="finance_need_sheet">Финансы работают с подключённой Google Таблицей.</string>
+    <string name="finance_tab_cash">Платёжный календарь</string>
+    <string name="finance_tab_report">Отчёт директора</string>
+    <string name="finance_balance">Деньги сейчас</string>
+    <string name="finance_balance_ms">по счетам МойСклад</string>
+    <string name="finance_balance_sheet">из «Настроек» таблицы</string>
+    <string name="finance_balance_none">Остаток неизвестен: подключите МойСклад или укажите «Остаток денег, ₽» в «Настройках».</string>
+    <string name="finance_gap_title">Кассовый разрыв</string>
+    <string name="finance_gap_text">С недели %1$s денег может не хватить: минус %2$s. Ускорьте оплаты клиентов или перенесите выплаты.</string>
+    <string name="finance_regular_empty">Заполните лист «Регулярные платежи» в таблице (аренда, зарплата, налоги…), чтобы календарь учитывал выплаты.</string>
+    <string name="finance_weeks">По неделям (остаток на конец недели)</string>
+    <string name="finance_week_line">Приход %1$s · расход %2$s</string>
+    <string name="finance_week_empty">Движений нет.</string>
+    <string name="finance_actual">Факт за 8 недель (МойСклад): пришло %1$s, ушло %2$s.</string>
+    <string name="finance_hint">Приходы: предоплата по согласованным КП — сразу, остаток — к сроку отгрузки. Расходы: регулярные платежи и неоплаченные счета поставщиков МойСклад. Нажмите на неделю — подробности.</string>
+    <string name="report_plan_title">План продаж этого месяца (оплаты)</string>
+    <string name="report_plan_line">%1$s из %2$s — %3$d %%</string>
+    <string name="report_avg_check">Средний чек согласованного КП: %1$s</string>
+    <string name="report_months">По месяцам</string>
+    <string name="report_month_line">%1$s: КП %2$d · согласовано %3$s · оплачено %4$s · план %5$d %%</string>
+    <string name="report_managers">Менеджеры</string>
+    <string name="report_manager_line">%1$s: КП %2$d · конверсия %3$d %% · продажи %4$s</string>
+    <string name="report_profit">прибыль %1$s</string>
+    <string name="report_abc_clients">ABC клиентов</string>
+    <string name="report_abc_products">ABC товаров</string>
+    <string name="report_abc_hint">A — клиенты и товары, дающие 80 % выручки: им — лучший сервис и сроки. C — последние 5 %: проверьте, окупаются ли.</string>
+    <string name="report_empty">Нет согласованных КП.</string>
+    <string name="about_news_180">1.8.0 — «Финансы» для директора: платёжный календарь на 12 недель с предупреждением о кассовом разрыве (остаток МойСклад, регулярные платежи, счета поставщиков, ожидаемые оплаты по КП) и отчёт директора (план/факт, средний чек, менеджеры, ABC клиентов и товаров).</string>
 </resources>
