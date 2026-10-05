@@ -264,7 +264,7 @@ private fun ReportTab(d: FinanceData, deals: List<HistoryItem>, ops: OpsData, no
     DirectorReport.managers(sales).forEach { r ->
         Text(
             stringResource(R.string.report_manager_line, r.name, r.quotes, r.conversion, rub(r.wonSum)) +
-                (r.profit?.let { " · " + stringResource(R.string.report_profit, rub(it)) } ?: ""),
+                (r.profit?.let { " · " + stringResource(R.string.finance_profit, rub(it)) } ?: ""),
             color = colors.textPrimary, fontSize = 14.sp,
         )
     }
@@ -277,7 +277,7 @@ private fun ReportTab(d: FinanceData, deals: List<HistoryItem>, ops: OpsData, no
 private fun AbcBlock(title: Int, rows: List<AbcRow>) {
     val colors = LocalKnitColors.current
     SectionTitle(title)
-    if (rows.isEmpty()) Text(stringResource(R.string.report_empty), color = colors.textSecondary, fontSize = 13.sp)
+    if (rows.isEmpty()) Text(stringResource(R.string.finance_abc_empty), color = colors.textSecondary, fontSize = 13.sp)
     rows.take(15).forEach { r ->
         Row {
             Text(r.group.toString(), color = if (r.group == 'A') colors.textPrimary else colors.textSecondary, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(end = 8.dp))

@@ -681,10 +681,10 @@
     <string name="report_month_line">%1$s: КП %2$d · согласовано %3$s · оплачено %4$s · план %5$d %%</string>
     <string name="report_managers">Менеджеры</string>
     <string name="report_manager_line">%1$s: КП %2$d · конверсия %3$d %% · продажи %4$s</string>
-    <string name="report_profit">прибыль %1$s</string>
+    <string name="finance_profit">прибыль %1$s</string>
     <string name="report_abc_clients">ABC клиентов</string>
     <string name="report_abc_products">ABC товаров</string>
     <string name="report_abc_hint">A — клиенты и товары, дающие 80 % выручки: им — лучший сервис и сроки. C — последние 5 %: проверьте, окупаются ли.</string>
-    <string name="report_empty">Нет согласованных КП.</string>
+    <string name="finance_abc_empty">Нет согласованных КП.</string>
     <string name="about_news_180">1.8.0 — «Финансы» для директора: платёжный календарь на 12 недель с предупреждением о кассовом разрыве (остаток МойСклад, регулярные платежи, счета поставщиков, ожидаемые оплаты по КП) и отчёт директора (план/факт, средний чек, менеджеры, ABC клиентов и товаров).</string>
 </resources>
