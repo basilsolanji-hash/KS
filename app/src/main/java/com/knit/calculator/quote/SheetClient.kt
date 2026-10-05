@@ -122,6 +122,13 @@ class SheetClient(private val config: SyncConfig) {
         get("innLookup", "inn" to inn).optJSONObject("party") ?: throw SheetException("DaData не вернула реквизиты")
 
     /** EAN-13 товара или модификации МойСклад; если штрихкода нет — скрипт создаёт его в МойСклад. */
+    /** Правка карточки товара МойСклад (директор): название, артикул, описание, вес, мин. цена, цены по тиражам. */
+    suspend fun msUpdateProduct(type: String, id: String, changes: JSONObject): JSONObject {
+        val body = JSONObject().put("action", "msUpdateProduct").put("key", config.key)
+            .put("msType", type).put("msId", id).put("changes", changes)
+        return request(URL(config.url.trim()), body.toString())
+    }
+
     suspend fun msBarcode(type: String, id: String): String {
         val code = get("msBarcode", "msType" to type, "msId" to id).optString("barcode")
         if (!com.knit.calculator.core.Ean13.isValid(code)) throw SheetException("МойСклад не вернул штрихкод")

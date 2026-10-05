@@ -751,6 +751,16 @@
     <string name="cost_commission">Комиссия</string>
     <string name="cost_target_field">Целевая прибыль</string>
     <string name="cost_hint">Цены — как в КП (НДС %1$s %% по настройкам). Значения берутся из листов «Себестоимость» и «Настройки»; правки здесь таблицу не меняют.</string>
+    <string name="products_edit">Изменить</string>
+    <string name="products_edit_title">Карточка в МойСклад</string>
+    <string name="products_edit_variant">Модификация: название, артикул, описание и вес меняются у всего товара, цены — только у этой модификации.</string>
+    <string name="products_edit_name">Название</string>
+    <string name="products_edit_article">Артикул</string>
+    <string name="products_edit_description">Описание</string>
+    <string name="products_edit_weight">Вес</string>
+    <string name="products_edit_min">Мин. цена</string>
+    <string name="products_edit_save">Сохранить в МойСклад</string>
+    <string name="products_edit_hint">Изменения сразу сохраняются в МойСклад и записываются в журнал таблицы.</string>
     <string name="scan_barcode">Сканировать штрихкод</string>
     <string name="scan_not_found">Штрихкод %s не найден среди товаров — проверьте или обновите каталог.</string>
     <string name="chart_ship">Отгрузки (МойСклад)</string>

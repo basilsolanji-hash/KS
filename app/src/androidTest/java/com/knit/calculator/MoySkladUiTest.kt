@@ -166,6 +166,13 @@ class MoySkladUiTest {
         compose.onAllNodes(hasText(money("158.34"))).onFirst().assertExists()
         compose.onNodeWithText("EAN-13: 4 601234 567893").assertExists()
         Shots.take("55_product_card", compose)
+        // Директор правит карточку в МойСклад.
+        compose.onNodeWithText("Изменить").performClick()
+        compose.onNodeWithText("Карточка в МойСклад").assertExists()
+        compose.onNodeWithText("Сохранить в МойСклад").assertExists()
+        Shots.take("56_product_edit", compose)
+        compose.onNodeWithText("Отмена").performClick()
+        compose.onNodeWithText("Подвяз трикотажный 1×1 (ПЭ) Белый, 14х100 см").performClick()
         compose.onNodeWithText("В КП").performClick()
         compose.onAllNodes(hasText("Подвяз трикотажный 1×1 (ПЭ) Белый, 14х100 см", substring = true)).onFirst().assertExists()
         // Позиция в КП ждёт количество.

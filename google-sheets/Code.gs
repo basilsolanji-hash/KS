@@ -55,7 +55,7 @@ var BRAND_SETTING = 'Название для КП';
 var EMAIL_SETTING = 'E-mail';
 var MANAGERS_SHEET = 'Менеджеры'; // Ключ | Имя | Роль (менеджер / директор) | Активен (да / нет)
 var MAIL_LIMIT_SETTING = 'Писем в день с одного ключа';
-var DIRECTOR_ONLY = ['deletePayment', 'finance'];
+var DIRECTOR_ONLY = ['deletePayment', 'finance', 'msUpdateProduct'];
 // Строки «Настроек», которые менеджеру не нужны и не должны попадать на его телефон.
 var PRIVATE_SETTINGS = ['Ключ доступа', 'PIN директора', 'Постоянные расходы в месяц, ₽', 'План выпуска, шт/мес',
   'Комиссия, %', 'Целевая рентабельность, %', 'Папка: логотип (ID)', 'Папка: фото (ID)', 'Папка: КП (ID)',
@@ -186,6 +186,11 @@ function route_(req) {
       }
       case 'innLookup':
         return json_({ ok: true, party: dadataParty_(String(req.inn || '')) });
+      case 'msUpdateProduct': {
+        var updated = msUpdateProduct_(String(req.msType || ''), String(req.msId || ''), req.changes || {});
+        ['ms:d', 'ms:m'].forEach(function (k) { try { CacheService.getScriptCache().remove(k); } catch (e) {} });
+        return json_({ ok: true, product: updated });
+      }
       case 'msBarcode':
         return json_({ ok: true, barcode: msCreateBarcode_(String(req.msType || ''), String(req.msId || '')) });
       case 'uploadFile':
@@ -1385,6 +1390,63 @@ function msTiers_(salePrices) {
     if (sp.priceType && sp.priceType.name) byName[sp.priceType.name] = (Number(sp.value) || 0) / 100;
   });
   return MS_TIERS.map(function (t) { return { from: t[1], price: byName[t[0]] || 0 }; }).filter(function (t) { return t.price > 0; });
+}
+
+/**
+ * Карточка товара МойСклад из приложения (только директор): название, артикул, описание, вес,
+ * минимальная цена и цены по тиражам. У модификации название, артикул, описание и вес — товара;
+ * цены — свои (если своих не было, берутся цены товара, чтобы не потерять остальные тиражи).
+ */
+function msUpdateProduct_(type, id, changes) {
+  if (!msEnabled_()) throw new Error('МойСклад не подключён');
+  if ((type !== 'product' && type !== 'variant') || !/^[\w-]+$/.test(id)) throw new Error('Неверный товар');
+  var entity = ms_('get', '/entity/' + type + '/' + id);
+  var parentId = type === 'variant' ? msIdOf_(entity.product) : id;
+  var parent = type === 'variant' ? ms_('get', '/entity/product/' + parentId) : entity;
+  var card = {};
+  if (changes.name != null && String(changes.name).trim()) card.name = String(changes.name).trim().substring(0, 255);
+  if (changes.article != null) card.article = String(changes.article).trim().substring(0, 255);
+  if (changes.description != null) card.description = String(changes.description).substring(0, 4096);
+  if (changes.weight != null && isFinite(Number(changes.weight))) card.weight = Number(changes.weight);
+  var own = {};
+  if (changes.minPrice != null && isFinite(Number(changes.minPrice))) {
+    own.minPrice = { value: Math.round(Number(changes.minPrice) * 100), currency: (entity.minPrice || parent.minPrice || {}).currency };
+    if (!own.minPrice.currency) delete own.minPrice.currency;
+  }
+  var prices = changes.prices || {};
+  if (Object.keys(prices).length) {
+    var hasOwn = (entity.salePrices || []).some(function (sp) { return Number(sp.value) > 0; });
+    var source = hasOwn ? entity.salePrices : (parent.salePrices || []);
+    var types = {};
+    var list = ms_('get', '/context/companysettings/pricetype');
+    (Array.isArray(list) ? list : list.rows || []).forEach(function (pt) { types[pt.name] = pt; });
+    var byName = {};
+    var out = (source || []).map(function (sp) {
+      var copy = { value: sp.value, priceType: sp.priceType };
+      if (sp.currency) copy.currency = sp.currency;
+      if (sp.priceType && sp.priceType.name) byName[sp.priceType.name] = copy;
+      return copy;
+    });
+    MS_TIERS.forEach(function (t) {
+      var v = prices[String(t[1])];
+      if (v == null || !isFinite(Number(v))) return;
+      var cents = Math.round(Number(v) * 100);
+      if (byName[t[0]]) byName[t[0]].value = cents;
+      else if (types[t[0]]) out.push({ value: cents, priceType: { meta: types[t[0]].meta, name: t[0] } });
+    });
+    own.salePrices = out;
+  }
+  if (type === 'variant') {
+    if (Object.keys(card).length) ms_('put', '/entity/product/' + parentId, card);
+    if (Object.keys(own).length) ms_('put', '/entity/variant/' + id, own);
+  } else {
+    Object.keys(own).forEach(function (k) { card[k] = own[k]; });
+    if (Object.keys(card).length) ms_('put', '/entity/product/' + id, card);
+  }
+  var fresh = ms_('get', '/entity/' + type + '/' + id);
+  var tiers = msTiers_(fresh.salePrices);
+  if (!tiers.length && type === 'variant') tiers = msTiers_(ms_('get', '/entity/product/' + parentId).salePrices);
+  return { id: id, tiers: tiers };
 }
 
 function msMoney_(v) {

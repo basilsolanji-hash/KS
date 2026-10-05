@@ -886,6 +886,19 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         store.recentMs = next
     }
 
+    /** Сохраняет карточку товара в МойСклад и обновляет каталог; `null` — успех, иначе текст ошибки. */
+    suspend fun updateMsProduct(p: Product, changes: JSONObject): String? {
+        val config = _syncConfig.value
+        if (!config.enabled) return "Нужно подключение к Google Таблице"
+        return try {
+            SheetClient(config).msUpdateProduct(p.externalType, p.externalId, changes)
+            refreshMs(force = true)
+            null
+        } catch (e: Exception) {
+            e.message ?: "МойСклад недоступен"
+        }
+    }
+
     // ---------- Калькулятор себестоимости (директор) ----------
 
     /** Затраты изделия из листа «Себестоимость» (по коду изделия). */
