@@ -177,7 +177,7 @@ fun ProductPicker(
                     }
                     filterNames.forEach { name ->
                         // Значения — среди найденного без учёта этого же фильтра.
-                        val values = MoySklad.filterValues(MoySklad.search(msProducts, query, group, selected - name), name)
+                        val values = MoySklad.filterValues(MoySklad.search(msProducts, query, group, selected - name, badge), name)
                         if (values.isNotEmpty()) {
                             item(key = "f$name") {
                                 Column {
