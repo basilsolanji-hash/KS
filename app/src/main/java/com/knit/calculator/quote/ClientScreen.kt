@@ -42,12 +42,15 @@ fun ClientScreen(quoteVm: QuoteViewModel, opsVm: OpsViewModel, clientName: Strin
     val clients by quoteVm.clients.collectAsStateWithLifecycle()
     val ops by opsVm.data.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) {
-        quoteVm.loadDealsIfStale(60_000L)
+        quoteVm.loadHistory()
+        quoteVm.loadDeals()
         opsVm.loadIfStale(60_000L)
     }
     val key = clientName.trim().lowercase()
     val client = clients.firstOrNull { it.company.trim().lowercase() == key }
-    val items = (deals ?: history.orEmpty()).filter { it.client.trim().lowercase() == key }.sortedByDescending { it.number }
+    // История (последние КП, свежие) + все КП (долги): без повторов.
+    val items = (history.orEmpty() + deals.orEmpty()).distinctBy { it.id.ifBlank { it.number.toString() } }
+        .filter { it.client.trim().lowercase() == key }.sortedByDescending { it.number }
     val report = Debts.report(items.map { Deal(it.id, it.number, it.client, it.total, it.status) }, ops.paymentsForDebts)
     val total = items.fold(BigDecimal.ZERO) { a, q -> a + q.total }
     fun rub(v: BigDecimal) = QuoteCalculator.formatMoney(v) + " ₽"
