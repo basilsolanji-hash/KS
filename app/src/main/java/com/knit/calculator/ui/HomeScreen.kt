@@ -46,7 +46,7 @@ import java.util.Date
 import java.util.Locale
 
 /** Разделы, доступные с главного экрана. */
-enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT }
+enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS }
 
 /** Главный экран: логотип и крупные кнопки разделов. */
 @Composable
@@ -118,6 +118,7 @@ fun HomeScreen(
             Triple(HomeAction.PAYMENTS, R.string.home_payments, R.drawable.ic_payments),
             Triple(HomeAction.PRODUCTION, R.string.home_production, R.drawable.ic_factory),
             Triple(HomeAction.LABELS, R.string.home_labels, R.drawable.ic_label),
+            Triple(HomeAction.PRODUCTS, R.string.home_products, R.drawable.ic_inventory),
             Triple(HomeAction.STOCK, R.string.home_stock, R.drawable.ic_inventory),
             Triple(HomeAction.YARN, R.string.home_yarn, R.drawable.ic_yarn),
             Triple(HomeAction.REPORT, R.string.home_report, R.drawable.ic_report),

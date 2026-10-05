@@ -591,6 +591,7 @@
     <string name="about_error">ошибка: %1$s</string>
     <string name="about_ms_on">%1$d товаров · склад %2$s · обновлено %3$s</string>
     <string name="about_news">Что нового</string>
+    <string name="about_news_162">1.6.2 — экран «Товары МойСклад» с карточкой (цены по тиражу, остаток, штрихкод, характеристики, «В КП», «Этикетка»); QR для оплаты на счёте (ГОСТ Р 56042); копирование позиции; подсказка, если МойСклад не подключён.</string>
     <string name="about_news_161">1.6.1 — настройки разделами; подключение телефона по QR-коду из таблицы; КП по шагам «Клиент → Позиции → Итог», итог и «Сохранить» всегда внизу; ежедневная сводка в 9:00 (долги, отгрузки, просрочки, КП без ответа).</string>
     <string name="about_news_160">1.6.0 — проверка ИНН, e-mail и телефона; реквизиты клиента по ИНН (DaData); КПП и адрес клиента в счёте и договоре; контроль минимальной цены; «Отменить» удаление позиции; избранные и недавние товары; поиск в истории КП; панель «Сегодня»; экран «О версии».</string>
     <string name="about_news_151">1.5.1 — этикетки 120×75 мм со штрихкодом EAN-13 на Bluetooth-термопринтер (Xprinter, TSC, Zebra).</string>
@@ -615,4 +616,17 @@
     <string name="quote_step_total">3 · Итог</string>
     <string name="quote_bar_total">Итого</string>
     <string name="quote_bar_save">Сохранить</string>
+    <string name="doc_pay_qr">Оплата по QR в приложении банка</string>
+    <string name="ms_not_connected">Товары МойСклад не загружены: в таблице «Фабрика KS → Подключить МойСклад…», затем обновите данные вверху экрана.</string>
+    <string name="quote_copy_item">Копировать позицию</string>
+    <string name="home_products">Товары</string>
+    <string name="products_title">Товары МойСклад</string>
+    <string name="products_prices">Цены по тиражу</string>
+    <string name="products_from_qty">от %1$s %2$s</string>
+    <string name="products_min_price">Минимальная цена: %1$s ₽</string>
+    <string name="products_buy_price">Закупочная цена: %1$s ₽</string>
+    <string name="products_chars">Характеристики</string>
+    <string name="products_label">Этикетка</string>
+    <string name="products_to_quote">В КП</string>
+    <string name="products_close">Закрыть</string>
 </resources>

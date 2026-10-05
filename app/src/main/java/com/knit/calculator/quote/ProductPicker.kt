@@ -67,6 +67,7 @@ fun ProductPicker(
     favorites: Set<String> = emptySet(),
     recent: List<String> = emptyList(),
     onToggleFavorite: ((Product) -> Unit)? = null,
+    title: String? = null,
 ) {
     val colors = LocalKnitColors.current
     var query by rememberSaveable { mutableStateOf("") }
@@ -82,7 +83,7 @@ fun ProductPicker(
     val recentList = if (idle) recent.filterNot { it in favorites }.mapNotNull { byExternal[it] } else emptyList()
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(Modifier.fillMaxSize().background(colors.background).safeDrawingPadding()) {
-            ScreenTopBar(stringResource(R.string.picker_title), onDismiss) {
+            ScreenTopBar(title ?: stringResource(R.string.picker_title), onDismiss) {
                 if (sync.msEnabled) KnitIconButton(R.drawable.ic_arrow_down, stringResource(R.string.ms_refresh), onRefresh)
             }
             LazyColumn(

@@ -274,7 +274,22 @@ object DocPdf {
                 paragraph(context.getString(com.knit.calculator.R.string.doc_items_count, tableRows.size, money(inv.amount)))
                 paragraph(MoneyWords.rubles(inv.amount), bold, after = 10f)
                 paragraph(context.getString(com.knit.calculator.R.string.doc_invoice_note), small, lineHeight = 11f, after = 24f)
+                // QR для оплаты (ГОСТ Р 56042): справа от подписей — клиент платит камерой в приложении банка.
+                ensure(130f)
+                val qrSize = 104f
+                val qrLeft = PageWriter.PAGE_WIDTH - PageWriter.MARGIN - qrSize
+                val qrTop = y - 14f
+                drawQr(
+                    canvas,
+                    com.knit.calculator.core.PaymentQr.text(
+                        s.legalName, s.account, s.bank, s.bik, s.corrAccount, s.inn, s.kpp,
+                        "Оплата по счёту № ${inv.number} от ${date(inv.date)}. ${inv.purpose}", inv.amount,
+                    ),
+                    qrLeft, qrTop, qrSize,
+                )
+                canvas.drawText(context.getString(com.knit.calculator.R.string.doc_pay_qr), qrLeft, qrTop + qrSize + 10f, small)
                 signatures(s)
+                y = maxOf(y, qrTop + qrSize + 20f)
             }
         }
 

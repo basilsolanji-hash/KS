@@ -140,4 +140,18 @@ class MoySkladUiTest {
         org.junit.Assert.assertTrue(cmd.contains("BITMAP 0,0,74,959,0,"))
         org.junit.Assert.assertTrue(cmd.endsWith("PRINT 2,1\r\n"))
     }
+
+    @Test fun productsCatalogCard() {
+        compose.onNodeWithText("Товары").performScrollTo().performClick()
+        compose.onNodeWithText("Товары МойСклад (3)").assertExists()
+        compose.onNodeWithText("Подвяз трикотажный 1×1 (ПЭ) Белый, 14х100 см").performClick()
+        // Карточка: цены по тиражам, остаток, штрихкод.
+        compose.onNodeWithText("от 500 шт").assertExists()
+        compose.onAllNodes(hasText(money("158.34"))).onFirst().assertExists()
+        compose.onNodeWithText("EAN-13: 4 601234 567893").assertExists()
+        Shots.take("55_product_card", compose)
+        compose.onNodeWithText("В КП").performClick()
+        compose.onAllNodes(hasText("Подвяз трикотажный 1×1 (ПЭ) Белый, 14х100 см", substring = true)).onFirst().assertExists()
+        compose.onNodeWithText("Итого").assertExists()
+    }
 }

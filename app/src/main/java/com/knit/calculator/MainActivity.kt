@@ -36,7 +36,7 @@ import com.knit.calculator.yarn.YarnScreen
 import com.knit.calculator.yarn.YarnViewModel
 
 /** Экраны приложения; переход «назад» описан у каждого экрана. */
-private enum class Screen { HOME, CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY, REPORT, ORDER_YARN, SHOP, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT }
+private enum class Screen { HOME, CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY, REPORT, ORDER_YARN, SHOP, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS }
 
 class MainActivity : ComponentActivity() {
 
@@ -120,6 +120,7 @@ class MainActivity : ComponentActivity() {
                                 HomeAction.STOCK -> Screen.STOCK
                                 HomeAction.LABELS -> Screen.LABELS
                                 HomeAction.ABOUT -> Screen.ABOUT
+                                HomeAction.PRODUCTS -> Screen.PRODUCTS
                             },
                         )
                     }
@@ -172,6 +173,12 @@ class MainActivity : ComponentActivity() {
                     Screen.PRODUCTION -> ProductionScreen(quoteViewModel, opsViewModel, onBack = ::back)
                     Screen.STOCK -> StockScreen(quoteViewModel, opsViewModel, onBack = ::back)
                     Screen.LABELS -> com.knit.calculator.label.LabelScreen(quoteViewModel, labelViewModel, onBack = ::back)
+                    Screen.PRODUCTS -> com.knit.calculator.quote.ProductsScreen(
+                        quoteViewModel,
+                        onBack = ::back,
+                        onAddToQuote = { p -> quoteViewModel.addLine(p); open(Screen.QUOTE) },
+                        onLabel = { p -> labelViewModel.add(p); open(Screen.LABELS) },
+                    )
                     Screen.ABOUT -> {
                         val msProducts by quoteViewModel.msProducts.collectAsStateWithLifecycle()
                         val printer by labelViewModel.printer.collectAsStateWithLifecycle()

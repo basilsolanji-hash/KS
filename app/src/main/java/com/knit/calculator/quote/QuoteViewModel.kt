@@ -874,6 +874,13 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
 
     private var undoTimer: kotlinx.coroutines.Job? = null
 
+    /** Копия позиции сразу после неё (без фото): тот же товар — меняют размер, цвет или количество. */
+    fun duplicateLine(id: Long) = updateDraft { d ->
+        val index = d.lines.indexOfFirst { it.id == id }
+        if (index < 0) d
+        else d.copy(lines = d.lines.toMutableList().apply { add(index + 1, d.lines[index].copy(id = newId(), photoPath = null, photoFileId = null)) })
+    }
+
     fun undoRemove() {
         val (index, line) = _removed.value ?: return
         undoTimer?.cancel()

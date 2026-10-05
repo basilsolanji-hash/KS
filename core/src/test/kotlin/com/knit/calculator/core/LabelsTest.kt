@@ -140,3 +140,18 @@ class DashboardTest {
         assertFalse(s.isEmpty)
     }
 }
+
+class PaymentQrTest {
+    @Test fun gostString() {
+        val t = PaymentQr.text(
+            "ООО «Солвер»", "40702810538710009446", "ПАО Сбербанк", "044525225", "30101810400000000225",
+            "9705239429", "772301001", "Оплата по счёту № 7 | КП № 12", BigDecimal("62400.5"),
+        )
+        assertEquals(
+            "ST00012|Name=ООО «Солвер»|PersonalAcc=40702810538710009446|BankName=ПАО Сбербанк|BIC=044525225|" +
+                "CorrespAcc=30101810400000000225|PayeeINN=9705239429|KPP=772301001|Purpose=Оплата по счёту № 7   КП № 12|Sum=6240050",
+            t,
+        )
+        assertTrue(QrCode.matrix(t).size >= 25)
+    }
+}

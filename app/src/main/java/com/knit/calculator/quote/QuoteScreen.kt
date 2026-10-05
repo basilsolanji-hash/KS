@@ -372,6 +372,7 @@ fun QuoteScreen(
                         viewModel.updateLine(view.draft.id) { it.copy(selected = it.selected + (groupId to choiceId)) }
                     },
                     onRemove = { viewModel.removeLine(view.draft.id) },
+                    onCopy = { viewModel.duplicateLine(view.draft.id) },
                     onDiscount = { d -> viewModel.updateLine(view.draft.id) { it.copy(discount = d) } },
                     maxDiscount = settings.maxDiscount,
                     showEconomics = showEconomics,
@@ -401,6 +402,13 @@ fun QuoteScreen(
                 }
             } else {
                 AddItemButton(catalog, onAdd = viewModel::addLine, onOpenCatalog = onOpenCatalog)
+                // Таблица подключена, а товаров МойСклад нет — объясняем почему.
+                if (sync.connected) {
+                    Text(
+                        sync.msError?.let { stringResource(R.string.ms_error, it) } ?: stringResource(R.string.ms_not_connected),
+                        color = colors.textSecondary, fontSize = 13.sp,
+                    )
+                }
             }
 
             KnitField(
@@ -733,6 +741,7 @@ private fun LineCard(
     onRemovePhoto: () -> Unit,
     msStore: String = "",
     belowMinPrice: Boolean = false,
+    onCopy: () -> Unit = {},
 ) {
     val colors = LocalKnitColors.current
     val product = view.product
@@ -747,6 +756,10 @@ private fun LineCard(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f),
                 )
+                // Копия позиции — тот же товар с другим размером или цветом.
+                IconButton(onClick = onCopy) {
+                    Icon(painterResource(R.drawable.ic_copy), stringResource(R.string.quote_copy_item), tint = colors.textSecondary)
+                }
                 IconButton(onClick = onRemove) {
                     Icon(painterResource(R.drawable.ic_close), stringResource(R.string.quote_remove_item), tint = colors.textSecondary)
                 }
