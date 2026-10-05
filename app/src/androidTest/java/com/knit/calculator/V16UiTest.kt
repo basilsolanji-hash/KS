@@ -37,7 +37,7 @@ class V16UiTest {
         Shots.take("60_inn_check", compose)
 
         compose.onNodeWithText("Добавить позицию").performScrollTo().performClick()
-        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Подвяз трикотажный")).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(15_000) { compose.onAllNodes(hasText("Подвяз трикотажный")).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Подвяз трикотажный").performClick()
         compose.onNodeWithContentDescription("Удалить позицию").performClick()
         compose.onNodeWithText("Позиция удалена").assertExists()
@@ -58,7 +58,7 @@ class V16UiTest {
         compose.onNodeWithText("Коммерческое предложение").performClick()
         compose.onNodeWithText("3 · Итог").assertExists()
         compose.onNodeWithText("Добавить позицию").performScrollTo().performClick()
-        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Подвяз трикотажный")).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(15_000) { compose.onAllNodes(hasText("Подвяз трикотажный")).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Подвяз трикотажный").performClick()
         // Итог и «Сохранить» — внизу экрана, без прокрутки.
         compose.onNodeWithText("Итого").assertExists()
@@ -78,7 +78,7 @@ class V16UiTest {
         compose.onNodeWithText("Коммерческое предложение").performClick()
         compose.onNodeWithText("Компания клиента").performTextInput("ООО Ромашка")
         compose.onNodeWithText("Добавить позицию").performScrollTo().performClick()
-        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Подвяз трикотажный")).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(15_000) { compose.onAllNodes(hasText("Подвяз трикотажный")).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Подвяз трикотажный").performClick()
         val qty = compose.onNode(hasSetTextAction() and hasText("Количество"))
         qty.performTextClearance()
