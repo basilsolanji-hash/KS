@@ -60,6 +60,8 @@ const context = {
     formatDate: (d, tz, f) => (f === 'yyyy-MM' ? d.toISOString().slice(0, 7) : d.toISOString()),
     base64Encode: (b) => Buffer.from(b).toString('base64'),
     base64Decode: (s) => Buffer.from(s, 'base64'),
+    DigestAlgorithm: { SHA_256: 'sha256' },
+    computeDigest: (alg, text) => require('crypto').createHash(alg).update(String(text)).digest(),
     newBlob: (bytes, mime, name) => ({ bytes, mime, name }),
   },
   ContentService: { createTextOutput: (t) => ({ text: t, setMimeType() { return this; } }), MimeType: { JSON: 'json' } },
@@ -134,21 +136,24 @@ assert.ok(list[1].validUntil > 0);
 
 // Письмо клиенту: ответ и копия — на e-mail фабрики, PDF во вложении, отметка в листе «КП».
 sheets['Настройки'].data.push(['E-mail', 'Sale@fabrika-ks.ru'], ['Название для КП', 'Фабрика "KS"'], ['Папка: КП (ID)', 'pdfFolder']);
-const mail = call({ action: 'sendEmail', quoteId: 'q1', to: 'client@example.ru', subject: 'КП № 100', body: 'Текст', name: 'KP_100.pdf', data: 'JVBERg==' });
+// Только на e-mail клиента этого КП: чужой адрес и несохранённое КП — отказ.
+assert.ok(/только на e-mail клиента/.test(call({ action: 'sendEmail', quoteId: 'q1', to: 'spam@example.ru', data: '' }).error));
+assert.ok(/Сначала сохраните КП/.test(call({ action: 'sendEmail', quoteId: 'нет', to: 'a@b.ru', data: '' }).error));
+const mail = call({ action: 'sendEmail', quoteId: 'q1', to: 'A@B.ru', subject: 'КП № 100', body: 'Текст', name: 'KP_100.pdf', data: 'JVBERg==' });
 assert.strictEqual(mail.ok, true, mail.error);
 const sent = context.MailApp.sent[0];
-assert.strictEqual(sent.to, 'client@example.ru');
+assert.strictEqual(sent.to, 'A@B.ru');
 assert.strictEqual(sent.options.replyTo, 'Sale@fabrika-ks.ru');
 assert.strictEqual(sent.options.cc, 'Sale@fabrika-ks.ru');
 assert.strictEqual(sent.options.name, 'Фабрика "KS"');
 assert.strictEqual(sent.options.attachments.length, 1);
-assert.ok(String(sheets['КП'].data[1][21]).endsWith('→ client@example.ru'));
+assert.ok(String(sheets['КП'].data[1][21]).endsWith('→ A@B.ru'));
 assert.strictEqual(sheets['КП'].data[1][20], 'https://drive/f1');
 assert.strictEqual(sheets['КП'].getMaxColumns(), 22);
 // Плохой адрес и исчерпанный лимит — понятная ошибка, письмо не уходит.
 assert.strictEqual(call({ action: 'sendEmail', to: 'не адрес', data: '' }).ok, false);
 context.MailApp.quota = 0;
-assert.ok(/Лимит/.test(call({ action: 'sendEmail', to: 'client@example.ru', data: '' }).error));
+assert.ok(/Лимит/.test(call({ action: 'sendEmail', quoteId: 'q1', to: 'a@b.ru', data: '' }).error));
 assert.strictEqual(context.MailApp.sent.length, 1);
 
 // ---- Учёт: счета, оплаты, заказы, склад пряжи (листы создаются сами).
@@ -190,7 +195,7 @@ assert.strictEqual(get({ action: 'ops' }).ops.payments.length, 0);
 // Письмо со счётом — без отметки в листе «КП».
 context.MailApp.quota = 100;
 const before = sheets['КП'].data[1][21];
-assert.strictEqual(call({ action: 'sendEmail', kind: 'invoice', invoiceNumber: 50, to: 'client@example.ru', subject: 'Счёт № 50', body: '', name: 'Счёт_50.pdf', data: 'JVBERg==' }).ok, true);
+assert.strictEqual(call({ action: 'sendEmail', kind: 'invoice', invoiceNumber: 50, quoteId: 'q1', to: 'a@b.ru', subject: 'Счёт № 50', body: '', name: 'Счёт_50.pdf', data: 'JVBERg==' }).ok, true);
 assert.strictEqual(sheets['КП'].data[1][21], before);
 
 // ---- МойСклад (имитация JSON API 1.2).
@@ -209,6 +214,18 @@ const msDb = {
       salePrices: [['1 штук', 20153], ['10 штук', 19433], ['20 штук', 18713], ['50 штук', 17274], ['от 100 штук', 16554], ['от 500 штук', 15834], ['Премиум', 28790]]
         .map(([n, v]) => ({ value: v, priceType: { name: n } })) },
     { id: 'p2', name: 'Без цены', salePrices: [{ value: 0, priceType: { name: '1 штук' } }] },
+    // Товар с модификациями: в каталог попадают модификации, сам товар — нет.
+    { id: 'p3', name: 'Подвяз двуслойный 1х1', article: 'P3', pathName: 'Подвязы', buyPrice: { value: 9000 },
+      attributes: [{ name: 'Популярный в категории', value: true }],
+      salePrices: [{ value: 15000, priceType: { name: '1 штук' } }, { value: 12000, priceType: { name: 'от 500 штук' } }] },
+  ],
+  variant: [
+    { id: 'v1', product: { meta: { href: MS + '/entity/product/p3' } }, salePrices: [],
+      characteristics: [{ name: 'Цвет', value: 'бордовый / белый' }, { name: 'Размер', value: '115х14 см' }, { name: 'Тип резинки', value: '1х1' },
+        { name: 'Артикул', value: '10252211693' }, { name: 'Уход (рекомендации)', value: 'Стирка 30' }, { name: 'Метка 1', value: 'Топ-продажа' },
+        { name: 'Состав / материала', value: 'хлопок 95% резинка 5%' }] },
+    { id: 'v2', product: { meta: { href: MS + '/entity/product/p3' } }, salePrices: [{ value: 16000, priceType: { name: '1 штук' } }],
+      characteristics: [{ name: 'Цвет', value: 'чёрный' }, { name: 'Размер', value: '115х16 см' }] },
   ],
 };
 const msCalls = [];
@@ -265,10 +282,22 @@ context.PropertiesService.props.MS_TOKEN = 'tok';
 // Каталог: цены по тиражам из типов цен, «Премиум» игнорируется, остатки склада «Электросталь».
 const msCat = get({ action: 'msCatalog' }).ms;
 assert.strictEqual(msCat.store, 'Электросталь');
-assert.strictEqual(msCat.products.length, 1);
+assert.deepStrictEqual(msCat.products.map((p) => p.id), ['p1', 'v1', 'v2']);
 assert.deepStrictEqual(msCat.products[0].tiers.map((t) => [t.from, t.price]), [[1, 201.53], [10, 194.33], [20, 187.13], [50, 172.74], [100, 165.54], [500, 158.34]]);
 assert.strictEqual(msCat.products[0].stock, 120);
 assert.strictEqual(msCat.products[0].buyPrice, 143.95);
+// Модификация: цены товара (своих нет), только нужные характеристики, значки «Топ-продажа» и «Популярный».
+const v1 = msCat.products[1];
+assert.strictEqual(v1.type, 'variant');
+assert.strictEqual(v1.name, 'Подвяз двуслойный 1х1');
+assert.deepStrictEqual(v1.tiers.map((t) => [t.from, t.price]), [[1, 150], [500, 120]]);
+assert.deepStrictEqual(v1.chars, { 'Цвет': 'бордовый / белый', 'Размер': '115х14 см', 'Тип резинки': '1х1', 'Артикул': '10252211693', 'Состав / материала': 'хлопок 95% резинка 5%' });
+assert.deepStrictEqual(v1.badges, ['Топ-продажа', 'Популярный']);
+assert.strictEqual(v1.article, '10252211693');
+assert.strictEqual(v1.buyPrice, 90);
+// Своя цена модификации важнее цены товара.
+assert.deepStrictEqual(msCat.products[2].tiers.map((t) => [t.from, t.price]), [[1, 160]]);
+assert.deepStrictEqual(msCat.filters, ['Артикул', 'Цвет', 'Тип резинки', 'Тип', 'Артикул производитель']);
 assert.strictEqual(msCat.clients[0].inn, '7700000001');
 
 // КП → «Заказ покупателя»: новый клиент по ИНН, статус «Отправлено» создаётся, позиция под заказ — услугой.
@@ -331,5 +360,41 @@ assert.strictEqual(failed.ok, true);
 assert.ok(failed.number > 0);
 assert.ok(/нет прав/.test(failed.ms.error));
 context.UrlFetchApp.fetch = realFetch;
+
+// Позиция-модификация → в заказ как variant.
+call({ action: 'saveQuote', quote: Object.assign({}, msQuote, { id: 'q-var', lines: [{ msId: 'v1', msType: 'variant', product: 'Подвяз', qty: 10, price: 150 }] }) });
+assert.strictEqual(msDb.customerorder.find((o) => o.externalCode === 'q-var').positions[0].assortment.meta.href, MS + '/entity/variant/v1');
+
+// ---- Роли: у менеджера свой ключ; себестоимость, PIN и закрытые настройки — только директору.
+sheets['Настройки'].data.push(['PIN директора', '4321'], ['Постоянные расходы в месяц, ₽', '954000']);
+sheets['Себестоимость'] = makeSheet('Себестоимость', [['Код'], ['PODV', '50']]);
+sheets['Менеджеры'] = makeSheet('Менеджеры', [['Ключ', 'Имя', 'Роль', 'Активен'], ['m-key', 'Иван', 'менеджер', 'да'], ['old-key', 'Пётр', 'менеджер', 'нет']]);
+const asManager = (body) => JSON.parse(api.doPost({ postData: { contents: JSON.stringify(Object.assign({ key: 'm-key' }, body)) } }).text);
+const mCat = asManager({ action: 'catalog' });
+assert.strictEqual(mCat.ok, true, mCat.error);
+assert.strictEqual(mCat.role, 'manager');
+assert.strictEqual(mCat.manager, 'Иван');
+const mSettings = mCat.sheets.settings.map((r) => r[0]);
+assert.ok(!mSettings.includes('PIN директора') && !mSettings.includes('Ключ доступа') && !mSettings.includes('Постоянные расходы в месяц, ₽'));
+assert.ok(mSettings.includes('ИНН') || mSettings.includes('E-mail'));
+assert.deepStrictEqual(mCat.sheets.costs, []);
+assert.strictEqual(call({ action: 'catalog' }).role, 'director');
+assert.ok(call({ action: 'catalog' }).sheets.costs.length > 0);
+// Менеджеру: прибыль не видна, закупочных цен МойСклад нет, удалять оплаты нельзя.
+assert.ok(asManager({ action: 'quotes' }).quotes.every((q) => q.profit === null));
+assert.ok(asManager({ action: 'msCatalog' }).ms.products.every((p) => p.buyPrice === undefined));
+assert.ok(/директора/.test(asManager({ action: 'deletePayment', id: 'x' }).error));
+// Отключённый ключ и чужой ключ — отказ.
+assert.ok(/отключён/.test(JSON.parse(api.doPost({ postData: { contents: JSON.stringify({ key: 'old-key', action: 'ping' }) } }).text).error));
+assert.ok(/Неверный ключ/.test(JSON.parse(api.doPost({ postData: { contents: JSON.stringify({ key: 'zzz', action: 'ping' }) } }).text).error));
+
+// ---- Отчёт за месяц — все КП месяца; долги — все КП без данных черновика.
+const month = get({ action: 'quotes' }).quotes[0].month;
+const byMonth = call({ action: 'quotes', month });
+assert.ok(byMonth.quotes.length >= 2 && byMonth.quotes.every((q) => q.month === month));
+assert.strictEqual(call({ action: 'quotes', month: '1999-01' }).quotes.length, 0);
+const light = call({ action: 'quotes', light: true }).quotes;
+assert.strictEqual(light.length, sheets['КП'].data.length - 1);
+assert.ok(light.every((q) => q.data === ''));
 
 console.log('Apps Script: все проверки пройдены');

@@ -53,6 +53,39 @@ var Q = {
 };
 var BRAND_SETTING = 'Название для КП';
 var EMAIL_SETTING = 'E-mail';
+var MANAGERS_SHEET = 'Менеджеры'; // Ключ | Имя | Роль (менеджер / директор) | Активен (да / нет)
+var MAIL_LIMIT_SETTING = 'Писем в день с одного ключа';
+var DIRECTOR_ONLY = ['deletePayment'];
+// Строки «Настроек», которые менеджеру не нужны и не должны попадать на его телефон.
+var PRIVATE_SETTINGS = ['Ключ доступа', 'PIN директора', 'Постоянные расходы в месяц, ₽', 'План выпуска, шт/мес',
+  'Комиссия, %', 'Целевая рентабельность, %', 'Папка: логотип (ID)', 'Папка: фото (ID)', 'Папка: КП (ID)',
+  'Папка: документы (ID)', 'Начальный номер КП', 'Начальный номер счёта'];
+
+/**
+ * Кто обращается: ключ из «Настроек» — владелец (директор); ключи из листа «Менеджеры» — свои у каждого,
+ * с ролью и отметкой «Активен». Ни одного ключа не задано — доступ открыт (как в первой версии).
+ */
+function auth_(ss, key) {
+  var main = String(settings_(ss)[KEY_SETTING] || '').trim();
+  if (main && key === main) return { role: 'director', name: '', key: key };
+  var sheet = ss.getSheetByName(MANAGERS_SHEET);
+  var rows = sheet ? sheet.getDataRange().getValues().slice(1) : [];
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() !== '' && String(rows[i][0]).trim() === key) {
+      if (/^(нет|no|false|0)$/i.test(String(rows[i][3]).trim())) throw new Error('Доступ отключён — обратитесь к директору');
+      return { role: /директор/i.test(String(rows[i][2])) ? 'director' : 'manager', name: String(rows[i][1] || ''), key: key };
+    }
+  }
+  if (!main && !rows.some(function (r) { return String(r[0]).trim() !== ''; })) return { role: 'director', name: '', key: key };
+  throw new Error('Неверный ключ доступа');
+}
+
+/** «Настройки» без закрытых строк (для менеджера). */
+function publicSettings_(ss) {
+  return rows_(ss, SHEETS.settings).filter(function (r, i) {
+    return i === 0 || PRIVATE_SETTINGS.indexOf(String(r[0]).trim()) < 0;
+  });
+}
 var STATUSES = ['Отправлено', 'Согласовано', 'В работе', 'Оплачено', 'Отказ'];
 
 function doGet(e) {
@@ -73,9 +106,11 @@ function handle_(req) {
   try {
     msCache_ = {};
     var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var key = String(settings_(ss)[KEY_SETTING] || '').trim();
-    if (key && String(req.key || '').trim() !== key) {
-      return json_({ ok: false, error: 'Неверный ключ доступа' });
+    var who = auth_(ss, String(req.key || '').trim());
+    var director = who.role === 'director';
+    // Удалять оплаты и видеть себестоимость может только директор.
+    if (!director && DIRECTOR_ONLY.indexOf(req.action) >= 0) {
+      return json_({ ok: false, error: 'Нужны права директора' });
     }
     switch (req.action) {
       case 'ping':
@@ -85,32 +120,35 @@ function handle_(req) {
           ok: true,
           name: ss.getName(),
           url: ss.getUrl(),
+          role: who.role,
+          manager: who.name,
           sheets: {
             products: rows_(ss, SHEETS.products),
             parameters: rows_(ss, SHEETS.parameters),
             volume: rows_(ss, SHEETS.volume),
-            settings: rows_(ss, SHEETS.settings),
-            costs: optionalRows_(ss, SHEETS.costs),
-            yarns: optionalRows_(ss, SHEETS.yarns),
+            settings: director ? rows_(ss, SHEETS.settings) : publicSettings_(ss),
+            // Себестоимость и цены пряжи — только директору.
+            costs: director ? optionalRows_(ss, SHEETS.costs) : [],
+            yarns: director ? optionalRows_(ss, SHEETS.yarns) : [],
             clients: optionalRows_(ss, SHEETS.clients),
             contract: optionalRows_(ss, SHEETS.contract),
           },
           logo: logo_(ss, String(req.logoVersion || '')),
         });
       case 'quotes':
-        return json_({ ok: true, quotes: listQuotes_(ss, Number(req.limit) || 50) });
+        return json_({ ok: true, quotes: listQuotes_(ss, Number(req.limit) || 50, String(req.month || ''), !!req.light, director) });
       case 'saveQuote': {
         var saved = saveQuote_(ss, req.quote || {});
         return json_({ ok: true, number: saved, ms: msTry_(function () { return msSaveOrder_(ss, req.quote || {}, saved); }) });
       }
       case 'msCatalog':
-        return json_({ ok: true, ms: msCatalog_(ss) });
+        return json_({ ok: true, ms: msCatalog_(ss, director) });
       case 'uploadFile':
         return json_({ ok: true, file: uploadFile_(ss, req) });
       case 'getFile':
         return json_({ ok: true, data: getFile_(ss, String(req.fileId || '')) });
       case 'sendEmail':
-        return json_({ ok: true, mail: sendEmail_(ss, req) });
+        return json_({ ok: true, mail: sendEmail_(ss, req, who) });
       case 'ops': {
         var o = ops_(ss);
         o.ms = msTry_(function () { return { orders: msOrders_() }; });
@@ -265,7 +303,7 @@ function setStatus_(ss, id, status) {
   throw new Error('КП не найдено в таблице');
 }
 
-function listQuotes_(ss, limit) {
+function listQuotes_(ss, limit, month, light, director) {
   var sheet = ss.getSheetByName(SHEETS.quotes);
   var data = sheet.getDataRange().getValues();
   var tz = ss.getSpreadsheetTimeZone();
@@ -278,12 +316,16 @@ function listQuotes_(ss, limit) {
     products[no] = products[no] || {};
     products[no][name] = (products[no][name] || 0) + (Number(items[k][9]) || 0);
   }
+  // month — все КП месяца (для отчёта); light — все КП без данных черновика (для долгов).
+  var max = month || light ? Infinity : limit;
   var result = [];
-  for (var i = data.length - 1; i >= 1 && result.length < limit; i--) {
+  for (var i = data.length - 1; i >= 1 && result.length < max; i--) {
     var r = data[i];
     if (!r[0]) continue;
     var date = r[Q.date - 1];
     var valid = r[Q.validUntil - 1];
+    var m = date instanceof Date ? Utilities.formatDate(date, tz, 'yyyy-MM') : '';
+    if (month && m !== month) continue;
     result.push({
       number: Number(r[0]),
       date: date instanceof Date ? Utilities.formatDate(date, tz, 'dd.MM.yyyy HH:mm') : String(date),
@@ -292,9 +334,10 @@ function listQuotes_(ss, limit) {
       total: Number(r[Q.total - 1]) || 0,
       author: String(r[Q.author - 1] || ''),
       id: String(r[Q.id - 1] || ''),
-      data: String(r[Q.data - 1] || ''),
+      data: light ? '' : String(r[Q.data - 1] || ''),
       status: String(r[Q.status - 1] || STATUSES[0]),
-      profit: r[Q.profit - 1] === '' ? null : Number(r[Q.profit - 1]),
+      // Прибыль — только директору.
+      profit: !director || r[Q.profit - 1] === '' ? null : Number(r[Q.profit - 1]),
       validUntil: valid instanceof Date ? valid.getTime() : 0,
       products: products[Number(r[0])] || {},
     });
@@ -499,9 +542,17 @@ function addYarnMoves_(ss, moves) {
  * Письмо клиенту с PDF КП — с аккаунта владельца таблицы. Ответ клиента придёт на «E-mail» из «Настроек»,
  * туда же — копия. PDF сохраняется в папку «КП (PDF)», в листе «КП» отмечается, когда и кому отправлено.
  */
-function sendEmail_(ss, req) {
+function sendEmail_(ss, req, who) {
   var to = String(req.to || '').trim();
   if (!/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(to)) throw new Error('Некорректный e-mail клиента: ' + to);
+  // Письмо — только на e-mail клиента из этого КП (сохранённого в листе «КП»).
+  var row = quoteRow_(ss, String(req.quoteId || ''));
+  if (!row) throw new Error('Сначала сохраните КП — письмо уходит только клиенту сохранённого КП');
+  var allowed = String(row[Q.email - 1] || '').trim().toLowerCase();
+  if (!allowed || allowed !== to.toLowerCase()) {
+    throw new Error('Письмо можно отправить только на e-mail клиента из КП № ' + row[0] + (allowed ? ' (' + allowed + ')' : ' — он не указан'));
+  }
+  mailLimit_(ss, who);
   var s = settings_(ss);
   var own = String(s[EMAIL_SETTING] || '').trim();
   var copy = own && own.toLowerCase() !== to.toLowerCase();
@@ -540,6 +591,26 @@ function sendEmail_(ss, req) {
     }
   }
   return { to: to, sent: sent };
+}
+
+function quoteRow_(ss, quoteId) {
+  if (!quoteId) return null;
+  var data = ss.getSheetByName(SHEETS.quotes).getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) if (String(data[i][Q.id - 1]) === quoteId) return data[i];
+  return null;
+}
+
+/** Не больше N писем в день с одного ключа (защита почты фабрики при утечке ключа). */
+function mailLimit_(ss, who) {
+  var limit = Number(settings_(ss)[MAIL_LIMIT_SETTING]) || 30;
+  var tz = ss.getSpreadsheetTimeZone();
+  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(who.key || ''));
+  var id = Utilities.base64Encode(bytes).substring(0, 12);
+  var prop = 'mail:' + Utilities.formatDate(new Date(), tz, 'yyyyMMdd') + ':' + id;
+  var props = PropertiesService.getScriptProperties();
+  var sent = Number(props.getProperty(prop)) || 0;
+  if (sent >= limit) throw new Error('Лимит писем на сегодня (' + limit + ') исчерпан — отправьте из почты телефона');
+  props.setProperty(prop, String(sent + 1));
 }
 
 /** Фото из папки «Фото образцов» — для открытия КП на другом телефоне. */
@@ -750,8 +821,34 @@ function msVatIncluded_(ss) {
   return ['нет', 'no', 'false', '0', 'ложь'].indexOf(v) < 0;
 }
 
-/** Товары с ценами по тиражам, остатки склада и клиенты — для приложения. */
-function msCatalog_(ss) {
+var MS_FILTERS_SETTING = 'МойСклад: фильтры';
+var MS_CLIENT_CHARS_SETTING = 'МойСклад: характеристики для клиента';
+var MS_DEFAULT_FILTERS = 'Артикул, Цвет, Тип резинки, Тип, Артикул производитель';
+var MS_DEFAULT_CLIENT = 'Состав / материала, Цвет, Размер';
+var MS_BADGE_CHARS = ['Метка 1', 'Метка 2'];
+
+function listSetting_(ss, name, fallback) {
+  return String(settings_(ss)[name] || fallback).split(',').map(function (x) { return x.trim(); }).filter(function (x) { return x; });
+}
+
+function msTiers_(salePrices) {
+  var byName = {};
+  (salePrices || []).forEach(function (sp) {
+    if (sp.priceType && sp.priceType.name) byName[sp.priceType.name] = (Number(sp.value) || 0) / 100;
+  });
+  return MS_TIERS.map(function (t) { return { from: t[1], price: byName[t[0]] || 0 }; }).filter(function (t) { return t.price > 0; });
+}
+
+function msMoney_(v) {
+  return ((v && v.value) || 0) / 100;
+}
+
+/**
+ * Товары и модификации с ценами по тиражам, остатки склада, характеристики и клиенты — для приложения.
+ * Товар с модификациями отдаётся модификациями (у каждой свой цвет / размер / остаток); цены модификации —
+ * свои, а если не заданы — товара. Закупочная цена — только директору.
+ */
+function msCatalog_(ss, director) {
   if (!msEnabled_()) return { enabled: false };
   var store = msStore_(ss);
   var stock = {};
@@ -761,30 +858,75 @@ function msCatalog_(ss) {
       stock[r.assortmentId] = (stock[r.assortmentId] || 0) + (Number(r.stock) || 0);
     });
   }
-  var products = msAll_('/entity/product?filter=archived=false').map(function (p) {
-    var byName = {};
-    (p.salePrices || []).forEach(function (sp) {
-      if (sp.priceType && sp.priceType.name) byName[sp.priceType.name] = (Number(sp.value) || 0) / 100;
-    });
-    var tiers = MS_TIERS.map(function (t) { return { from: t[1], price: byName[t[0]] || 0 }; }).filter(function (t) { return t.price > 0; });
+  var wanted = {};
+  listSetting_(ss, MS_FILTERS_SETTING, MS_DEFAULT_FILTERS)
+    .concat(listSetting_(ss, MS_CLIENT_CHARS_SETTING, MS_DEFAULT_CLIENT)).concat(MS_BADGE_CHARS)
+    .forEach(function (n) { wanted[n] = true; });
+
+  var products = msAll_('/entity/product?filter=archived=false');
+  var byId = {};
+  products.forEach(function (p) { byId[p.id] = p; });
+  var variants = msAll_('/entity/variant?filter=archived=false');
+  var withVariants = {};
+  variants.forEach(function (v) { withVariants[msIdOf_(v.product)] = true; });
+
+  function popular(p) {
+    var a = (p.attributes || []).filter(function (x) { return x.name === 'Популярный в категории' && x.value === true; });
+    return a.length > 0;
+  }
+  function item(id, type, parent, own, chars) {
+    var tiers = msTiers_(own.salePrices);
+    if (!tiers.length && own !== parent) tiers = msTiers_(parent.salePrices);
     if (!tiers.length) return null;
-    return {
-      id: p.id,
-      name: p.name,
-      article: p.article || p.code || '',
-      group: p.pathName || '',
-      weight: Number(p.weight) || 0,
-      buyPrice: ((p.buyPrice && p.buyPrice.value) || 0) / 100,
-      minPrice: ((p.minPrice && p.minPrice.value) || 0) / 100,
-      description: String(p.description || '').substring(0, 600),
+    var badges = MS_BADGE_CHARS.map(function (n) { return chars[n]; }).filter(function (b) { return b && b !== '-'; });
+    if (popular(parent) && badges.indexOf('Популярный') < 0) badges.push('Популярный');
+    MS_BADGE_CHARS.forEach(function (n) { delete chars[n]; });
+    if (!chars['Артикул'] && (own.article || parent.article || own.code)) chars['Артикул'] = own.article || parent.article || own.code;
+    var out = {
+      id: id,
+      type: type,
+      name: parent.name,
+      article: chars['Артикул'] || '',
+      group: parent.pathName || '',
+      weight: Number(own.weight || parent.weight) || 0,
+      minPrice: msMoney_(own.minPrice) || msMoney_(parent.minPrice),
       tiers: tiers,
-      stock: store ? (stock[p.id] || 0) : null,
+      stock: store ? (stock[id] || 0) : null,
+      chars: chars,
+      badges: badges,
     };
-  }).filter(function (p) { return p; });
+    if (director) out.buyPrice = msMoney_(own.buyPrice) || msMoney_(parent.buyPrice);
+    return out;
+  }
+  var items = [];
+  products.forEach(function (p) {
+    if (!withVariants[p.id]) {
+      var it = item(p.id, 'product', p, p, {});
+      if (it) items.push(it);
+    }
+  });
+  variants.forEach(function (v) {
+    var parent = byId[msIdOf_(v.product)];
+    if (!parent) return;
+    var chars = {};
+    (v.characteristics || []).forEach(function (c) {
+      if (wanted[c.name] && String(c.value || '').trim() !== '') chars[c.name] = String(c.value).trim();
+    });
+    var it = item(v.id, 'variant', parent, v, chars);
+    if (it) items.push(it);
+  });
   var clients = msAll_('/entity/counterparty?filter=archived=false').map(function (c) {
     return { name: c.name, inn: c.inn || '', email: c.email || '', phone: c.phone || '' };
   });
-  return { enabled: true, store: store ? store.name : '', products: products, clients: clients, loadedAt: Date.now() };
+  return {
+    enabled: true,
+    store: store ? store.name : '',
+    filters: listSetting_(ss, MS_FILTERS_SETTING, MS_DEFAULT_FILTERS),
+    clientChars: listSetting_(ss, MS_CLIENT_CHARS_SETTING, MS_DEFAULT_CLIENT),
+    products: items,
+    clients: clients,
+    loadedAt: Date.now(),
+  };
 }
 
 /** КП → «Заказ покупателя» (создаётся или обновляется по ID КП). */
@@ -795,7 +937,7 @@ function msSaveOrder_(ss, q, number) {
   var positions = (q.lines || []).map(function (l) {
     var assortment;
     if (l.msId) {
-      assortment = msMeta_('product', l.msId);
+      assortment = msMeta_(l.msType === 'variant' ? 'variant' : 'product', l.msId);
     } else {
       service = service || msService_(ss);
       assortment = msMeta_('service', service.id);
