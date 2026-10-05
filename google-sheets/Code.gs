@@ -11,6 +11,10 @@
  *
  * После изменения кода: Развернуть → Управление развертываниями → ✎ → Версия «Новая версия».
  * Если Google снова спросит разрешения (например, на отправку почты) — разрешите.
+ *
+ * МойСклад: в таблице появится меню «Фабрика KS → Подключить МойСклад…». Вставьте токен
+ * (МойСклад → Настройки → Обмен данными → Токены, у пользователя «Приложение KS»). Токен хранится
+ * в свойствах скрипта, а не в листах — на телефоны он не попадает.
  */
 
 var SHEETS = {
@@ -32,7 +36,7 @@ var SHEETS = {
 // Листы учёта создаются сами при первой записи.
 var HEADERS = {
   invoices: ['№ счёта', 'Дата', '№ КП', 'ID КП', 'Клиент', 'Сумма, ₽', 'Назначение', 'PDF'],
-  payments: ['Дата', '№ КП', 'ID КП', 'Клиент', 'Сумма, ₽', 'Комментарий', 'Менеджер', 'ID'],
+  payments: ['Дата', '№ КП', 'ID КП', 'Клиент', 'Сумма, ₽', 'Комментарий', 'Менеджер', 'ID', 'МойСклад'],
   orders: ['№ КП', 'ID КП', 'Клиент', 'Создан', 'Срок отгрузки', 'Этап', 'Дата этапа', 'Изделия', 'Комментарий',
     'Пряжа (не изменять)', 'Пряжа списана'],
   yarnMoves: ['Дата', 'Пряжа', 'Кг (+ приход, − расход)', 'Основание', 'Менеджер', 'ID'],
@@ -45,7 +49,7 @@ var FOLDER_SETTINGS = { logo: 'Папка: логотип (ID)', photo: 'Пап�
 var Q = {
   number: 1, date: 2, client: 3, contact: 4, email: 5, subtotal: 6, vat: 7, total: 8, delivery: 9,
   lines: 10, author: 11, id: 12, data: 13, status: 14, statusDate: 15, cost: 16, profit: 17,
-  validUntil: 18, phone: 19, inn: 20, pdf: 21, mail: 22,
+  validUntil: 18, phone: 19, inn: 20, pdf: 21, mail: 22, ms: 23,
 };
 var BRAND_SETTING = 'Название для КП';
 var EMAIL_SETTING = 'E-mail';
@@ -67,6 +71,7 @@ function doPost(e) {
 
 function handle_(req) {
   try {
+    msCache_ = {};
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var key = String(settings_(ss)[KEY_SETTING] || '').trim();
     if (key && String(req.key || '').trim() !== key) {
@@ -94,24 +99,42 @@ function handle_(req) {
         });
       case 'quotes':
         return json_({ ok: true, quotes: listQuotes_(ss, Number(req.limit) || 50) });
-      case 'saveQuote':
-        return json_({ ok: true, number: saveQuote_(ss, req.quote || {}) });
+      case 'saveQuote': {
+        var saved = saveQuote_(ss, req.quote || {});
+        return json_({ ok: true, number: saved, ms: msTry_(function () { return msSaveOrder_(ss, req.quote || {}, saved); }) });
+      }
+      case 'msCatalog':
+        return json_({ ok: true, ms: msCatalog_(ss) });
       case 'uploadFile':
         return json_({ ok: true, file: uploadFile_(ss, req) });
       case 'getFile':
         return json_({ ok: true, data: getFile_(ss, String(req.fileId || '')) });
       case 'sendEmail':
         return json_({ ok: true, mail: sendEmail_(ss, req) });
-      case 'ops':
-        return json_({ ok: true, ops: ops_(ss) });
-      case 'addInvoice':
-        return json_({ ok: true, number: addInvoice_(ss, req.invoice || {}) });
-      case 'addPayment':
-        addPayment_(ss, req.payment || {});
-        return json_({ ok: true });
-      case 'deletePayment':
+      case 'ops': {
+        var o = ops_(ss);
+        o.ms = msTry_(function () { return { orders: msOrders_() }; });
+        return json_({ ok: true, ops: o });
+      }
+      case 'addInvoice': {
+        // С МойСклад номер счёта выдаёт МойСклад («Счёт покупателю»), иначе — лист «Счета».
+        var inv = req.invoice || {};
+        var msInv = msTry_(function () { return msInvoice_(ss, inv); });
+        var forced = msInv && msInv.number ? msInv.number : 0;
+        return json_({ ok: true, number: addInvoice_(ss, inv, forced), ms: msInv });
+      }
+      case 'addPayment': {
+        var pay = req.payment || {};
+        var msPay = msTry_(function () { return msPayment_(ss, pay); });
+        addPayment_(ss, pay, msPay && msPay.id);
+        return json_({ ok: true, ms: msPay });
+      }
+      case 'deletePayment': {
+        var msId = paymentMsId_(ss, String(req.id || ''));
+        var msDel = msId ? msTry_(function () { ms_('delete', '/entity/paymentin/' + msId); return { deleted: true }; }) : null;
         deleteById_(ss, 'payments', 8, String(req.id || ''));
-        return json_({ ok: true });
+        return json_({ ok: true, ms: msDel });
+      }
       case 'saveOrder':
         saveOrder_(ss, req.order || {});
         return json_({ ok: true });
@@ -120,7 +143,7 @@ function handle_(req) {
         return json_({ ok: true });
       case 'setStatus':
         setStatus_(ss, String(req.id || ''), String(req.status || ''));
-        return json_({ ok: true });
+        return json_({ ok: true, ms: msTry_(function () { return msSetState_(String(req.id || ''), String(req.status || '')); }) });
       default:
         return json_({ ok: false, error: 'Неизвестное действие: ' + req.action });
     }
@@ -386,7 +409,7 @@ function ops_(ss) {
 }
 
 /** Новый счёт: номер — следующий по листу «Счета» (под блокировкой). */
-function addInvoice_(ss, inv) {
+function addInvoice_(ss, inv, forcedNumber) {
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
@@ -395,7 +418,7 @@ function addInvoice_(ss, inv) {
     var max = 0;
     for (var i = 1; i < data.length; i++) max = Math.max(max, Number(data[i][0]) || 0);
     var start = Number(settings_(ss)[START_INVOICE_SETTING]) || 1;
-    var number = Math.max(max + 1, start);
+    var number = forcedNumber || Math.max(max + 1, start);
     sheet.appendRow([number, date_(inv.date), Number(inv.quoteNumber) || '', text_(inv.quoteId), text_(inv.client),
       Number(inv.amount) || 0, text_(inv.purpose), '']);
     return number;
@@ -405,13 +428,22 @@ function addInvoice_(ss, inv) {
 }
 
 /** Оплата; повтор с тем же ID не дублируется. */
-function addPayment_(ss, p) {
+function addPayment_(ss, p, msId) {
   if (!(Number(p.amount) > 0)) throw new Error('Сумма оплаты должна быть больше нуля');
   var sheet = sheet_(ss, 'payments');
   var data = sheet.getDataRange().getValues();
   for (var i = 1; i < data.length; i++) if (p.id && String(data[i][7]) === String(p.id)) return;
   sheet.appendRow([date_(p.date), Number(p.quoteNumber) || '', text_(p.quoteId), text_(p.client), Number(p.amount),
-    text_(p.note), text_(p.author), text_(p.id)]);
+    text_(p.note), text_(p.author), text_(p.id), text_(msId || '')]);
+}
+
+/** ID входящего платежа МойСклад для оплаты из листа «Оплаты» (столбец I). */
+function paymentMsId_(ss, id) {
+  var sheet = ss.getSheetByName(SHEETS.payments);
+  if (!sheet || !id) return '';
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) if (String(data[i][7]) === id) return String(data[i][8] || '');
+  return '';
 }
 
 function deleteById_(ss, kind, column, id) {
@@ -533,4 +565,343 @@ function text_(value) {
 
 function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+
+// ---------------------------------------------------------------- МойСклад
+
+var MS_API = 'https://api.moysklad.ru/api/remap/1.2';
+var MS_TOKEN_PROPERTY = 'MS_TOKEN';
+var MS_STORE_SETTING = 'МойСклад: склад';
+var MS_SERVICE_SETTING = 'МойСклад: услуга под заказ';
+var MS_ORDER_PREFIX = 'КП-';
+// Типы цен МойСклад → тираж (порог в штуках). «Премиум / Средняя / Эконом» не используются.
+var MS_TIERS = [['1 штук', 1], ['10 штук', 10], ['20 штук', 20], ['50 штук', 50], ['от 100 штук', 100], ['от 500 штук', 500]];
+var MS_STATE_COLOR = 3200456; // #30D5C8
+
+function onOpen() {
+  SpreadsheetApp.getUi().createMenu('Фабрика KS')
+    .addItem('Подключить МойСклад…', 'msConnect')
+    .addItem('Отключить МойСклад', 'msDisconnect')
+    .addToUi();
+}
+
+/** Меню: сохранить токен МойСклад (проверяется запросом к МойСклад). */
+function msConnect() {
+  var ui = SpreadsheetApp.getUi();
+  var answer = ui.prompt('МойСклад', 'Токен пользователя «Приложение KS» (МойСклад → Настройки → Обмен данными → Токены):', ui.ButtonSet.OK_CANCEL);
+  if (answer.getSelectedButton() !== ui.Button.OK) return;
+  var token = String(answer.getResponseText() || '').trim();
+  if (!token) return;
+  PropertiesService.getScriptProperties().setProperty(MS_TOKEN_PROPERTY, token);
+  try {
+    var org = ms_('get', '/entity/organization?limit=1');
+    ui.alert('МойСклад подключён: ' + ((org.rows && org.rows[0] && org.rows[0].name) || 'OK'));
+  } catch (err) {
+    PropertiesService.getScriptProperties().deleteProperty(MS_TOKEN_PROPERTY);
+    ui.alert('Не удалось подключиться: ' + err.message);
+  }
+}
+
+function msDisconnect() {
+  PropertiesService.getScriptProperties().deleteProperty(MS_TOKEN_PROPERTY);
+  SpreadsheetApp.getUi().alert('МойСклад отключён');
+}
+
+function msToken_() {
+  return String(PropertiesService.getScriptProperties().getProperty(MS_TOKEN_PROPERTY) || '');
+}
+
+function msEnabled_() {
+  return msToken_() !== '';
+}
+
+/**
+ * Действие с МойСклад без падения основного: `null` — МойСклад не подключён,
+ * `{error}` — ошибка (КП в таблице всё равно сохранено), иначе результат.
+ */
+function msTry_(fn) {
+  if (!msEnabled_()) return null;
+  try {
+    return fn() || {};
+  } catch (err) {
+    return { error: String((err && err.message) || err) };
+  }
+}
+
+/** Запрос к JSON API МойСклад 1.2. */
+function ms_(method, path, body) {
+  var options = {
+    method: method,
+    headers: { Authorization: 'Bearer ' + msToken_(), 'Accept-Encoding': 'gzip', Accept: 'application/json;charset=utf-8' },
+    contentType: 'application/json;charset=utf-8',
+    muteHttpExceptions: true,
+  };
+  if (body !== undefined) options.payload = JSON.stringify(body);
+  var res = UrlFetchApp.fetch(path.indexOf('https://') === 0 ? path : MS_API + path, options);
+  var code = res.getResponseCode();
+  var text = res.getContentText();
+  var data = text ? JSON.parse(text) : {};
+  if (code >= 400) {
+    var e = data && data.errors && data.errors[0];
+    if (code === 401) throw new Error('МойСклад: неверный токен');
+    if (code === 403) throw new Error('МойСклад: у пользователя нет прав' + (e ? ' — ' + e.error : ''));
+    throw new Error('МойСклад: ' + (e ? e.error : 'ошибка ' + code));
+  }
+  return data;
+}
+
+/** Все строки списка МойСклад (по 1000 за запрос). */
+function msAll_(path) {
+  var rows = [];
+  var sep = path.indexOf('?') < 0 ? '?' : '&';
+  for (var offset = 0; offset < 50000; offset += 1000) {
+    var page = ms_('get', path + sep + 'limit=1000&offset=' + offset);
+    var part = page.rows || [];
+    rows = rows.concat(part);
+    if (part.length < 1000) break;
+  }
+  return rows;
+}
+
+function msMeta_(type, id) {
+  return { meta: { href: MS_API + '/entity/' + type + '/' + id, type: type, mediaType: 'application/json' } };
+}
+
+function msIdOf_(entity) {
+  var href = (entity && entity.meta && entity.meta.href) || '';
+  return href.substring(href.lastIndexOf('/') + 1).split('?')[0];
+}
+
+var msCache_ = {};
+
+function msFirst_(path) {
+  if (!(path in msCache_)) msCache_[path] = (ms_('get', path).rows || [])[0] || null;
+  return msCache_[path];
+}
+
+function msStore_(ss) {
+  var name = String(settings_(ss)[MS_STORE_SETTING] || 'Электросталь').trim();
+  return msFirst_('/entity/store?filter=name=' + encodeURIComponent(name));
+}
+
+/** Наше юрлицо в МойСклад — по ИНН из «Настроек». */
+function msOrganization_(ss) {
+  if (msCache_.org) return msCache_.org;
+  var inn = String(settings_(ss)['ИНН'] || '').trim();
+  var rows = ms_('get', '/entity/organization').rows || [];
+  var org = rows.filter(function (o) { return inn && String(o.inn) === inn; })[0] || rows[0];
+  if (!org) throw new Error('МойСклад: нет юрлица');
+  msCache_.org = org;
+  return org;
+}
+
+/** Клиент: по ИНН, затем по названию; нет — создаётся. */
+function msCounterparty_(client, inn, email, phone) {
+  inn = String(inn || '').replace(/\D/g, '');
+  client = String(client || '').trim();
+  var found = inn ? msFirst_('/entity/counterparty?filter=inn=' + inn) : null;
+  if (!found && client) found = msFirst_('/entity/counterparty?filter=name=' + encodeURIComponent(client));
+  if (found) return found;
+  var body = { name: client || ('Клиент ' + inn) };
+  if (inn) {
+    body.inn = inn;
+    body.companyType = inn.length === 12 ? 'entrepreneur' : 'legal';
+  }
+  if (email) body.email = String(email);
+  if (phone) body.phone = String(phone);
+  return ms_('post', '/entity/counterparty', body);
+}
+
+/** Статус «Заказа покупателя» по нашему названию; нет — создаётся. */
+function msState_(status) {
+  var meta = msCache_.orderMeta || (msCache_.orderMeta = ms_('get', '/entity/customerorder/metadata'));
+  var state = (meta.states || []).filter(function (st) { return st.name === status; })[0];
+  if (state) return state;
+  state = ms_('post', '/entity/customerorder/metadata/states', {
+    name: status, color: MS_STATE_COLOR, stateType: status === 'Отказ' ? 'Unsuccessful' : 'Regular',
+  });
+  meta.states = (meta.states || []).concat([state]);
+  return state;
+}
+
+/** Услуга для позиций «под заказ» (калькулятор) и частичных счетов. */
+function msService_(ss) {
+  var name = String(settings_(ss)[MS_SERVICE_SETTING] || 'Трикотажные изделия по ТЗ').trim();
+  var found = msFirst_('/entity/service?filter=name=' + encodeURIComponent(name));
+  return found || ms_('post', '/entity/service', { name: name });
+}
+
+function msStateMeta_(state) {
+  return { meta: { href: MS_API + '/entity/customerorder/metadata/states/' + msIdOf_(state), type: 'state', mediaType: 'application/json' } };
+}
+
+function msOrderFor_(quoteId) {
+  if (!quoteId) return null;
+  return msFirst_('/entity/customerorder?filter=externalCode=' + encodeURIComponent(quoteId));
+}
+
+function msVat_(ss) {
+  return Number(String(settings_(ss)['Ставка НДС, %'] || '22').replace(',', '.')) || 0;
+}
+
+function msVatIncluded_(ss) {
+  var v = String(settings_(ss)['Цены с НДС'] || 'да').trim().toLowerCase();
+  return ['нет', 'no', 'false', '0', 'ложь'].indexOf(v) < 0;
+}
+
+/** Товары с ценами по тиражам, остатки склада и клиенты — для приложения. */
+function msCatalog_(ss) {
+  if (!msEnabled_()) return { enabled: false };
+  var store = msStore_(ss);
+  var stock = {};
+  if (store) {
+    var report = ms_('get', '/report/stock/bystore/current?filter=storeId=' + store.id);
+    (report.rows || report || []).forEach(function (r) {
+      stock[r.assortmentId] = (stock[r.assortmentId] || 0) + (Number(r.stock) || 0);
+    });
+  }
+  var products = msAll_('/entity/product?filter=archived=false').map(function (p) {
+    var byName = {};
+    (p.salePrices || []).forEach(function (sp) {
+      if (sp.priceType && sp.priceType.name) byName[sp.priceType.name] = (Number(sp.value) || 0) / 100;
+    });
+    var tiers = MS_TIERS.map(function (t) { return { from: t[1], price: byName[t[0]] || 0 }; }).filter(function (t) { return t.price > 0; });
+    if (!tiers.length) return null;
+    return {
+      id: p.id,
+      name: p.name,
+      article: p.article || p.code || '',
+      group: p.pathName || '',
+      weight: Number(p.weight) || 0,
+      buyPrice: ((p.buyPrice && p.buyPrice.value) || 0) / 100,
+      minPrice: ((p.minPrice && p.minPrice.value) || 0) / 100,
+      description: String(p.description || '').substring(0, 600),
+      tiers: tiers,
+      stock: store ? (stock[p.id] || 0) : null,
+    };
+  }).filter(function (p) { return p; });
+  var clients = msAll_('/entity/counterparty?filter=archived=false').map(function (c) {
+    return { name: c.name, inn: c.inn || '', email: c.email || '', phone: c.phone || '' };
+  });
+  return { enabled: true, store: store ? store.name : '', products: products, clients: clients, loadedAt: Date.now() };
+}
+
+/** КП → «Заказ покупателя» (создаётся или обновляется по ID КП). */
+function msSaveOrder_(ss, q, number) {
+  var service = null;
+  var vat = msVat_(ss);
+  var custom = [];
+  var positions = (q.lines || []).map(function (l) {
+    var assortment;
+    if (l.msId) {
+      assortment = msMeta_('product', l.msId);
+    } else {
+      service = service || msService_(ss);
+      assortment = msMeta_('service', service.id);
+      custom.push('• ' + [l.product, l.params].filter(function (x) { return x; }).join(', ') + ' — ' + l.qty + ' ' + (l.unit || 'шт'));
+    }
+    return { quantity: Number(l.qty) || 0, price: Math.round((Number(l.price) || 0) * 100), vat: vat, assortment: assortment };
+  });
+  var description = ['Коммерческое предложение № ' + number + ' (приложение Фабрика "KS")', q.comment || '']
+    .concat(custom.length ? ['Позиции под заказ:'].concat(custom) : [])
+    .filter(function (x) { return x; }).join('\n');
+  var body = {
+    name: MS_ORDER_PREFIX + number,
+    externalCode: String(q.id || ''),
+    description: description,
+    vatEnabled: vat > 0,
+    vatIncluded: msVatIncluded_(ss),
+    positions: positions,
+  };
+  var existing = msOrderFor_(q.id);
+  var saved;
+  if (existing) {
+    saved = ms_('put', '/entity/customerorder/' + existing.id, body);
+  } else {
+    body.organization = msMeta_('organization', msOrganization_(ss).id);
+    body.agent = msMeta_('counterparty', msCounterparty_(q.client, q.inn, q.email, q.phone).id);
+    var store = msStore_(ss);
+    if (store) body.store = msMeta_('store', store.id);
+    body.state = msStateMeta_(msState_(STATUSES[0]));
+    saved = ms_('post', '/entity/customerorder', body);
+  }
+  markQuote_(ss, q.id, Q.ms, saved.name);
+  return { id: saved.id, name: saved.name };
+}
+
+/** Отметка в строке КП (столбец [col]); колонка добавляется, если её нет. */
+function markQuote_(ss, quoteId, col, value) {
+  var sheet = ss.getSheetByName(SHEETS.quotes);
+  if (!sheet || !quoteId) return;
+  if (sheet.getMaxColumns() < col) sheet.insertColumnsAfter(sheet.getMaxColumns(), col - sheet.getMaxColumns());
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][Q.id - 1]) === String(quoteId)) {
+      sheet.getRange(i + 1, col).setValue(text_(value));
+      return;
+    }
+  }
+}
+
+function msSetState_(quoteId, status) {
+  var order = msOrderFor_(quoteId);
+  if (!order) return { skipped: 'Заказа в МойСклад ещё нет' };
+  var state = msState_(status);
+  ms_('put', '/entity/customerorder/' + order.id, { state: msStateMeta_(state) });
+  return { name: order.name, state: status };
+}
+
+/** «Счёт покупателю»: вся сумма — позициями заказа, частичная (предоплата, остаток) — одной строкой. */
+function msInvoice_(ss, inv) {
+  var order = msOrderFor_(inv.quoteId);
+  var vat = msVat_(ss);
+  var amount = Math.round((Number(inv.amount) || 0) * 100);
+  var positions;
+  if (order && amount === Math.round(Number(order.sum) || 0)) {
+    positions = (ms_('get', '/entity/customerorder/' + order.id + '/positions').rows || []).map(function (p) {
+      return { quantity: p.quantity, price: p.price, vat: p.vat, discount: p.discount || 0, assortment: { meta: p.assortment.meta } };
+    });
+  } else {
+    positions = [{ quantity: 1, price: amount, vat: vat, assortment: msMeta_('service', msService_(ss).id) }];
+  }
+  var body = {
+    organization: msMeta_('organization', msOrganization_(ss).id),
+    agent: order ? { meta: order.agent.meta } : msMeta_('counterparty', msCounterparty_(inv.client, inv.inn).id),
+    description: String(inv.purpose || ''),
+    vatEnabled: vat > 0,
+    vatIncluded: msVatIncluded_(ss),
+    positions: positions,
+  };
+  if (order) body.customerOrder = { meta: order.meta };
+  var saved = ms_('post', '/entity/invoiceout', body);
+  return { id: saved.id, name: saved.name, number: parseInt(String(saved.name).replace(/\D/g, ''), 10) || 0 };
+}
+
+/** Входящий платёж, привязанный к заказу. */
+function msPayment_(ss, p) {
+  var order = msOrderFor_(p.quoteId);
+  var sum = Math.round((Number(p.amount) || 0) * 100);
+  var body = {
+    organization: msMeta_('organization', msOrganization_(ss).id),
+    agent: order ? { meta: order.agent.meta } : msMeta_('counterparty', msCounterparty_(p.client, '').id),
+    sum: sum,
+    paymentPurpose: String(p.note || ('Оплата по КП № ' + (p.quoteNumber || ''))),
+  };
+  if (order) body.operations = [{ meta: order.meta, linkedSum: sum }];
+  var saved = ms_('post', '/entity/paymentin', body);
+  return { id: saved.id, name: saved.name };
+}
+
+/** Заказы из приложения (номер «КП-…»): сумма, оплачено, отгружено, статус. */
+function msOrders_() {
+  return msAll_('/entity/customerorder?filter=name~' + encodeURIComponent(MS_ORDER_PREFIX)).map(function (o) {
+    return {
+      quoteId: String(o.externalCode || ''),
+      name: o.name,
+      sum: (Number(o.sum) || 0) / 100,
+      paid: (Number(o.payedSum) || 0) / 100,
+      shipped: (Number(o.shippedSum) || 0) / 100,
+    };
+  }).filter(function (o) { return o.quoteId; });
 }
