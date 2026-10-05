@@ -224,7 +224,7 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
             parsedExtras = DefaultCatalog.parsed
             _catalog.value = localCatalog
             _settings.value = localSettings
-            _clients.value = store.loadLocalClients()
+            _clients.value = mergeClients(store.loadLocalClients(), msClients)
             // Поля МойСклад не сбрасываем: товары могут быть загружены и без копии справочников.
             _sync.update { it.copy(connected = config.enabled, lastSync = null, warnings = emptyList(), sheetUrl = "") }
         }
