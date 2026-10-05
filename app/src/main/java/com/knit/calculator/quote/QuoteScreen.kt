@@ -93,7 +93,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private enum class QuoteAction { SHARE, EMAIL, PRINT, SAVE }
+private enum class QuoteAction { SHARE, EMAIL, PRINT, SAVE, TELEGRAM, MAX }
 
 @Composable
 fun QuoteScreen(
@@ -205,6 +205,14 @@ fun QuoteScreen(
                     listOf(doc.draft.clientEmail.trim()).filter { it.isNotEmpty() }.toTypedArray(),
                 )
                 QuoteAction.PRINT -> ReportSharing.print(context, file, subject)
+                QuoteAction.TELEGRAM, QuoteAction.MAX -> {
+                    val telegram = action == QuoteAction.TELEGRAM
+                    val packages = if (telegram) listOf("org.telegram.messenger", "org.telegram.messenger.web", "org.thunderdog.challegram") else listOf("ru.oneme.app")
+                    if (!ReportSharing.toApp(context, file, subject, text, packages)) {
+                        val app = context.getString(if (telegram) R.string.quote_send_telegram else R.string.quote_send_max)
+                        Toast.makeText(context, context.getString(R.string.quote_app_missing, app), Toast.LENGTH_LONG).show()
+                    }
+                }
                 QuoteAction.SAVE -> Unit
             }
         }
@@ -472,6 +480,10 @@ fun QuoteScreen(
                     ActionButton(R.string.yarn_email, R.drawable.ic_email, primary = false, Modifier.weight(1f)) {
                         if (sync.connected && draft.clientEmail.isNotBlank()) confirmEmail = true else run(QuoteAction.EMAIL)
                     }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    ActionButton(R.string.quote_send_telegram, R.drawable.ic_chat, primary = false, Modifier.weight(1f)) { run(QuoteAction.TELEGRAM) }
+                    ActionButton(R.string.quote_send_max, R.drawable.ic_chat, primary = false, Modifier.weight(1f)) { run(QuoteAction.MAX) }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     ActionButton(R.string.yarn_print, R.drawable.ic_print, primary = false, Modifier.weight(1f)) { run(QuoteAction.PRINT) }

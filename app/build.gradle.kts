@@ -77,6 +77,7 @@ dependencies {
     implementation(libs.play.services.code.scanner)
     // Вход по отпечатку / PIN телефона.
     implementation(libs.androidx.biometric)
+    implementation(libs.androidx.webkit)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)

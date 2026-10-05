@@ -39,6 +39,32 @@ object ReportSharing {
         start(context, Intent.createChooser(intent, context.getString(R.string.yarn_share_title)))
     }
 
+    /**
+     * PDF сразу в мессенджер ([packages] — варианты приложения, например Telegram и Telegram X).
+     * Приложения нет — обычное меню «Поделиться». `false` — мессенджер не найден.
+     */
+    fun toApp(context: Context, file: File, subject: String, text: String, packages: List<String>): Boolean {
+        val uri = uriFor(context, file)
+        val base = Intent(Intent.ACTION_SEND).apply {
+            type = "application/pdf"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, subject)
+            putExtra(Intent.EXTRA_TEXT, text)
+            clipData = ClipData.newRawUri(file.name, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        for (pkg in packages) {
+            try {
+                context.startActivity(Intent(base).setPackage(pkg))
+                return true
+            } catch (e: ActivityNotFoundException) {
+                // следующий вариант
+            }
+        }
+        start(context, Intent.createChooser(base, context.getString(R.string.yarn_share_title)))
+        return false
+    }
+
     /** Письмо с PDF во вложении; адресатов можно изменить в почтовом приложении. */
     fun email(context: Context, file: File, subject: String, text: String, recipients: Array<String>) {
         val uri = uriFor(context, file)

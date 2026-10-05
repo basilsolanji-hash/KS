@@ -137,6 +137,22 @@ class V16UiTest {
         Shots.take("69_cost_quote", compose)
     }
 
+    @Test fun commsTabsAndMailbox() {
+        compose.onNodeWithText("Связь").performScrollTo().performClick()
+        compose.onNodeWithText("Макс").assertExists()
+        compose.onNodeWithText("Telegram").assertExists()
+        compose.onNodeWithText("+ Почтовый ящик").performClick()
+        compose.onNodeWithText("Яндекс Почта").performClick()
+        compose.onNodeWithText("Добавить").performClick()
+        compose.onNodeWithText("✉ Яндекс Почта").assertExists()
+        Shots.take("70_comms", compose)
+        // Вкладки: версия для ПК и удаление.
+        compose.onNodeWithContentDescription("Вкладки").performClick()
+        compose.onNodeWithContentDescription("Удалить «Яндекс Почта»").performClick()
+        compose.onNodeWithText("Закрыть").performClick()
+        compose.onNodeWithText("✉ Яндекс Почта").assertDoesNotExist()
+    }
+
     @Test fun financeNeedsSheet() {
         // Без PIN директора все — директор: плитка «Финансы» видна.
         compose.onNodeWithText("Финансы").performScrollTo().performClick()
