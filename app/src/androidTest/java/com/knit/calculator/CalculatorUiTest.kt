@@ -22,7 +22,7 @@ class CalculatorUiTest {
     val rules: RuleChain = RuleChain.outerRule(ResetAppRule()).around(compose)
 
     @Before fun openCalculator() {
-        compose.onNodeWithText("Калькулятор").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Калькулятор").performClick()
     }
 
     private fun press(keys: String) = keys.forEach { k ->

@@ -5,6 +5,7 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -104,7 +105,7 @@ class MoySkladUiTest {
     }
 
     @Test fun labelsWithEan13() {
-        compose.onNodeWithText("Этикетки").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Этикетки").performClick()
         compose.onNodeWithText("Добавить товар").performClick()
         compose.onNodeWithText("Подвяз трикотажный 1×1 (ПЭ) Белый, 14х100 см").performScrollTo().performClick()
         compose.onNodeWithText("EAN-13: 4 601234 567893").assertExists()

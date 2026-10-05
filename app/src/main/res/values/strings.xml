@@ -672,7 +672,7 @@
     <string name="finance_weeks">По неделям (остаток на конец недели)</string>
     <string name="finance_week_line">Приход %1$s · расход %2$s</string>
     <string name="finance_week_empty">Движений нет.</string>
-    <string name="finance_actual">Факт за 8 недель (МойСклад): пришло %1$s, ушло %2$s.</string>
+    <string name="finance_actual">Факт за 6 месяцев (МойСклад): пришло %1$s, ушло %2$s.</string>
     <string name="finance_hint">Приходы: предоплата по согласованным КП — сразу, остаток — к сроку отгрузки. Расходы: регулярные платежи и неоплаченные счета поставщиков МойСклад. Нажмите на неделю — подробности.</string>
     <string name="report_plan_title">План продаж этого месяца (оплаты)</string>
     <string name="report_plan_line">%1$s из %2$s — %3$d %%</string>
@@ -686,6 +686,7 @@
     <string name="report_abc_products">ABC товаров</string>
     <string name="report_abc_hint">A — клиенты и товары, дающие 80 % выручки: им — лучший сервис и сроки. C — последние 5 %: проверьте, окупаются ли.</string>
     <string name="finance_abc_empty">Нет согласованных КП.</string>
+    <string name="about_news_181">1.8.1 — главный экран: калькулятор, этикетки, каталог на сайте и настройки — значками вверху; у директора — графики «Динамика продаж» (с линией плана) и «Приход и расход денег» за 6 месяцев.</string>
     <string name="about_news_180">1.8.0 — «Финансы» для директора: платёжный календарь на 12 недель с предупреждением о кассовом разрыве (остаток МойСклад, регулярные платежи, счета поставщиков, ожидаемые оплаты по КП) и отчёт директора (план/факт, средний чек, менеджеры, ABC клиентов и товаров); зарплата менеджеров (оклад + 3 % от оплат) — директору всех, менеджеру — свой заработок на главном экране.</string>
     <string name="salary_title">Зарплата менеджеров</string>
     <string name="salary_rule">%1$s: оклад %2$s + %3$s %% от оплат по своим КП</string>
@@ -694,4 +695,11 @@
     <string name="salary_empty">Нет менеджеров с оплатами: добавьте их в лист «Менеджеры».</string>
     <string name="salary_mine">Мой заработок в этом месяце</string>
     <string name="salary_mine_line">Оплаты по моим КП %1$s ₽ → процент %2$s ₽ + оклад</string>
+    <string name="chart_sales">Динамика продаж (согласованные КП)</string>
+    <string name="chart_sales_series">Продажи</string>
+    <string name="chart_plan">план</string>
+    <string name="chart_flows">Приход и расход денег</string>
+    <string name="chart_in">Приход</string>
+    <string name="chart_out">Расход</string>
+    <string name="chart_no_out">Расход появится после подключения МойСклад (исходящие платежи).</string>
 </resources>

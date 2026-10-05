@@ -30,6 +30,7 @@ import com.knit.calculator.ui.HomeScreen
 import com.knit.calculator.ui.WebCatalogScreen
 import com.knit.calculator.quote.QuoteScreen
 import com.knit.calculator.quote.QuoteViewModel
+import com.knit.calculator.quote.toSale
 import com.knit.calculator.ui.CalculatorScreen
 import com.knit.calculator.ui.theme.KnitTheme
 import com.knit.calculator.yarn.YarnScreen
@@ -107,8 +108,27 @@ class MainActivity : FragmentActivity() {
                 if (screen == Screen.HOME) {
                     quoteViewModel.loadDealsIfStale()
                     opsViewModel.loadIfStale()
-                    if (!director) quoteViewModel.loadMySalaryIfStale()
+                    if (!director) quoteViewModel.loadMySalaryIfStale() else financeViewModel.loadIfStale()
                 }
+            }
+            // Графики директора: продажи (согласованные КП), приход и расход по месяцам.
+            val finance by financeViewModel.data.collectAsStateWithLifecycle()
+            val charts = if (!director) null else androidx.compose.runtime.remember(deals, ops, finance) {
+                val now = System.currentTimeMillis()
+                val won = setOf(com.knit.calculator.core.QuoteStatus.APPROVED, com.knit.calculator.core.QuoteStatus.IN_WORK, com.knit.calculator.core.QuoteStatus.PAID)
+                val sales = com.knit.calculator.core.monthlySums(
+                    deals.orEmpty().filter { it.status in won }.map { it.toSale().let { s -> s.date to s.total } }, now,
+                )
+                val f = finance
+                val inflow = com.knit.calculator.core.monthlySums(
+                    if (f != null && f.actualIn.isNotEmpty()) f.actualIn else ops.payments.map { it.date to it.amount }, now,
+                )
+                val outflow = if (f != null && f.actualOut.isNotEmpty()) com.knit.calculator.core.monthlySums(f.actualOut, now) else null
+                com.knit.calculator.ui.HomeCharts(
+                    months = sales.map { it.first }, sales = sales.map { it.second },
+                    plan = f?.plan?.takeIf { it.signum() > 0 },
+                    inflow = inflow.map { it.second }, outflow = outflow?.map { it.second },
+                ).takeIf { it.sales.any { v -> v.signum() > 0 } || it.inflow.any { v -> v.signum() > 0 } || it.outflow != null }
             }
             val mySalary by quoteViewModel.mySalary.collectAsStateWithLifecycle()
             val myPay = if (director) null else mySalary?.rows?.firstOrNull()?.let { Triple(it.total, it.paid, it.bonus) }
@@ -135,7 +155,7 @@ class MainActivity : FragmentActivity() {
                     return@KnitTheme
                 }
                 when (screen) {
-                    Screen.HOME -> HomeScreen(sync, themeMode, director, onTheme = viewModel::cycleTheme, day = day, version = version, myPay = myPay) { action ->
+                    Screen.HOME -> HomeScreen(sync, themeMode, director, onTheme = viewModel::cycleTheme, day = day, version = version, myPay = myPay, charts = charts) { action ->
                         open(
                             when (action) {
                                 HomeAction.QUOTE -> Screen.QUOTE

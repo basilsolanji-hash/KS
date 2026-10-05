@@ -225,3 +225,13 @@ class FinanceTest {
         assertEquals(0, months[1].quotes)
     }
 }
+
+class MonthlySumsTest {
+    @Test fun lastMonthsOldestFirst() {
+        val now = 1_791_190_800_000L // 05.10.2026
+        val day = 86_400_000L
+        val r = monthlySums(listOf(now to BigDecimal(100), now - 40 * day to BigDecimal(50), now - 400 * day to BigDecimal(7)), now, 3)
+        assertEquals(listOf("2026-08", "2026-09", "2026-10"), r.map { it.first })
+        assertEquals(listOf(50, 0, 100), r.map { it.second.toInt() }) // 40 дней назад — 26 августа
+    }
+}

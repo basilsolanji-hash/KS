@@ -21,7 +21,7 @@ class DarkThemeUiTest {
 
     @Test fun darkScreens() {
         Shots.take("09_home_dark", compose)
-        compose.onNodeWithText("Калькулятор").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Калькулятор").performClick()
         listOf("1", "2", "×", "(", "3", "+", "4").forEach { compose.onNodeWithTag("key_${if (it == "(") "( )" else it}").performClick() }
         Shots.take("10_calculator_dark_preview", compose)
         compose.onNodeWithTag("key_=").performClick()

@@ -107,7 +107,7 @@ class QuoteUiTest {
         compose.waitUntil(10_000) { compose.onAllNodes(hasText(money(106_800))).fetchSemanticsNodes().isNotEmpty() }
         Shots.take("36_report", compose)
         compose.onNodeWithContentDescription("Назад").performClick()
-        compose.onNodeWithText("Каталог на сайте").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Каталог на сайте").performClick()
         compose.mainClock.advanceTimeBy(5_000)
         Thread.sleep(4_000) // загрузка сайта (без проверки: сеть эмулятора может быть недоступна)
         Shots.take("37_shop", compose)

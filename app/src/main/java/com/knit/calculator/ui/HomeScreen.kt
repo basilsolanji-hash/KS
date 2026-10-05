@@ -45,6 +45,16 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/** Графики главного экрана (директор): последние 6 месяцев. */
+data class HomeCharts(
+    val months: List<String>,
+    val sales: List<java.math.BigDecimal>,
+    val plan: java.math.BigDecimal?,
+    val inflow: List<java.math.BigDecimal>,
+    /** Расход — только с МойСклад (исходящие платежи); `null` — данных нет. */
+    val outflow: List<java.math.BigDecimal>?,
+)
+
 /** Разделы, доступные с главного экрана. */
 enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, FINANCE }
 
@@ -59,6 +69,7 @@ fun HomeScreen(
     version: String = "",
     /** Заработок менеджера в этом месяце: (итого, оплаты, процент). */
     myPay: Triple<java.math.BigDecimal, java.math.BigDecimal, java.math.BigDecimal>? = null,
+    charts: HomeCharts? = null,
     onAction: (HomeAction) -> Unit,
 ) {
     val colors = LocalKnitColors.current
@@ -71,7 +82,12 @@ fun HomeScreen(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        // Редкие разделы — маленькими значками вверху.
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            KnitIconButton(R.drawable.ic_calculator, stringResource(R.string.home_calculator), { onAction(HomeAction.CALCULATOR) })
+            KnitIconButton(R.drawable.ic_label, stringResource(R.string.home_labels), { onAction(HomeAction.LABELS) })
+            KnitIconButton(R.drawable.ic_web, stringResource(R.string.home_shop), { onAction(HomeAction.SHOP) })
+            KnitIconButton(R.drawable.ic_settings, stringResource(R.string.home_settings), { onAction(HomeAction.SETTINGS) })
             Spacer(Modifier.weight(1f))
             KnitIconButton(
                 when (themeMode) {
@@ -115,6 +131,24 @@ fun HomeScreen(
             }
         }
         if (day != null && !day.isEmpty) DayPanel(day, onAction)
+        // Директору: динамика продаж и приход/расход по месяцам.
+        if (charts != null) {
+            val dark = colors.isDark
+            MonthBars(
+                stringResource(R.string.chart_sales), charts.months,
+                listOf(stringResource(R.string.chart_sales_series) to charts.sales), listOf(ChartColors.inflow(dark)),
+                plan = charts.plan, planLabel = stringResource(R.string.chart_plan),
+            )
+            MonthBars(
+                stringResource(R.string.chart_flows), charts.months,
+                listOfNotNull(
+                    stringResource(R.string.chart_in) to charts.inflow,
+                    charts.outflow?.let { stringResource(R.string.chart_out) to it },
+                ),
+                listOf(ChartColors.inflow(dark), ChartColors.outflow(dark)),
+            )
+            if (charts.outflow == null) Text(stringResource(R.string.chart_no_out), color = colors.textSecondary, fontSize = 12.sp)
+        }
         if (myPay != null) {
             Surface(shape = RoundedCornerShape(20.dp), color = colors.panel, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
@@ -133,14 +167,10 @@ fun HomeScreen(
             Triple(HomeAction.HISTORY, R.string.home_history, R.drawable.ic_history),
             Triple(HomeAction.PAYMENTS, R.string.home_payments, R.drawable.ic_payments),
             Triple(HomeAction.PRODUCTION, R.string.home_production, R.drawable.ic_factory),
-            Triple(HomeAction.LABELS, R.string.home_labels, R.drawable.ic_label),
             Triple(HomeAction.PRODUCTS, R.string.home_products, R.drawable.ic_inventory),
             Triple(HomeAction.STOCK, R.string.home_stock, R.drawable.ic_inventory),
             Triple(HomeAction.YARN, R.string.home_yarn, R.drawable.ic_yarn),
             Triple(HomeAction.REPORT, R.string.home_report, R.drawable.ic_report),
-            Triple(HomeAction.SHOP, R.string.home_shop, R.drawable.ic_web),
-            Triple(HomeAction.CALCULATOR, R.string.home_calculator, R.drawable.ic_calculator),
-            Triple(HomeAction.SETTINGS, R.string.home_settings, R.drawable.ic_settings),
         ).filter { (action, _, _) -> !(action == HomeAction.STOCK && sync.msEnabled) } // с МойСклад склад — там
         tiles.chunked(2).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {

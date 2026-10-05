@@ -111,7 +111,16 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
+    private var loadedAt = 0L
+
+    /** Для графиков главного экрана: не чаще раза в 10 минут, без сообщения об ошибке. */
+    fun loadIfStale(maxAgeMs: Long = 10 * 60_000L) {
+        if (!store.loadSyncConfig().enabled || System.currentTimeMillis() - loadedAt < maxAgeMs) return
+        load()
+    }
+
     fun load() {
+        loadedAt = System.currentTimeMillis()
         val config = store.loadSyncConfig()
         if (!config.enabled) {
             _error.value = getApplication<Application>().getString(R.string.finance_need_sheet)

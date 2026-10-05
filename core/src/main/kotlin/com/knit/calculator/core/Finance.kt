@@ -98,6 +98,15 @@ object CashFlow {
     }
 }
 
+/** Суммы по месяцам: последние [count] месяцев, от старого к новому («2026-10» → сумма). */
+fun monthlySums(items: List<Pair<Long, BigDecimal>>, now: Long, count: Int = 6): List<Pair<String, BigDecimal>> {
+    val tz = TimeZone.getTimeZone("Europe/Moscow")
+    fun key(t: Long) = Calendar.getInstance(tz).apply { timeInMillis = t }.let { "%04d-%02d".format(it.get(Calendar.YEAR), it.get(Calendar.MONTH) + 1) }
+    val keys = (count - 1 downTo 0).map { i -> Calendar.getInstance(tz).apply { timeInMillis = now; set(Calendar.DAY_OF_MONTH, 1); add(Calendar.MONTH, -i) }.timeInMillis }.map(::key)
+    val sums = items.filter { it.first > 0 }.groupBy { key(it.first) }.mapValues { (_, xs) -> xs.fold(BigDecimal.ZERO) { a, x -> a + x.second } }
+    return keys.map { it to (sums[it] ?: BigDecimal.ZERO) }
+}
+
 /** КП для отчёта директора. */
 data class Sale(
     val id: String,

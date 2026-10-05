@@ -315,7 +315,7 @@ function msTime_(moment) {
 
 /**
  * Данные платёжного календаря: остаток денег (МойСклад или «Настройки»), регулярные платежи,
- * неоплаченные счета поставщиков (МойСклад) и фактические поступления/выплаты за 8 недель.
+ * неоплаченные счета поставщиков (МойСклад) и фактические поступления/выплаты за 6 месяцев.
  */
 function finance_(ss) {
   var s = settings_(ss);
@@ -339,7 +339,8 @@ function finance_(ss) {
     out.supplier = msAll_('/entity/invoicein?filter=' + encodeURIComponent('paymentPlannedMoment>=' + since)).map(function (d) {
       return { name: 'Счёт поставщика № ' + d.name, amount: ((Number(d.sum) || 0) - (Number(d.payedSum) || 0)) / 100, due: msTime_(d.paymentPlannedMoment || d.moment) };
     }).filter(function (x) { return x.amount > 0.009; });
-    var weeks8 = msMoment_(new Date(Date.now() - 56 * 86400000));
+    // Факт за 6 месяцев: графики «Приход и расход» на главном экране директора.
+    var weeks8 = msMoment_(new Date(Date.now() - 183 * 86400000));
     out.actualIn = msAll_('/entity/paymentin?filter=' + encodeURIComponent('moment>=' + weeks8)).map(function (d) {
       return { date: msTime_(d.moment), amount: (Number(d.sum) || 0) / 100 };
     });
