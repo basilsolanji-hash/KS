@@ -35,6 +35,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -438,6 +440,33 @@ fun CompanyScreen(viewModel: QuoteViewModel, onBack: () -> Unit) {
                     colors = SwitchDefaults.colors(checkedTrackColor = colors.equalsKey, checkedThumbColor = colors.equalsKeyText),
                 )
             }
+            // Свой PIN-код приложения на этом телефоне.
+            var pinOn by rememberSaveable { mutableStateOf(QuoteStore(context).pinSet) }
+            var pinStage by remember { mutableStateOf<String?>(null) } // "new", "off"
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.pin_setting), color = colors.textPrimary, fontSize = 16.sp)
+                    Text(stringResource(R.string.pin_setting_hint), color = colors.textSecondary, fontSize = 13.sp)
+                }
+                Switch(
+                    checked = pinOn,
+                    onCheckedChange = { v -> pinStage = if (v) "new" else "off" },
+                    modifier = Modifier.semantics { contentDescription = "PIN-код приложения" },
+                    colors = SwitchDefaults.colors(checkedTrackColor = colors.equalsKey, checkedThumbColor = colors.equalsKeyText),
+                )
+            }
+            pinStage?.let { stage ->
+                PinDialog(
+                    turnOff = stage == "off",
+                    onDone = { set ->
+                        pinStage = null
+                        if (set != null) {
+                            pinOn = set
+                            message = context.getString(if (set) R.string.pin_saved else R.string.pin_off)
+                        }
+                    },
+                )
+            }
             // Вход по отпечатку / PIN телефона.
             val lockAvailable = remember { com.knit.calculator.ui.AppLock.available(context) }
             var lock by rememberSaveable { mutableStateOf(QuoteStore(context).appLock) }
@@ -589,5 +618,63 @@ fun openUrl(context: android.content.Context, url: String) {
         context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)))
     } catch (e: android.content.ActivityNotFoundException) {
         android.widget.Toast.makeText(context, R.string.yarn_no_app, android.widget.Toast.LENGTH_LONG).show()
+    }
+}
+
+/** Установка своего PIN (дважды) или отключение (текущим PIN). [onDone]: true — задан, false — снят, null — отмена. */
+@Composable
+private fun PinDialog(turnOff: Boolean, onDone: (Boolean?) -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val store = remember { QuoteStore(context) }
+    val colors = LocalKnitColors.current
+    var first by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val mismatch = stringResource(R.string.pin_mismatch)
+    val wrong = stringResource(R.string.pin_wrong)
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = { onDone(null) },
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Column(
+            Modifier.fillMaxSize().background(colors.background).padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            val title = when {
+                turnOff -> stringResource(R.string.pin_enter)
+                first == null -> stringResource(R.string.pin_new)
+                else -> stringResource(R.string.pin_repeat)
+            }
+            com.knit.calculator.ui.PinPad(title, error) { pin ->
+                when {
+                    turnOff -> if (store.checkPin(pin)) {
+                        store.setPin(null)
+                        onDone(false)
+                    } else {
+                        val next = store.pinAttempts.failed(System.currentTimeMillis())
+                        store.pinAttempts = next
+                        if (next.blocked(System.currentTimeMillis())) onDone(null) else error = wrong.format(next.left())
+                    }
+                    first == null -> {
+                        val problem = com.knit.calculator.core.PinLock.problem(pin)
+                        if (problem != null) error = problem else {
+                            first = pin
+                            error = null
+                        }
+                    }
+                    pin == first -> {
+                        store.setPin(pin)
+                        onDone(true)
+                    }
+                    else -> {
+                        first = null
+                        error = mismatch
+                    }
+                }
+            }
+            androidx.compose.material3.TextButton(onClick = { onDone(null) }) {
+                Text(stringResource(R.string.cancel), color = colors.textSecondary)
+            }
+        }
     }
 }

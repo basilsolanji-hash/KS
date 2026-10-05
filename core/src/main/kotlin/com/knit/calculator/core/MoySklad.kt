@@ -60,13 +60,21 @@ object MoySklad {
     }
 
     /** Поиск по названию, артикулу и группе: все слова запроса, без учёта регистра. */
-    fun search(products: List<Product>, query: String, group: String? = null, filters: Map<String, String> = emptyMap()): List<Product> {
+    fun search(
+        products: List<Product>,
+        query: String,
+        group: String? = null,
+        filters: Map<String, String> = emptyMap(),
+        badge: String? = null,
+    ): List<Product> {
         val words = query.lowercase().split(' ', ',').map { it.trim() }.filter { it.isNotEmpty() }
         return products.filter { p ->
             (group == null || p.group == group || p.group.startsWith("$group/")) &&
+                (badge == null || badge in p.badges) &&
                 filters.all { (k, v) -> p.attributes[k] == v } &&
                 words.all { w ->
                     p.name.lowercase().contains(w) || p.code.lowercase().contains(w) || p.group.lowercase().contains(w) ||
+                        (p.barcode.isNotEmpty() && p.barcode.startsWith(w)) ||
                         p.attributes.values.any { it.lowercase().contains(w) }
                 }
         }.sortedByDescending { it.badges.isNotEmpty() } // «Топ-продажа» и «Популярный» — первыми
@@ -80,6 +88,21 @@ object MoySklad {
         val values = products.mapNotNull { it.attributes[name] }.distinct().sorted()
         return if (values.size in 2..max) values else emptyList()
     }
+
+    /** Товар по отсканированному штрихкоду (EAN-13) или точному артикулу; `null` — нет или неоднозначно. */
+    fun byScan(products: List<Product>, code: String): Product? {
+        val c = code.trim()
+        if (c.isEmpty()) return null
+        products.filter { it.barcode == c }.singleOrNull()?.let { return it }
+        return products.filter { it.code.equals(c, ignoreCase = true) }.singleOrNull()
+    }
+
+    /** Метки товаров для фильтра («Распродажа» — первой, остальные по алфавиту). */
+    fun badges(products: List<Product>): List<String> =
+        products.flatMap { it.badges }.distinct().sortedWith(compareBy({ !isSale(it) }, { it }))
+
+    /** Метка распродажи — показывается красным. */
+    fun isSale(badge: String): Boolean = badge.lowercase().let { "распрод" in it || "скидк" in it || "sale" in it }
 
     /** Верхние группы товаров для фильтра. */
     fun topGroups(products: List<Product>): List<String> =

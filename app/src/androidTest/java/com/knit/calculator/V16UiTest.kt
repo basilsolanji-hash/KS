@@ -47,6 +47,21 @@ class V16UiTest {
         compose.onNodeWithText("Позиция удалена").assertDoesNotExist()
     }
 
+    @Test fun ownPinCode() {
+        compose.onNodeWithContentDescription("Реквизиты фабрики").performClick()
+        compose.onNodeWithText("Свой PIN-код (4 цифры)").performScrollTo()
+        compose.onNodeWithContentDescription("PIN-код приложения").performClick()
+        compose.onNodeWithText("Новый PIN-код").assertExists()
+        // Простой PIN не принимается.
+        "1234".forEach { compose.onNodeWithContentDescription(it.toString()).performClick() }
+        compose.onNodeWithText("Слишком простой PIN: цифры подряд").assertExists()
+        "2580".forEach { compose.onNodeWithContentDescription(it.toString()).performClick() }
+        compose.onNodeWithText("Повторите PIN-код").assertExists()
+        Shots.take("65_pin_setup", compose)
+        "2580".forEach { compose.onNodeWithContentDescription(it.toString()).performClick() }
+        compose.onNodeWithText("PIN-код сохранён").performScrollTo().assertExists()
+    }
+
     @Test fun aboutScreen() {
         compose.onNodeWithText("О версии", substring = true).performScrollTo().performClick()
         compose.onNodeWithText("Что нового").assertExists()

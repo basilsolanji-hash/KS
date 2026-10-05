@@ -1458,7 +1458,10 @@ function msCatalog_(ss, director) {
     if (it) items.push(it);
   });
   var clients = msAll_('/entity/counterparty?filter=archived=false').map(function (c) {
-    return { name: c.name, inn: c.inn || '', email: c.email || '', phone: c.phone || '' };
+    return {
+      name: c.name, inn: c.inn || '', kpp: c.kpp || '', email: c.email || '', phone: c.phone || '',
+      address: c.legalAddress || c.actualAddress || '',
+    };
   });
   return {
     enabled: true,

@@ -200,6 +200,26 @@ class QuoteStore(context: Context) {
         get() = prefs.getBoolean("app_lock", false)
         set(v) { prefs.edit().putBoolean("app_lock", v).apply() }
 
+    /** Свой PIN приложения (только хэш с солью); пусто — PIN не задан. */
+    val pinSet: Boolean get() = !prefs.getString("pin_hash", null).isNullOrEmpty()
+
+    fun setPin(pin: String?) {
+        if (pin == null) {
+            prefs.edit().remove("pin_hash").remove("pin_salt").remove("pin_fails").remove("pin_blocked").apply()
+            return
+        }
+        val salt = java.util.UUID.randomUUID().toString()
+        prefs.edit().putString("pin_salt", salt).putString("pin_hash", com.knit.calculator.core.PinLock.hash(pin, salt))
+            .remove("pin_fails").remove("pin_blocked").apply()
+    }
+
+    fun checkPin(pin: String): Boolean =
+        com.knit.calculator.core.PinLock.hash(pin, prefs.getString("pin_salt", "").orEmpty()) == prefs.getString("pin_hash", null)
+
+    var pinAttempts: com.knit.calculator.core.PinLock.Attempts
+        get() = com.knit.calculator.core.PinLock.Attempts(prefs.getInt("pin_fails", 0), prefs.getLong("pin_blocked", 0L))
+        set(v) { prefs.edit().putInt("pin_fails", v.fails).putLong("pin_blocked", v.blockedUntil).apply() }
+
     /** Ежедневная сводка в 9:00 (долги, отгрузки, КП без ответа). */
     var digestEnabled: Boolean
         get() = prefs.getBoolean("digest", true)
@@ -289,7 +309,10 @@ class QuoteStore(context: Context) {
         val raw = prefs.getString(KEY_CLIENTS, null) ?: return emptyList()
         return try {
             JSONArray(raw).objects().map {
-                com.knit.calculator.core.Client(it.optString("company"), it.optString("contact"), it.optString("email"), it.optString("phone"), it.optString("inn"))
+                com.knit.calculator.core.Client(
+                    it.optString("company"), it.optString("contact"), it.optString("email"), it.optString("phone"), it.optString("inn"),
+                    kpp = it.optString("kpp"), address = it.optString("address"),
+                )
             }
         } catch (e: Exception) {
             emptyList()
@@ -299,7 +322,8 @@ class QuoteStore(context: Context) {
     fun saveLocalClients(list: List<com.knit.calculator.core.Client>) {
         val array = JSONArray()
         list.forEach { c ->
-            array.put(JSONObject().put("company", c.company).put("contact", c.contact).put("email", c.email).put("phone", c.phone).put("inn", c.inn))
+            array.put(JSONObject().put("company", c.company).put("contact", c.contact).put("email", c.email).put("phone", c.phone).put("inn", c.inn)
+                .put("kpp", c.kpp).put("address", c.address))
         }
         prefs.edit().putString(KEY_CLIENTS, array.toString()).apply()
     }

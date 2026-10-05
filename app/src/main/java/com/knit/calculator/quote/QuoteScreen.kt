@@ -310,6 +310,18 @@ fun QuoteScreen(
                 )
             }
             ClientSuggestions(draft.clientCompany, clients, onPick = viewModel::applyClient)
+            if (clients.isNotEmpty()) {
+                var clientPicker by remember { mutableStateOf(false) }
+                androidx.compose.material3.TextButton(onClick = { clientPicker = true }) {
+                    Text(stringResource(R.string.client_pick, clients.size), color = colors.textSecondary, fontSize = 14.sp)
+                }
+                if (clientPicker) {
+                    ClientPicker(clients, onDismiss = { clientPicker = false }) {
+                        clientPicker = false
+                        viewModel.applyClient(it)
+                    }
+                }
+            }
             KnitField(draft.clientContact, { v -> viewModel.updateDraft { it.copy(clientContact = v) } }, R.string.quote_client_contact, text = true, maxLength = 120)
             KnitField(
                 draft.clientEmail, { v -> viewModel.updateDraft { it.copy(clientEmail = v.trim()) } }, R.string.quote_client_email,
@@ -620,18 +632,66 @@ private fun ClientSuggestions(query: String, clients: List<Client>, onPick: (Cli
     val colors = LocalKnitColors.current
     val q = query.trim()
     if (q.length < 2) return
-    val matches = clients.filter { it.company.contains(q, ignoreCase = true) && !it.company.equals(q, ignoreCase = true) }.take(4)
+    val matches = clients.filter {
+        (it.company.contains(q, ignoreCase = true) || (q.all(Char::isDigit) && it.inn.startsWith(q))) && !it.company.equals(q, ignoreCase = true)
+    }.take(5)
     if (matches.isEmpty()) return
     Surface(shape = RoundedCornerShape(14.dp), color = colors.panel, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(vertical = 4.dp)) {
             Text(stringResource(R.string.quote_client_suggestions), color = colors.textSecondary, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp))
             matches.forEach { c ->
-                Text(
-                    listOf(c.company, c.contact).filter { it.isNotBlank() }.joinToString(" · "),
-                    color = colors.textPrimary,
-                    fontSize = 15.sp,
-                    modifier = Modifier.fillMaxWidth().clickable { onPick(c) }.padding(horizontal = 14.dp, vertical = 10.dp),
-                )
+                ClientRow(c) { onPick(c) }
+            }
+        }
+    }
+}
+
+/** Строка клиента: название, ИНН и контакт; метка «МойСклад» для контрагентов оттуда. */
+@Composable
+private fun ClientRow(c: Client, onClick: () -> Unit) {
+    val colors = LocalKnitColors.current
+    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(c.company, color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+            if (c.fromMs) Text(stringResource(R.string.client_ms), color = colors.textSecondary, fontSize = 11.sp)
+        }
+        val line = listOf(
+            c.inn.takeIf { it.isNotBlank() }?.let { "ИНН $it" }.orEmpty(), c.contact, c.phone.ifBlank { c.email },
+        ).filter { it.isNotBlank() }.joinToString(" · ")
+        if (line.isNotBlank()) Text(line, color = colors.textSecondary, fontSize = 13.sp)
+    }
+}
+
+/** Все клиенты (таблица, телефон, МойСклад) с поиском по названию, ИНН, телефону и e-mail. */
+@Composable
+private fun ClientPicker(clients: List<Client>, onDismiss: () -> Unit, onPick: (Client) -> Unit) {
+    val colors = LocalKnitColors.current
+    var query by remember { mutableStateOf("") }
+    val found = remember(clients, query) {
+        val q = query.trim().lowercase()
+        clients.filter { c ->
+            q.isEmpty() || listOf(c.company, c.inn, c.contact, c.phone, c.email).any { it.lowercase().contains(q) }
+        }.sortedBy { it.company.lowercase() }
+    }
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Column(Modifier.fillMaxSize().background(colors.background).safeDrawingPadding()) {
+            com.knit.calculator.ui.components.ScreenTopBar(stringResource(R.string.client_pick_title), onDismiss)
+            Column(Modifier.padding(horizontal = 16.dp)) {
+                KnitField(query, { query = it }, R.string.client_search, text = true, maxLength = 60)
+            }
+            androidx.compose.foundation.lazy.LazyColumn(
+                Modifier.fillMaxWidth().weight(1f).padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                items(found.take(200).size) { i ->
+                    Surface(shape = RoundedCornerShape(14.dp), color = colors.panel, modifier = Modifier.fillMaxWidth()) {
+                        ClientRow(found[i]) { onPick(found[i]) }
+                    }
+                }
+                if (found.isEmpty()) item { Text(stringResource(R.string.picker_nothing), color = colors.textSecondary, fontSize = 14.sp) }
             }
         }
     }

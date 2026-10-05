@@ -59,7 +59,7 @@ class MoySkladUiTest {
                                 ),
                             )
                             .put(product("p2", "Подвяз трикотажный 2×2 Чёрный, 16х100 см", "22-013", "Подвязы/Хлопок", 0, tiers, mapOf("Цвет" to "Чёрный", "Тип резинки" to "2х2")))
-                            .put(product("p3", "Поло-воротник белый", "PV-1", "Поло-воротники", 5, listOf(1 to "120"))),
+                            .put(product("p3", "Поло-воротник белый", "PV-1", "Поло-воротники", 5, listOf(1 to "120"), badges = listOf("Распродажа"))),
                     )
                     .put("clients", JSONArray().put(JSONObject().put("name", "ООО \"БРЕНД СИТИ\"").put("inn", "7726358110")))
                     .put("filters", JSONArray(listOf("Артикул", "Цвет", "Тип резинки", "Тип", "Артикул производитель")))
@@ -102,6 +102,21 @@ class MoySkladUiTest {
         // Клиент из МойСклад — в подсказках.
         compose.onNodeWithText("Компания клиента").performScrollTo().performTextInput("БРЕНД")
         compose.onAllNodes(hasText("БРЕНД СИТИ", substring = true)).onFirst().assertExists()
+    }
+
+    @Test fun saleBadgeFilterAndBarcodeSearch() {
+        compose.onNodeWithText("Коммерческое предложение").performClick()
+        compose.onNodeWithText("Добавить позицию").performScrollTo().performClick()
+        // Метка «Распродажа» — красная, фильтр одним нажатием.
+        compose.onNodeWithText("% Распродажа").assertExists()
+        compose.onNodeWithText("Распродажа").performClick()
+        compose.onNodeWithText("Подвяз трикотажный 2×2 Чёрный, 16х100 см").assertDoesNotExist()
+        compose.onNodeWithText("Поло-воротник белый").assertExists()
+        Shots.take("52_ms_sale_filter", compose)
+        compose.onNodeWithText("Распродажа").performClick()
+        // Ручной сканер вводит штрихкод в поиск — товар выбирается сам.
+        compose.onNode(hasSetTextAction() and hasText("Поиск: название или артикул")).performTextInput("4601234567893")
+        compose.waitUntil(5_000) { compose.onAllNodes(hasSetTextAction() and hasText("Количество")).fetchSemanticsNodes().isNotEmpty() }
     }
 
     @Test fun labelsWithEan13() {

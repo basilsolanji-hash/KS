@@ -197,7 +197,10 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         msIndex = items.associateBy { it.id }
         val clients = o?.optJSONArray("clients")
         msClients = if (clients == null) emptyList() else (0 until clients.length()).mapNotNull { clients.optJSONObject(it) }.map {
-            Client(it.optString("name"), "", it.optString("email"), it.optString("phone"), it.optString("inn"))
+            Client(
+                it.optString("name"), "", it.optString("email"), it.optString("phone"), it.optString("inn"),
+                kpp = it.optString("kpp"), address = it.optString("address"), fromMs = true,
+            )
         }
         _clients.value = mergeClients(_clients.value, msClients)
         _sync.update {
@@ -553,13 +556,25 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         val company = d.clientCompany.trim()
         if (company.isEmpty()) return
         val local = store.loadLocalClients().filterNot { it.company.equals(company, ignoreCase = true) }
-        val client = Client(company, d.clientContact.trim(), d.clientEmail.trim(), d.clientPhone.trim(), d.clientInn.trim())
+        val client = Client(
+            company, d.clientContact.trim(), d.clientEmail.trim(), d.clientPhone.trim(), d.clientInn.trim(),
+            kpp = d.clientKpp.trim(), address = d.clientAddress.trim(),
+        )
         store.saveLocalClients(listOf(client) + local)
         _clients.value = mergeClients(_clients.value, listOf(client))
     }
 
+    /** Один клиент — одна строка: пустые поля дополняются из других источников (таблица, телефон, МойСклад). */
     private fun mergeClients(primary: List<Client>, extra: List<Client>): List<Client> =
-        (primary + extra).distinctBy { it.company.trim().lowercase() }
+        (primary + extra).groupBy { it.company.trim().lowercase() }.values.map { same ->
+            same.reduce { a, b ->
+                a.copy(
+                    contact = a.contact.ifBlank { b.contact }, email = a.email.ifBlank { b.email }, phone = a.phone.ifBlank { b.phone },
+                    inn = a.inn.ifBlank { b.inn }, kpp = a.kpp.ifBlank { b.kpp }, address = a.address.ifBlank { b.address },
+                    fromMs = a.fromMs || b.fromMs,
+                )
+            }
+        }
 
     fun applyClient(client: Client) = updateDraft {
         it.copy(
@@ -568,6 +583,8 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
             clientEmail = client.email.ifBlank { it.clientEmail },
             clientPhone = client.phone.ifBlank { it.clientPhone },
             clientInn = client.inn.ifBlank { it.clientInn },
+            clientKpp = client.kpp.ifBlank { it.clientKpp },
+            clientAddress = client.address.ifBlank { it.clientAddress },
         )
     }
 

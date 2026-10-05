@@ -29,6 +29,10 @@ data class Client(
     val email: String = "",
     val phone: String = "",
     val inn: String = "",
+    val kpp: String = "",
+    val address: String = "",
+    /** Клиент из МойСклад (контрагент). */
+    val fromMs: Boolean = false,
 )
 
 data class ParsedCatalog(

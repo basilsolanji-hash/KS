@@ -235,3 +235,59 @@ class MonthlySumsTest {
         assertEquals(listOf(50, 0, 100), r.map { it.second.toInt() }) // 40 дней назад — 26 августа
     }
 }
+
+class ScanAndBadgesTest {
+    private fun p(id: String, code: String, barcode: String, badges: List<String> = emptyList()) =
+        MoySklad.product(MsItem(id, "Подвяз $id", article = code, tiers = listOf(BigDecimal.ONE to BigDecimal.TEN), badges = badges, barcode = barcode))!!
+
+    private val items = listOf(
+        p("a", "PD-1", "4600000000015", listOf("Распродажа")),
+        p("b", "PD-2", "4600000000022", listOf("Топ-продажа")),
+        p("c", "PD-3", ""),
+    )
+
+    @Test fun scanFindsByBarcodeOrArticle() {
+        assertEquals("a", MoySklad.byScan(items, " 4600000000015 ")?.externalId)
+        assertEquals("c", MoySklad.byScan(items, "pd-3")?.externalId)
+        assertEquals(null, MoySklad.byScan(items, "123"))
+    }
+
+    @Test fun searchMatchesBarcodeAndBadge() {
+        assertEquals(listOf("b"), MoySklad.search(items, "4600000000022").map { it.externalId })
+        assertEquals(listOf("a"), MoySklad.search(items, "", badge = "Распродажа").map { it.externalId })
+    }
+
+    @Test fun saleBadgeFirst() {
+        assertEquals(listOf("Распродажа", "Топ-продажа"), MoySklad.badges(items))
+        assertEquals(true, MoySklad.isSale("РАСПРОДАЖА -30%"))
+        assertEquals(false, MoySklad.isSale("Популярный"))
+    }
+}
+
+class PinLockTest {
+    @Test fun rejectsWeakPins() {
+        assertTrue(PinLock.problem("123") != null)
+        assertTrue(PinLock.problem("12a4") != null)
+        assertTrue(PinLock.problem("7777") != null)
+        assertTrue(PinLock.problem("3456") != null)
+        assertTrue(PinLock.problem("6543") != null)
+        assertEquals(null, PinLock.problem("2580"))
+    }
+
+    @Test fun hashDependsOnSalt() {
+        assertEquals(PinLock.hash("2580", "s1"), PinLock.hash("2580", "s1"))
+        assertTrue(PinLock.hash("2580", "s1") != PinLock.hash("2580", "s2"))
+        assertEquals(64, PinLock.hash("2580", "s").length)
+    }
+
+    @Test fun fiveFailsPause() {
+        var a = PinLock.Attempts()
+        repeat(4) { a = a.failed(1000) }
+        assertEquals(1, a.left())
+        assertFalse(a.blocked(1000))
+        a = a.failed(1000)
+        assertTrue(a.blocked(1000 + PinLock.PAUSE_MS - 1))
+        assertFalse(a.blocked(1000 + PinLock.PAUSE_MS))
+        assertEquals(PinLock.MAX_FAILS, a.left())
+    }
+}

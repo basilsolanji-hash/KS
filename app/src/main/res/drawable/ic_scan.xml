@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Сканер штрихкода: рамка и штрихи. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M2,2h5v2H4v3H2V2zM17,2h5v5h-2V4h-3V2zM2,17h2v3h3v2H2V17zM20,17h2v5h-5v-2h3V17zM6,7h1.5v10H6V7zM9,7h1v10H9V7zM11.5,7h2v10h-2V7zM15,7h1v10h-1V7zM17,7h1.5v10H17V7z" />
+</vector>

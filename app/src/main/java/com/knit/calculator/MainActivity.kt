@@ -48,8 +48,17 @@ class MainActivity : FragmentActivity() {
     override fun onStart() {
         super.onStart()
         val away = stoppedAt > 0 && System.currentTimeMillis() - stoppedAt > LOCK_AFTER_MS
-        if (com.knit.calculator.quote.QuoteStore(this).appLock && away && com.knit.calculator.ui.AppLock.available(this)) locked = true
+        if (away && lockOn()) locked = true
     }
+
+    /** Защита включена: свой PIN или вход по отпечатку / PIN телефона. */
+    private fun lockOn(): Boolean {
+        val store = com.knit.calculator.quote.QuoteStore(this)
+        return store.pinSet || (store.appLock && com.knit.calculator.ui.AppLock.available(this))
+    }
+
+    private fun biometricOn(): Boolean =
+        com.knit.calculator.quote.QuoteStore(this).appLock && com.knit.calculator.ui.AppLock.available(this)
 
     override fun onStop() {
         super.onStop()
@@ -70,7 +79,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (savedInstanceState == null && com.knit.calculator.quote.QuoteStore(this).appLock && com.knit.calculator.ui.AppLock.available(this)) locked = true
+        if (savedInstanceState == null && lockOn()) locked = true
         // Ежедневная сводка (9:00): долги, отгрузки, просрочки, КП без ответа.
         com.knit.calculator.quote.DailyDigest.schedule(this, com.knit.calculator.quote.QuoteStore(this).digestEnabled)
         enableEdgeToEdge()
@@ -156,7 +165,10 @@ class MainActivity : FragmentActivity() {
             }
             KnitTheme(darkTheme = darkTheme) {
                 if (locked) {
-                    com.knit.calculator.ui.LockScreen { com.knit.calculator.ui.AppLock.prompt(this@MainActivity) { locked = false } }
+                    com.knit.calculator.ui.LockScreen(
+                        onBiometric = if (biometricOn()) ({ com.knit.calculator.ui.AppLock.prompt(this@MainActivity) { locked = false } }) else null,
+                        onUnlocked = { locked = false },
+                    )
                     return@KnitTheme
                 }
                 when (screen) {

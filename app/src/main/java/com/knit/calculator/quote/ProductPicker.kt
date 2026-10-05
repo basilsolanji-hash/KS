@@ -75,15 +75,39 @@ fun ProductPicker(
     val groups = remember(msProducts) { MoySklad.topGroups(msProducts) }
     // Фильтры по характеристикам МойСклад: характеристика → выбранное значение.
     var selected by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
-    val found = remember(msProducts, query, group, selected) { MoySklad.search(msProducts, query, group, selected) }
+    // Метки МойСклад («Распродажа», «Топ-продажа»…): фильтр одним нажатием.
+    var badge by rememberSaveable { mutableStateOf<String?>(null) }
+    val badges = remember(msProducts) { MoySklad.badges(msProducts) }
+    val found = remember(msProducts, query, group, selected, badge) { MoySklad.search(msProducts, query, group, selected, badge) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var scanMessage by remember { mutableStateOf<String?>(null) }
+    val notFound = stringResource(R.string.scan_not_found)
+    // Код со сканера (камера или ручной сканер-«клавиатура»): один товар — сразу выбираем.
+    fun takeCode(code: String) {
+        val hit = MoySklad.byScan(msProducts, code)
+        if (hit != null) onPick(hit) else {
+            query = code
+            scanMessage = notFound.format(code)
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(query) {
+        val q = query.trim()
+        if (q.length >= 8 && q.all { it.isDigit() }) MoySklad.byScan(msProducts, q)?.let(onPick)
+    }
     val byExternal = remember(msProducts) { msProducts.associateBy { it.externalId } }
     // Пока ничего не ищем — сверху избранные и недавние товары.
-    val idle = query.isBlank() && group == null && selected.isEmpty()
+    val idle = query.isBlank() && group == null && selected.isEmpty() && badge == null
     val favoriteList = if (idle) favorites.mapNotNull { byExternal[it] }.sortedBy { it.name } else emptyList()
     val recentList = if (idle) recent.filterNot { it in favorites }.mapNotNull { byExternal[it] } else emptyList()
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(Modifier.fillMaxSize().background(colors.background).safeDrawingPadding()) {
             ScreenTopBar(title ?: stringResource(R.string.picker_title), onDismiss) {
+                if (msProducts.isNotEmpty()) {
+                    KnitIconButton(R.drawable.ic_scan, stringResource(R.string.scan_barcode), {
+                        scanMessage = null
+                        BarcodeScan.scan(context, ::takeCode) { scanMessage = it }
+                    })
+                }
                 if (sync.msEnabled) KnitIconButton(R.drawable.ic_arrow_down, stringResource(R.string.ms_refresh), onRefresh)
             }
             LazyColumn(
@@ -111,7 +135,27 @@ fun ProductPicker(
                         )
                     }
                     item {
-                        KnitField(query, { query = it }, R.string.picker_search, text = true, maxLength = 60)
+                        KnitField(query, { query = it; scanMessage = null }, R.string.picker_search, text = true, maxLength = 60)
+                        scanMessage?.let { Text(it, color = androidx.compose.ui.graphics.Color(0xFFD9534F), fontSize = 13.sp) }
+                    }
+                    if (badges.isNotEmpty()) {
+                        item(key = "badges") {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                items(badges) { b ->
+                                    val sale = MoySklad.isSale(b)
+                                    FilterChip(
+                                        selected = b == badge,
+                                        onClick = { badge = if (badge == b) null else b },
+                                        label = { Text(b) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = if (sale) SALE_RED else colors.equalsKey,
+                                            selectedLabelColor = if (sale) androidx.compose.ui.graphics.Color.White else colors.equalsKeyText,
+                                            labelColor = if (sale) SALE_RED else colors.textPrimary,
+                                        ),
+                                    )
+                                }
+                            }
+                        }
                     }
                     if (groups.size > 1) {
                         item {
@@ -250,14 +294,22 @@ private fun PickRow(
     }
 }
 
-/** Значки «Топ-продажа», «Популярный». */
+/** Красный цвет меток распродажи. */
+val SALE_RED = androidx.compose.ui.graphics.Color(0xFFD32F2F)
+
+/** Значки «Топ-продажа», «Популярный»; «Распродажа» — красным. */
 @Composable
 fun Badges(badges: List<String>) {
     val colors = LocalKnitColors.current
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 2.dp)) {
         badges.forEach {
-            Surface(shape = RoundedCornerShape(8.dp), color = colors.equalsKey, contentColor = colors.equalsKeyText) {
-                Text("★ $it", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+            val sale = MoySklad.isSale(it)
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = if (sale) SALE_RED else colors.equalsKey,
+                contentColor = if (sale) androidx.compose.ui.graphics.Color.White else colors.equalsKeyText,
+            ) {
+                Text(if (sale) "% $it" else "★ $it", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
             }
         }
     }
