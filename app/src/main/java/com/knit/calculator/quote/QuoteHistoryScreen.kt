@@ -25,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -88,9 +89,36 @@ fun QuoteHistoryScreen(
         }
         if (!sync.connected) Message(stringResource(R.string.history_local_note))
         error?.let { Message(stringResource(R.string.history_error, it)) }
-        val list = history
+        // Поиск: № КП, клиент, менеджер, дата; фильтр по статусу.
+        var query by rememberSaveable { mutableStateOf("") }
+        var statusFilter by rememberSaveable { mutableStateOf<String?>(null) }
+        if (!history.isNullOrEmpty()) {
+            Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                com.knit.calculator.ui.components.KnitField(query, { query = it }, R.string.history_search, text = true, maxLength = 60)
+                androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(listOf<QuoteStatus?>(null) + QuoteStatus.entries) { s ->
+                        androidx.compose.material3.FilterChip(
+                            selected = statusFilter == s?.name,
+                            onClick = { statusFilter = s?.name },
+                            label = { Text(s?.title ?: stringResource(R.string.picker_all_groups)) },
+                            colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = colors.equalsKey,
+                                selectedLabelColor = colors.equalsKeyText,
+                                labelColor = colors.textPrimary,
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+        val words = query.lowercase().split(' ').filter { it.isNotBlank() }
+        val list = history?.filter { q ->
+            (statusFilter == null || q.status.name == statusFilter) &&
+                "${q.number} ${q.client} ${q.author} ${q.date}".lowercase().let { text -> words.all { it in text } }
+        }
         when {
             list == null -> Message(stringResource(R.string.sync_loading))
+            list.isEmpty() && !history.isNullOrEmpty() -> Message(stringResource(R.string.history_nothing_found))
             list.isEmpty() -> Message(stringResource(R.string.history_quotes_empty))
             else -> LazyColumn(
                 Modifier.fillMaxSize().padding(horizontal = 16.dp),

@@ -36,7 +36,7 @@ import com.knit.calculator.yarn.YarnScreen
 import com.knit.calculator.yarn.YarnViewModel
 
 /** Экраны приложения; переход «назад» описан у каждого экрана. */
-private enum class Screen { HOME, CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY, REPORT, ORDER_YARN, SHOP, PAYMENTS, PRODUCTION, STOCK, LABELS }
+private enum class Screen { HOME, CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY, REPORT, ORDER_YARN, SHOP, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT }
 
 class MainActivity : ComponentActivity() {
 
@@ -69,6 +69,33 @@ class MainActivity : ComponentActivity() {
             val sync by quoteViewModel.sync.collectAsStateWithLifecycle()
             val settings by quoteViewModel.settings.collectAsStateWithLifecycle()
             val director by quoteViewModel.director.collectAsStateWithLifecycle()
+            val version = androidx.compose.runtime.remember {
+                runCatching {
+                    val info = packageManager.getPackageInfo(packageName, 0)
+                    "${info.versionName} (${androidx.core.content.pm.PackageInfoCompat.getLongVersionCode(info)})"
+                }.getOrDefault("")
+            }
+            // Панель «Сегодня» на главном: долги, просроченные заказы, КП без ответа.
+            val deals by quoteViewModel.deals.collectAsStateWithLifecycle()
+            val ops by opsViewModel.data.collectAsStateWithLifecycle()
+            androidx.compose.runtime.LaunchedEffect(screen == Screen.HOME) {
+                if (screen == Screen.HOME) {
+                    quoteViewModel.loadDealsIfStale()
+                    opsViewModel.loadIfStale()
+                }
+            }
+            val day = androidx.compose.runtime.remember(deals, ops) {
+                deals?.let { list ->
+                    val parse = java.text.SimpleDateFormat("dd.MM.yyyy", java.util.Locale.US)
+                    com.knit.calculator.core.Dashboard.summary(
+                        deals = list.map { com.knit.calculator.core.Deal(it.id, it.number, it.client, it.total, it.status) },
+                        sentAt = list.associate { it.id to (runCatching { parse.parse(it.date.substringBefore(' '))?.time }.getOrNull() ?: System.currentTimeMillis()) },
+                        payments = ops.paymentsForDebts,
+                        orders = ops.orders,
+                        now = System.currentTimeMillis(),
+                    )
+                }
+            }
             // Предупреждения (например, «не записано в МойСклад») — окном, чтобы не пропустить.
             var notice by androidx.compose.runtime.remember { mutableStateOf<String?>(null) }
             androidx.compose.runtime.LaunchedEffect(Unit) {
@@ -76,7 +103,7 @@ class MainActivity : ComponentActivity() {
             }
             KnitTheme(darkTheme = darkTheme) {
                 when (screen) {
-                    Screen.HOME -> HomeScreen(sync, themeMode, director, onTheme = viewModel::cycleTheme) { action ->
+                    Screen.HOME -> HomeScreen(sync, themeMode, director, onTheme = viewModel::cycleTheme, day = day, version = version) { action ->
                         open(
                             when (action) {
                                 HomeAction.QUOTE -> Screen.QUOTE
@@ -90,6 +117,7 @@ class MainActivity : ComponentActivity() {
                                 HomeAction.PRODUCTION -> Screen.PRODUCTION
                                 HomeAction.STOCK -> Screen.STOCK
                                 HomeAction.LABELS -> Screen.LABELS
+                                HomeAction.ABOUT -> Screen.ABOUT
                             },
                         )
                     }
@@ -142,6 +170,12 @@ class MainActivity : ComponentActivity() {
                     Screen.PRODUCTION -> ProductionScreen(quoteViewModel, opsViewModel, onBack = ::back)
                     Screen.STOCK -> StockScreen(quoteViewModel, opsViewModel, onBack = ::back)
                     Screen.LABELS -> com.knit.calculator.label.LabelScreen(quoteViewModel, labelViewModel, onBack = ::back)
+                    Screen.ABOUT -> {
+                        val msProducts by quoteViewModel.msProducts.collectAsStateWithLifecycle()
+                        val printer by labelViewModel.printer.collectAsStateWithLifecycle()
+                        val config by quoteViewModel.syncConfig.collectAsStateWithLifecycle()
+                        com.knit.calculator.ui.AboutScreen(version, sync, msProducts.size, director, config.manager, printer.name, onBack = ::back)
+                    }
                 }
                 notice?.let { text ->
                     androidx.compose.material3.AlertDialog(

@@ -72,11 +72,15 @@ fun KnitField(
     maxLength: Int = 60,
     suffix: String? = null,
     enabled: Boolean = true,
+    /** Текст ошибки под полем (неверный ИНН, e-mail…); `null` — ошибки нет. */
+    error: String? = null,
 ) {
     val colors = LocalKnitColors.current
     val focus = if (colors.isDark) colors.accent else colors.textPrimary
     OutlinedTextField(
         value = value,
+        isError = error != null,
+        supportingText = if (error != null) { { Text(error) } } else null,
         onValueChange = { v ->
             onChange(if (text) v.take(maxLength) else v.filter { it.isDigit() || it == ',' || it == '.' }.take(12))
         },

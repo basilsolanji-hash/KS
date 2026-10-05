@@ -87,6 +87,8 @@ fun LabelScreen(quoteVm: QuoteViewModel, labelVm: LabelViewModel, onBack: () -> 
     val sync by quoteVm.sync.collectAsStateWithLifecycle()
     val msProducts by quoteVm.msProducts.collectAsStateWithLifecycle()
     val msFilters by quoteVm.msFilters.collectAsStateWithLifecycle()
+    val favorites by quoteVm.favorites.collectAsStateWithLifecycle()
+    val recent by quoteVm.recent.collectAsStateWithLifecycle()
     var picker by remember { mutableStateOf(false) }
     var choosePrinter by remember { mutableStateOf(false) }
     var previewIndex by remember { mutableIntStateOf(0) }
@@ -186,7 +188,11 @@ fun LabelScreen(quoteVm: QuoteViewModel, labelVm: LabelViewModel, onBack: () -> 
             sync = sync,
             filterNames = msFilters,
             onRefresh = { quoteVm.refreshMs(force = true) },
+            favorites = favorites,
+            recent = recent,
+            onToggleFavorite = quoteVm::toggleFavorite,
             onPick = { p ->
+                quoteVm.rememberPicked(p)
                 labelVm.add(p)
                 previewIndex = labelVm.jobs.value.indexOfFirst { it.product.id == p.id }.coerceAtLeast(0)
                 picker = false

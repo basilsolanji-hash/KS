@@ -68,8 +68,7 @@ var PRIVATE_SETTINGS = ['Ключ доступа', 'PIN директора', 'П
 function auth_(ss, key) {
   var main = String(settings_(ss)[KEY_SETTING] || '').trim();
   if (main && key === main) return { role: 'director', name: '', key: key };
-  var sheet = ss.getSheetByName(MANAGERS_SHEET);
-  var rows = sheet ? sheet.getDataRange().getValues().slice(1) : [];
+  var rows = cachedRows_(ss, MANAGERS_SHEET, true).slice(1);
   for (var i = 0; i < rows.length; i++) {
     if (String(rows[i][0]).trim() !== '' && String(rows[i][0]).trim() === key) {
       if (/^(нет|no|false|0)$/i.test(String(rows[i][3]).trim())) throw new Error('Доступ отключён — обратитесь к директору');
@@ -86,6 +85,7 @@ function publicSettings_(ss) {
     return i === 0 || PRIVATE_SETTINGS.indexOf(String(r[0]).trim()) < 0;
   });
 }
+var MS_WRITE_ACTIONS = ['saveQuote', 'setStatus', 'addInvoice', 'addPayment', 'deletePayment'];
 var STATUSES = ['Отправлено', 'Согласовано', 'В работе', 'Оплачено', 'Отказ'];
 
 function doGet(e) {
@@ -103,11 +103,20 @@ function doPost(e) {
 }
 
 function handle_(req) {
+  gzipOut_ = !!req.gz;
   try {
     msCache_ = {};
+    settingsMemo_ = null;
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var who = auth_(ss, String(req.key || '').trim());
     var director = who.role === 'director';
+    // Изменения заказов и оплат — оплаченные суммы МойСклад читаются заново.
+    if (MS_WRITE_ACTIONS.indexOf(req.action) >= 0) {
+      try { CacheService.getScriptCache().remove('ms:orders'); } catch (e) {}
+    }
+    if (req.action === 'msBarcode') {
+      try { CacheService.getScriptCache().removeAll(['ms:d', 'ms:m']); } catch (e) {}
+    }
     // Удалять оплаты и видеть себестоимость может только директор.
     if (!director && DIRECTOR_ONLY.indexOf(req.action) >= 0) {
       return json_({ ok: false, error: 'Нужны права директора' });
@@ -141,8 +150,16 @@ function handle_(req) {
         var saved = saveQuote_(ss, req.quote || {});
         return json_({ ok: true, number: saved, ms: msTry_(function () { return msSaveOrder_(ss, req.quote || {}, saved); }) });
       }
-      case 'msCatalog':
-        return json_({ ok: true, ms: msCatalog_(ss, director) });
+      case 'msCatalog': {
+        // Каталог МойСклад (тысячи модификаций) собирается долго — 15 минут из кэша; «Обновить» на телефоне — заново.
+        var msKey = 'ms:' + (director ? 'd' : 'm');
+        if (req.fresh) {
+          try { CacheService.getScriptCache().remove(msKey); } catch (e) {}
+        }
+        return json_({ ok: true, ms: msEnabled_() ? cached_(msKey, 900, function () { return msCatalog_(ss, director); }) : msCatalog_(ss, director) });
+      }
+      case 'innLookup':
+        return json_({ ok: true, party: dadataParty_(String(req.inn || '')) });
       case 'msBarcode':
         return json_({ ok: true, barcode: msCreateBarcode_(String(req.msType || ''), String(req.msId || '')) });
       case 'uploadFile':
@@ -153,7 +170,7 @@ function handle_(req) {
         return json_({ ok: true, mail: sendEmail_(ss, req, who) });
       case 'ops': {
         var o = ops_(ss);
-        o.ms = msTry_(function () { return { orders: msOrders_() }; });
+        o.ms = msTry_(function () { return { orders: cached_('ms:orders', 60, msOrders_) }; });
         return json_({ ok: true, ops: o });
       }
       case 'addInvoice': {
@@ -194,26 +211,122 @@ function handle_(req) {
 
 /** Значения листа так, как они видны в таблице (строки). */
 function rows_(ss, name) {
-  var sheet = ss.getSheetByName(name);
-  if (!sheet) throw new Error('Нет листа «' + name + '»');
-  return sheet.getDataRange().getDisplayValues();
+  if (!ss.getSheetByName(name)) throw new Error('Нет листа «' + name + '»');
+  return cachedRows_(ss, name, true);
 }
 
 /** Необязательный лист: если его нет — пустой список. */
 function optionalRows_(ss, name) {
-  var sheet = ss.getSheetByName(name);
-  return sheet ? sheet.getDataRange().getDisplayValues() : [];
+  return cachedRows_(ss, name, true);
 }
 
+var settingsMemo_ = null;
+
 function settings_(ss) {
-  var sheet = ss.getSheetByName(SHEETS.settings);
+  if (settingsMemo_) return settingsMemo_;
   var result = {};
-  if (!sheet) return result;
-  sheet.getDataRange().getDisplayValues().slice(1).forEach(function (r) {
+  cachedRows_(ss, SHEETS.settings, true).slice(1).forEach(function (r) {
     if (r[0]) result[String(r[0]).trim()] = r[1];
   });
+  settingsMemo_ = result;
   return result;
 }
+
+// ---------------------------------------------------------------- Скорость: кэш и сжатие
+
+/**
+ * Справочные листы (Настройки, Менеджеры, Изделия, Параметры…) читаются из кэша скрипта (до 10 минут) —
+ * чтение листа занимает до секунды, а нужны они почти в каждом запросе. Правка таблицы вручную (onEdit)
+ * и запись скриптом сбрасывают кэш: новое «поколение» ключей.
+ */
+var CACHE_TTL = 600;
+
+function cacheGen_() {
+  var c = CacheService.getScriptCache();
+  var gen = c.get('gen');
+  if (!gen) {
+    gen = String(Date.now());
+    c.put('gen', gen, 21600);
+  }
+  return gen;
+}
+
+/** Сбросить кэш таблицы (после записи в листы-справочники или правки вручную). */
+function cacheBump_() {
+  try {
+    CacheService.getScriptCache().put('gen', String(Date.now()), 21600);
+  } catch (e) {}
+}
+
+/** Простой триггер: любая правка таблицы вручную — справочники перечитываются. */
+function onEdit(e) {
+  cacheBump_();
+}
+
+/** Значение из кэша (сжатое, частями по 90 КБ); `null` — нет. */
+function cacheGet_(key) {
+  var c = CacheService.getScriptCache();
+  var head = c.get(key);
+  if (!head) return null;
+  var n = Number(head);
+  var names = [];
+  for (var i = 0; i < n; i++) names.push(key + '#' + i);
+  var parts = c.getAll(names);
+  var text = '';
+  for (var j = 0; j < n; j++) {
+    if (parts[names[j]] == null) return null;
+    text += parts[names[j]];
+  }
+  var blob = Utilities.ungzip(Utilities.newBlob(Utilities.base64Decode(text), 'application/x-gzip'));
+  return JSON.parse(blob.getDataAsString());
+}
+
+function cachePut_(key, value, ttl) {
+  var packed = Utilities.base64Encode(Utilities.gzip(Utilities.newBlob(JSON.stringify(value), 'application/json')).getBytes());
+  var size = 90000;
+  var n = Math.ceil(packed.length / size) || 1;
+  if (n > 50) return; // больше ~4,5 МБ — не кэшируем
+  var all = {};
+  for (var i = 0; i < n; i++) all[key + '#' + i] = packed.substring(i * size, (i + 1) * size);
+  all[key] = String(n);
+  CacheService.getScriptCache().putAll(all, ttl);
+}
+
+/** Результат [fn] из кэша или вычисленный и сохранённый; ошибки кэша не мешают работе. */
+function cached_(key, ttl, fn) {
+  var value = null;
+  try {
+    value = cacheGet_(key);
+  } catch (e) {
+    value = null;
+  }
+  if (value !== null) return value;
+  value = fn();
+  try {
+    cachePut_(key, value, ttl);
+  } catch (e) {}
+  return value;
+}
+
+/** Строки листа (отображаемые значения) через кэш; нет листа — пустой список. */
+function cachedRows_(ss, name, display) {
+  var key;
+  try {
+    key = 'rows:' + cacheGen_() + ':' + name;
+  } catch (e) {
+    key = null;
+  }
+  var read = function () {
+    var sheet = ss.getSheetByName(name);
+    if (!sheet) return [];
+    var range = sheet.getDataRange();
+    return display ? range.getDisplayValues() : range.getValues();
+  };
+  return key ? cached_(key, CACHE_TTL, read) : read();
+}
+
+/** Ответ сжимается (gzip + base64), если телефон это поддерживает и ответ большой — в 5–10 раз меньше трафика. */
+var gzipOut_ = false;
 
 /**
  * Сохраняет КП. Новое КП получает следующий номер (под блокировкой — номера не повторяются
@@ -290,6 +403,7 @@ function addClient_(ss, q) {
     if (String(rows[i][0]).trim().toLowerCase() === company.toLowerCase()) return;
   }
   sheet.appendRow([text_(company), text_(q.contact), text_(q.email), text_(q.phone), text_(q.inn), new Date()]);
+  cacheBump_();
 }
 
 function setStatus_(ss, id, status) {
@@ -357,16 +471,21 @@ function folder_(ss, kind) {
 function logo_(ss, knownVersion) {
   var id = String(settings_(ss)[FOLDER_SETTINGS.logo] || '').trim();
   if (!id) return null;
-  var files = DriveApp.getFolderById(id).getFiles();
-  var newest = null;
-  while (files.hasNext()) {
-    var f = files.next();
-    if (f.getMimeType().indexOf('image/') !== 0) continue;
-    if (!newest || f.getLastUpdated() > newest.getLastUpdated()) newest = f;
-  }
-  if (!newest) return { version: '' };
-  var version = newest.getId() + ':' + newest.getLastUpdated().getTime();
+  // Поиск файла в папке Диска — медленный: результат держим в кэше 30 минут.
+  var found = cached_('logo:' + cacheGen_() + ':' + id, 1800, function () {
+    var files = DriveApp.getFolderById(id).getFiles();
+    var best = null;
+    while (files.hasNext()) {
+      var f = files.next();
+      if (f.getMimeType().indexOf('image/') !== 0) continue;
+      if (!best || f.getLastUpdated() > best.getLastUpdated()) best = f;
+    }
+    return best ? { id: best.getId(), version: best.getId() + ':' + best.getLastUpdated().getTime() } : { id: '', version: '' };
+  });
+  if (!found.id) return { version: '' };
+  var version = found.version;
   if (version === knownVersion) return { version: version };
+  var newest = DriveApp.getFileById(found.id);
   return {
     version: version,
     mime: newest.getMimeType(),
@@ -637,7 +756,12 @@ function text_(value) {
 }
 
 function json_(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+  var text = JSON.stringify(obj);
+  if (gzipOut_ && text.length > 20000) {
+    var packed = Utilities.base64Encode(Utilities.gzip(Utilities.newBlob(text, 'application/json')).getBytes());
+    text = JSON.stringify({ ok: obj.ok, gz: packed });
+  }
+  return ContentService.createTextOutput(text).setMimeType(ContentService.MimeType.JSON);
 }
 
 
@@ -746,6 +870,44 @@ function msIdOf_(entity) {
   return href.substring(href.lastIndexOf('/') + 1).split('?')[0];
 }
 
+/**
+ * Реквизиты организации по ИНН (DaData). Ключ — в свойствах скрипта DADATA_KEY (не в листах и не на телефонах).
+ */
+function dadataParty_(inn) {
+  inn = inn.replace(/\D/g, '');
+  if (inn.length !== 10 && inn.length !== 12) throw new Error('ИНН — 10 или 12 цифр');
+  var key = PropertiesService.getScriptProperties().getProperty('DADATA_KEY');
+  if (!key) throw new Error('Ключ DaData не задан: Apps Script → Настройки проекта → Свойства скрипта → DADATA_KEY');
+  var res = UrlFetchApp.fetch('https://suggestions.dadata.ru/suggestions/api/4_1/rs/findById/party', {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { Authorization: 'Token ' + key, Accept: 'application/json' },
+    payload: JSON.stringify({ query: inn, branch_type: 'MAIN' }),
+    muteHttpExceptions: true,
+  });
+  var code = res.getResponseCode();
+  if (code === 401 || code === 403) throw new Error('DaData: неверный ключ');
+  if (code === 429) throw new Error('DaData: превышен лимит запросов, попробуйте позже');
+  if (code >= 400) throw new Error('DaData: ошибка ' + code);
+  var list = (JSON.parse(res.getContentText() || '{}').suggestions) || [];
+  if (!list.length) throw new Error('Организация с ИНН ' + inn + ' не найдена');
+  var s = list[0];
+  var d = s.data || {};
+  var name = d.name || {};
+  var mgmt = d.management || {};
+  return {
+    inn: d.inn || inn,
+    name: name.short_with_opf || s.value || '',
+    fullName: name.full_with_opf || '',
+    kpp: d.kpp || '',
+    ogrn: d.ogrn || '',
+    address: (d.address && (d.address.unrestricted_value || d.address.value)) || '',
+    director: mgmt.name || '',
+    post: mgmt.post || '',
+    status: (d.state && d.state.status) || '',
+  };
+}
+
 /** Первый EAN-13 из штрихкодов карточки МойСклад. */
 function msEan13_(entity) {
   var codes = (entity && entity.barcodes) || [];
@@ -821,7 +983,7 @@ function msOrganization_(ss) {
 }
 
 /** Клиент: по ИНН, затем по названию; нет — создаётся. */
-function msCounterparty_(client, inn, email, phone) {
+function msCounterparty_(client, inn, email, phone, kpp, address) {
   inn = String(inn || '').replace(/\D/g, '');
   client = String(client || '').trim();
   var found = inn ? msFirst_('/entity/counterparty?filter=inn=' + inn) : null;
@@ -834,6 +996,8 @@ function msCounterparty_(client, inn, email, phone) {
   }
   if (email) body.email = String(email);
   if (phone) body.phone = String(phone);
+  if (kpp && inn.length === 10) body.kpp = String(kpp);
+  if (address) body.legalAddress = String(address);
   return ms_('post', '/entity/counterparty', body);
 }
 
@@ -1017,7 +1181,7 @@ function msSaveOrder_(ss, q, number) {
     saved = ms_('put', '/entity/customerorder/' + existing.id, body);
   } else {
     body.organization = msMeta_('organization', msOrganization_(ss).id);
-    body.agent = msMeta_('counterparty', msCounterparty_(q.client, q.inn, q.email, q.phone).id);
+    body.agent = msMeta_('counterparty', msCounterparty_(q.client, q.inn, q.email, q.phone, q.kpp, q.address).id);
     var store = msStore_(ss);
     if (store) body.store = msMeta_('store', store.id);
     body.state = msStateMeta_(msState_(STATUSES[0]));

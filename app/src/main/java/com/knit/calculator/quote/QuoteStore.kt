@@ -162,6 +162,16 @@ class QuoteStore(context: Context) {
         set(value) = prefs.edit().putString("server_manager", value).apply()
 
     /** PIN, которым на этом телефоне открыт режим директора. */
+    /** Избранные товары МойСклад (ID МойСклад). */
+    var favoriteMs: Set<String>
+        get() = prefs.getStringSet("fav_ms", emptySet()).orEmpty().toSet()
+        set(v) { prefs.edit().putStringSet("fav_ms", v).apply() }
+
+    /** Последние выбранные товары МойСклад, новые — первыми. */
+    var recentMs: List<String>
+        get() = prefs.getString("recent_ms", "").orEmpty().split('\n').filter { it.isNotBlank() }
+        set(v) { prefs.edit().putString("recent_ms", v.take(12).joinToString("\n")).apply() }
+
     var directorPin: String
         get() = prefs.getString("director_pin", "").orEmpty()
         set(value) = prefs.edit().putString("director_pin", value).apply()
@@ -356,6 +366,7 @@ class QuoteStore(context: Context) {
                 .put("id", d.id).put("number", d.number).put("saved", d.saved)
                 .put("clientCompany", d.clientCompany).put("clientContact", d.clientContact)
                 .put("clientEmail", d.clientEmail).put("clientPhone", d.clientPhone).put("clientInn", d.clientInn)
+                .put("clientKpp", d.clientKpp).put("clientAddress", d.clientAddress)
                 .put("comment", d.comment).put("lines", lines)
                 .put(
                     "snapshot",
@@ -383,6 +394,8 @@ class QuoteStore(context: Context) {
                 clientEmail = o.optString("clientEmail"),
                 clientPhone = o.optString("clientPhone"),
                 clientInn = o.optString("clientInn"),
+                clientKpp = o.optString("clientKpp"),
+                clientAddress = o.optString("clientAddress"),
                 comment = o.optString("comment"),
                 lines = (0 until lines.length()).mapNotNull { lines.optJSONObject(it) }.map { l ->
                     val sel = l.optJSONObject("selected") ?: JSONObject()

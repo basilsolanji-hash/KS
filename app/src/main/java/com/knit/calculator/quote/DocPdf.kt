@@ -33,6 +33,8 @@ data class DealDoc(
     /** Всего к оплате с НДС. */
     val total: BigDecimal,
     val vat: BigDecimal,
+    val clientKpp: String = "",
+    val clientAddress: String = "",
 )
 
 /** Простая вёрстка A4: страницы, текст с переносом, таблицы. Общая для счёта, договора и прайс-листа. */
@@ -245,7 +247,12 @@ object DocPdf {
                 paragraph(
                     context.getString(
                         com.knit.calculator.R.string.doc_buyer,
-                        listOf(deal.client, deal.clientInn.takeIf { it.isNotBlank() }?.let { "ИНН $it" }).filterNotNull().joinToString(", "),
+                        listOf(
+                            deal.client,
+                            deal.clientInn.takeIf { it.isNotBlank() }?.let { "ИНН $it" },
+                            deal.clientKpp.takeIf { it.isNotBlank() }?.let { "КПП $it" },
+                            deal.clientAddress.takeIf { it.isNotBlank() },
+                        ).filterNotNull().joinToString(", "),
                     ),
                 )
                 paragraph(context.getString(com.knit.calculator.R.string.doc_basis, deal.quoteNumber, deal.quoteDate), after = 10f)
@@ -381,8 +388,8 @@ object DocPdf {
             listOf(
                 "Покупатель",
                 deal.client.ifBlank { "________________________" },
-                "ИНН ${deal.clientInn.ifBlank { "____________" }}, КПП ____________",
-                "Адрес: ______________________________",
+                "ИНН ${deal.clientInn.ifBlank { "____________" }}, КПП ${deal.clientKpp.ifBlank { "____________" }}",
+                "Адрес: ${deal.clientAddress.ifBlank { "______________________________" }}",
                 "Р/с ____________________ в __________",
                 "БИК ____________, к/с ____________________",
             ),

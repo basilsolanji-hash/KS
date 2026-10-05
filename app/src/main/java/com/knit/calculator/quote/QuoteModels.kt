@@ -225,6 +225,9 @@ data class QuoteDraft(
     val clientEmail: String = "",
     val clientPhone: String = "",
     val clientInn: String = "",
+    /** КПП и юридический адрес клиента (из DaData или вручную) — для счёта и договора. */
+    val clientKpp: String = "",
+    val clientAddress: String = "",
     val comment: String = "",
     val lines: List<DraftLine> = emptyList(),
     /** Позиции с ценами на момент сохранения — для счёта и договора (прайс может измениться). */

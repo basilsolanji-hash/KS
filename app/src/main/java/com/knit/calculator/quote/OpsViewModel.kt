@@ -138,7 +138,16 @@ class OpsViewModel(application: Application) : AndroidViewModel(application) {
     private val config get() = quoteStore.loadSyncConfig()
     private fun author() = listOf(config.manager, Build.MODEL.orEmpty()).filter { it.isNotBlank() }.joinToString(" / ")
 
+    private var loadedAt = 0L
+
+    /** Не чаще раза в [maxAgeMs] (главный экран); экраны учёта вызывают [load] — всегда свежие данные. */
+    fun loadIfStale(maxAgeMs: Long = 5 * 60_000L) {
+        if (System.currentTimeMillis() - loadedAt < maxAgeMs) return
+        load()
+    }
+
     fun load() {
+        loadedAt = System.currentTimeMillis()
         val c = config
         _error.value = null
         if (!c.enabled) {

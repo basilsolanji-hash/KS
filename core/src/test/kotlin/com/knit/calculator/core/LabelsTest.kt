@@ -90,3 +90,53 @@ class LabelsTest {
         assertEquals("", MoySklad.product(MsItem("x", "A", tiers = listOf(BigDecimal.ONE to BigDecimal.ONE), barcode = "123"))!!.barcode)
     }
 }
+
+class ValidationTest {
+    @Test fun innChecksum() {
+        assertTrue(Validation.inn("9705239429"))
+        assertTrue(Validation.inn("7726358110"))
+        assertFalse(Validation.inn("7701234567"))
+        assertTrue(Validation.inn("500100732259"))
+        assertFalse(Validation.inn("500100732250"))
+        assertFalse(Validation.inn("12345"))
+        assertFalse(Validation.inn("97052394a9"))
+    }
+
+    @Test fun emailPhoneKpp() {
+        assertTrue(Validation.email("Sale@fabrika-ks.ru"))
+        assertTrue(Validation.email(" ivan.petrov+kp@mail.example.com "))
+        assertFalse(Validation.email("sale@fabrika"))
+        assertFalse(Validation.email("sale fabrika.ru"))
+        assertTrue(Validation.phone("+7 985 000-79-92"))
+        assertTrue(Validation.phone("8 (495) 123-45-67"))
+        assertFalse(Validation.phone("123-45"))
+        assertFalse(Validation.phone("+7 985 abc"))
+        assertTrue(Validation.kpp("772301001"))
+        assertTrue(Validation.kpp("7723AB001"))
+        assertFalse(Validation.kpp("77230100"))
+    }
+}
+
+class DashboardTest {
+    @Test fun daySummary() {
+        val day = 86_400_000L
+        val now = 100 * day
+        val deals = listOf(
+            Deal("a", 1, "А", BigDecimal(100_000), QuoteStatus.APPROVED),
+            Deal("b", 2, "Б", BigDecimal(50_000), QuoteStatus.SENT),
+            Deal("c", 3, "В", BigDecimal(30_000), QuoteStatus.SENT),
+            Deal("d", 4, "Г", BigDecimal(20_000), QuoteStatus.PAID),
+        )
+        val payments = listOf(Payment("p", "a", 1, "А", 0, BigDecimal(40_000)), Payment("q", "d", 4, "Г", 0, BigDecimal(20_000)))
+        val orders = listOf(
+            ProductionOrder("a", 1, "А", created = 0, due = now - day),
+            ProductionOrder("d", 4, "Г", created = 0, due = now - day, stage = OrderStage.SHIPPED),
+        )
+        val s = Dashboard.summary(deals, mapOf("b" to now - 5 * day, "c" to now - day), payments, orders, now)
+        assertEquals(0, BigDecimal(60_000).compareTo(s.debt))
+        assertEquals(1, s.debtors)
+        assertEquals(1, s.overdueOrders)
+        assertEquals(1, s.waitingQuotes)
+        assertFalse(s.isEmpty)
+    }
+}

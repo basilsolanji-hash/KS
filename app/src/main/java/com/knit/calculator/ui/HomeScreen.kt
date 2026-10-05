@@ -33,6 +33,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knit.calculator.R
+import com.knit.calculator.core.DaySummary
+import com.knit.calculator.core.QuoteCalculator
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.TextButton
 import com.knit.calculator.data.ThemeMode
 import com.knit.calculator.quote.SyncStatus
 import com.knit.calculator.ui.components.KnitIconButton
@@ -42,11 +46,19 @@ import java.util.Date
 import java.util.Locale
 
 /** Разделы, доступные с главного экрана. */
-enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS }
+enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT }
 
 /** Главный экран: логотип и крупные кнопки разделов. */
 @Composable
-fun HomeScreen(sync: SyncStatus, themeMode: ThemeMode, director: Boolean, onTheme: () -> Unit, onAction: (HomeAction) -> Unit) {
+fun HomeScreen(
+    sync: SyncStatus,
+    themeMode: ThemeMode,
+    director: Boolean,
+    onTheme: () -> Unit,
+    day: DaySummary? = null,
+    version: String = "",
+    onAction: (HomeAction) -> Unit,
+) {
     val colors = LocalKnitColors.current
     Column(
         Modifier
@@ -100,6 +112,7 @@ fun HomeScreen(sync: SyncStatus, themeMode: ThemeMode, director: Boolean, onThem
                 }
             }
         }
+        if (day != null && !day.isEmpty) DayPanel(day, onAction)
         val tiles = listOf(
             Triple(HomeAction.HISTORY, R.string.home_history, R.drawable.ic_history),
             Triple(HomeAction.PAYMENTS, R.string.home_payments, R.drawable.ic_payments),
@@ -125,7 +138,37 @@ fun HomeScreen(sync: SyncStatus, themeMode: ThemeMode, director: Boolean, onThem
             stringResource(if (director) R.string.role_director else R.string.role_manager),
             color = colors.textSecondary, fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
         )
+        TextButton(onClick = { onAction(HomeAction.ABOUT) }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+            Text(stringResource(R.string.about_link, version), color = colors.textSecondary, fontSize = 13.sp)
+        }
     }
+}
+
+/** «Сегодня»: долги клиентов, просроченные заказы, КП без ответа — нажатие открывает раздел. */
+@Composable
+private fun DayPanel(day: DaySummary, onAction: (HomeAction) -> Unit) {
+    val colors = LocalKnitColors.current
+    val red = androidx.compose.ui.graphics.Color(0xFFD32F2F)
+    Surface(shape = RoundedCornerShape(20.dp), color = colors.panel, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+            Text(stringResource(R.string.day_title), color = colors.textSecondary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            if (day.debt.signum() > 0) {
+                DayRow(
+                    stringResource(R.string.day_debt, QuoteCalculator.formatMoney(day.debt), day.debtors), red,
+                ) { onAction(HomeAction.PAYMENTS) }
+            }
+            if (day.overdueOrders > 0) DayRow(stringResource(R.string.day_overdue, day.overdueOrders), red) { onAction(HomeAction.PRODUCTION) }
+            if (day.waitingQuotes > 0) DayRow(stringResource(R.string.day_waiting, day.waitingQuotes), colors.textPrimary) { onAction(HomeAction.HISTORY) }
+        }
+    }
+}
+
+@Composable
+private fun DayRow(text: String, color: androidx.compose.ui.graphics.Color, onClick: () -> Unit) {
+    Text(
+        text, color = color, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 6.dp),
+    )
 }
 
 @Composable

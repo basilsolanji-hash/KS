@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.core.content.ContextCompat
 import com.knit.calculator.core.Client
+import com.knit.calculator.core.Validation
 import com.knit.calculator.core.CostCalculator
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -110,6 +111,8 @@ fun QuoteScreen(
     val views = remember(draft, catalog, settings, msProducts) { viewModel.lineViews(draft, catalog, settings) }
     var showPicker by rememberSaveable { mutableStateOf(false) }
     val msFilters by viewModel.msFilters.collectAsStateWithLifecycle()
+    val favorites by viewModel.favorites.collectAsStateWithLifecycle()
+    val recent by viewModel.recent.collectAsStateWithLifecycle()
     val totals = remember(views, settings) { viewModel.totals(views, settings) }
     val colors = LocalKnitColors.current
     val context = LocalContext.current
@@ -143,6 +146,12 @@ fun QuoteScreen(
     var confirmEmail by rememberSaveable { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf<Pair<QuoteAction, String>?>(null) }
+    var checkError by remember { mutableStateOf<String?>(null) }
+    var confirmBelowMin by remember { mutableStateOf<QuoteAction?>(null) }
+    var innBusy by remember { mutableStateOf(false) }
+    val removed by viewModel.removed.collectAsStateWithLifecycle()
+    // Позиции дешевле минимальной цены МойСклад: менеджеру — запрет, директору — подтверждение.
+    val belowMin = views.filter { v -> val min = v.product.minPrice; v.line != null && min != null && v.line.unitPrice < min }
 
     BackHandler(onBack = onBack)
 
@@ -197,8 +206,22 @@ fun QuoteScreen(
     }
 
     // С таблицей: сначала сохраняем КП и получаем номер, затем формируем PDF.
-    fun run(action: QuoteAction) {
+    fun run(action: QuoteAction, priceConfirmed: Boolean = false) {
         if (saving) return
+        val problems = buildList {
+            if (draft.clientInn.isNotBlank() && !Validation.inn(draft.clientInn)) add(context.getString(R.string.check_inn))
+            if (draft.clientEmail.isNotBlank() && !Validation.email(draft.clientEmail)) add(context.getString(R.string.check_email))
+            if (draft.clientKpp.isNotBlank() && !Validation.kpp(draft.clientKpp)) add(context.getString(R.string.check_kpp))
+        }
+        if (problems.isNotEmpty()) {
+            checkError = problems.joinToString("\n")
+            return
+        }
+        if (belowMin.isNotEmpty() && !priceConfirmed) {
+            if (director) confirmBelowMin = action
+            else checkError = context.getString(R.string.min_price_blocked, belowMin.joinToString("\n") { "• " + it.product.name })
+            return
+        }
         saving = true
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -262,16 +285,47 @@ fun QuoteScreen(
             KnitField(
                 draft.clientEmail, { v -> viewModel.updateDraft { it.copy(clientEmail = v.trim()) } }, R.string.quote_client_email,
                 text = true, keyboardType = KeyboardType.Email, maxLength = 120,
+                error = if (draft.clientEmail.isNotBlank() && !Validation.email(draft.clientEmail)) stringResource(R.string.check_email_short) else null,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 KnitField(
                     draft.clientPhone, { v -> viewModel.updateDraft { it.copy(clientPhone = v) } }, R.string.quote_client_phone,
                     text = true, keyboardType = KeyboardType.Phone, maxLength = 30, modifier = Modifier.weight(1f),
+                    error = if (draft.clientPhone.isNotBlank() && !Validation.phone(draft.clientPhone)) stringResource(R.string.check_phone_short) else null,
                 )
                 KnitField(
                     draft.clientInn, { v -> viewModel.updateDraft { it.copy(clientInn = v.filter(Char::isDigit).take(12)) } }, R.string.quote_client_inn,
                     text = true, keyboardType = KeyboardType.Number, maxLength = 12, modifier = Modifier.weight(1f),
+                    error = if (draft.clientInn.length >= 10 && !Validation.inn(draft.clientInn)) stringResource(R.string.check_inn_short) else null,
                 )
+            }
+            if (sync.connected && Validation.inn(draft.clientInn)) {
+                OutlinedButton(
+                    onClick = {
+                        innBusy = true
+                        scope.launch(Dispatchers.Main) {
+                            val message = viewModel.lookupInn()
+                            innBusy = false
+                            if (message != null) checkError = message
+                        }
+                    },
+                    enabled = !innBusy,
+                ) {
+                    Text(stringResource(if (innBusy) R.string.inn_lookup_busy else R.string.inn_lookup), color = colors.textPrimary)
+                }
+            }
+            if (draft.clientKpp.isNotBlank() || draft.clientAddress.isNotBlank() || draft.clientInn.length == 10) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    KnitField(
+                        draft.clientKpp, { v -> viewModel.updateDraft { it.copy(clientKpp = v.uppercase().filter(Char::isLetterOrDigit).take(9)) } },
+                        R.string.quote_client_kpp, text = true, maxLength = 9, modifier = Modifier.width(140.dp),
+                        error = if (draft.clientKpp.isNotBlank() && !Validation.kpp(draft.clientKpp)) stringResource(R.string.check_kpp_short) else null,
+                    )
+                    KnitField(
+                        draft.clientAddress, { v -> viewModel.updateDraft { it.copy(clientAddress = v) } }, R.string.quote_client_address,
+                        text = true, maxLength = 250, singleLine = false, modifier = Modifier.weight(1f),
+                    )
+                }
             }
 
             SectionTitle(R.string.quote_section_items)
@@ -290,10 +344,7 @@ fun QuoteScreen(
                     onSelect = { groupId, choiceId ->
                         viewModel.updateLine(view.draft.id) { it.copy(selected = it.selected + (groupId to choiceId)) }
                     },
-                    onRemove = {
-                        PhotoStore.delete(view.draft.photoPath)
-                        viewModel.removeLine(view.draft.id)
-                    },
+                    onRemove = { viewModel.removeLine(view.draft.id) },
                     onDiscount = { d -> viewModel.updateLine(view.draft.id) { it.copy(discount = d) } },
                     maxDiscount = settings.maxDiscount,
                     showEconomics = showEconomics,
@@ -311,6 +362,7 @@ fun QuoteScreen(
                         viewModel.updateLine(view.draft.id) { it.copy(photoPath = null) }
                     },
                     msStore = sync.msStore,
+                    belowMinPrice = view in belowMin,
                 )
             }
             if (sync.msEnabled || msProducts.isNotEmpty()) {
@@ -368,6 +420,36 @@ fun QuoteScreen(
             }
             Spacer(Modifier.height(24.dp))
         }
+        // «Позиция удалена — Отменить» (6 секунд).
+        removed?.let {
+            Surface(color = colors.panel, modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.quote_line_removed), color = colors.textPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                    TextButton(onClick = viewModel::undoRemove) {
+                        Text(stringResource(R.string.undo), color = colors.textPrimary, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+
+    checkError?.let { text ->
+        AlertDialog(
+            onDismissRequest = { checkError = null },
+            title = { Text(stringResource(R.string.notice_title)) },
+            text = { Text(text) },
+            confirmButton = { TextButton(onClick = { checkError = null }) { Text(stringResource(R.string.ok), color = colors.textPrimary) } },
+            containerColor = colors.panel,
+        )
+    }
+    confirmBelowMin?.let { action ->
+        ConfirmDialog(
+            title = stringResource(R.string.min_price_title),
+            text = stringResource(R.string.min_price_confirm, belowMin.joinToString("\n") { "• " + it.product.name }),
+            confirm = stringResource(R.string.min_price_save),
+            onConfirm = { confirmBelowMin = null; run(action, priceConfirmed = true) },
+            onDismiss = { confirmBelowMin = null },
+        )
     }
 
     saveError?.let { (action, message) ->
@@ -401,6 +483,9 @@ fun QuoteScreen(
             onRefresh = { viewModel.refreshMs(force = true) },
             onPick = { viewModel.addLine(it); showPicker = false },
             onDismiss = { showPicker = false },
+            favorites = favorites,
+            recent = recent,
+            onToggleFavorite = viewModel::toggleFavorite,
         )
     }
 
@@ -604,6 +689,7 @@ private fun LineCard(
     onCamera: () -> Unit,
     onRemovePhoto: () -> Unit,
     msStore: String = "",
+    belowMinPrice: Boolean = false,
 ) {
     val colors = LocalKnitColors.current
     val product = view.product
@@ -654,6 +740,12 @@ private fun LineCard(
             }
             Text(details, color = colors.textSecondary, fontSize = 14.sp)
             stockText(product, msStore)?.let { Text(it, color = colors.textSecondary, fontSize = 14.sp) }
+            if (belowMinPrice) {
+                Text(
+                    stringResource(R.string.min_price_line, QuoteCalculator.formatMoney(product.minPrice ?: BigDecimal.ZERO)),
+                    color = androidx.compose.ui.graphics.Color(0xFFD32F2F), fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                )
+            }
             if (product.badges.isNotEmpty()) Badges(product.badges)
             // Характеристики МойСклад, которых нет в названии (для менеджера, в КП не печатаются).
             product.attributes.filter { (_, v) -> v.isNotBlank() && v != "-" && !product.name.contains(v) }

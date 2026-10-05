@@ -64,6 +64,9 @@ fun ProductPicker(
     onRefresh: () -> Unit,
     onPick: (Product) -> Unit,
     onDismiss: () -> Unit,
+    favorites: Set<String> = emptySet(),
+    recent: List<String> = emptyList(),
+    onToggleFavorite: ((Product) -> Unit)? = null,
 ) {
     val colors = LocalKnitColors.current
     var query by rememberSaveable { mutableStateOf("") }
@@ -72,6 +75,11 @@ fun ProductPicker(
     // Фильтры по характеристикам МойСклад: характеристика → выбранное значение.
     var selected by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     val found = remember(msProducts, query, group, selected) { MoySklad.search(msProducts, query, group, selected) }
+    val byExternal = remember(msProducts) { msProducts.associateBy { it.externalId } }
+    // Пока ничего не ищем — сверху избранные и недавние товары.
+    val idle = query.isBlank() && group == null && selected.isEmpty()
+    val favoriteList = if (idle) favorites.mapNotNull { byExternal[it] }.sortedBy { it.name } else emptyList()
+    val recentList = if (idle) recent.filterNot { it in favorites }.mapNotNull { byExternal[it] } else emptyList()
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(Modifier.fillMaxSize().background(colors.background).safeDrawingPadding()) {
             ScreenTopBar(stringResource(R.string.picker_title), onDismiss) {
@@ -154,18 +162,18 @@ fun ProductPicker(
                             }
                         }
                     }
-                    items(found.take(MAX_RESULTS), key = { "m" + it.id }) { p ->
-                        val from = p.tiers.lastOrNull()?.let { t -> QuoteCalculator.unitPrice(p, emptyMap(), t.fromQuantity).first }
-                        val price = buildList {
-                            add(stringResource(R.string.quote_price_line, QuoteCalculator.formatMoney(p.basePrice), p.unit))
-                            if (from != null && from < p.basePrice) add(stringResource(R.string.picker_from_price, QuoteCalculator.formatMoney(from)))
-                            if (p.code.isNotBlank()) add(p.code)
-                        }.joinToString(" · ")
-                        // Характеристики-фильтры, которых нет в названии (артикул производителя, тип резинки…).
-                        val details = filterNames.mapNotNull { n -> p.attributes[n]?.takeIf { v -> v.isNotBlank() && v != "-" && !p.name.contains(v) }?.let { "$n: $it" } }
-                            .joinToString(" · ")
-                        PickRow(p.name, listOf(price, details).filter { it.isNotBlank() }.joinToString("\n"), stockText(p, sync.msStore), p.badges) { onPick(p) }
+                    if (favoriteList.isNotEmpty()) {
+                        item(key = "hfav") { Header(stringResource(R.string.picker_favorites)) }
+                        items(favoriteList, key = { "f" + it.id }) { p -> MsRow(p, sync.msStore, filterNames, favorites, onToggleFavorite, onPick) }
                     }
+                    if (recentList.isNotEmpty()) {
+                        item(key = "hrec") { Header(stringResource(R.string.picker_recent)) }
+                        items(recentList, key = { "r" + it.id }) { p -> MsRow(p, sync.msStore, filterNames, favorites, onToggleFavorite, onPick) }
+                    }
+                    if (favoriteList.isNotEmpty() || recentList.isNotEmpty()) {
+                        item(key = "hall") { Header(stringResource(R.string.picker_all)) }
+                    }
+                    items(found.take(MAX_RESULTS), key = { "m" + it.id }) { p -> MsRow(p, sync.msStore, filterNames, favorites, onToggleFavorite, onPick) }
                     if (found.size > MAX_RESULTS) {
                         item { Text(stringResource(R.string.picker_more, found.size - MAX_RESULTS), color = colors.textSecondary, fontSize = 13.sp) }
                     }
@@ -185,16 +193,57 @@ private fun Header(text: String) {
     Text(text, color = LocalKnitColors.current.textSecondary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp))
 }
 
+/** Строка товара МойСклад: цена от тиража, артикул, характеристики-фильтры, остаток, значки, звёздочка «избранное». */
 @Composable
-private fun PickRow(title: String, subtitle: String, stock: String?, badges: List<String> = emptyList(), onClick: () -> Unit) {
+private fun MsRow(
+    p: Product,
+    store: String,
+    filterNames: List<String>,
+    favorites: Set<String>,
+    onToggleFavorite: ((Product) -> Unit)?,
+    onPick: (Product) -> Unit,
+) {
+    val from = p.tiers.lastOrNull()?.let { t -> QuoteCalculator.unitPrice(p, emptyMap(), t.fromQuantity).first }
+    val price = buildList {
+        add(stringResource(R.string.quote_price_line, QuoteCalculator.formatMoney(p.basePrice), p.unit))
+        if (from != null && from < p.basePrice) add(stringResource(R.string.picker_from_price, QuoteCalculator.formatMoney(from)))
+        if (p.code.isNotBlank()) add(p.code)
+    }.joinToString(" · ")
+    // Характеристики-фильтры, которых нет в названии (артикул производителя, тип резинки…).
+    val details = filterNames.mapNotNull { n -> p.attributes[n]?.takeIf { v -> v.isNotBlank() && v != "-" && !p.name.contains(v) }?.let { "$n: $it" } }
+        .joinToString(" · ")
+    PickRow(
+        p.name, listOf(price, details).filter { it.isNotBlank() }.joinToString("\n"), stockText(p, store), p.badges,
+        favorite = if (onToggleFavorite == null) null else p.externalId in favorites,
+        onFavorite = { onToggleFavorite?.invoke(p) },
+    ) { onPick(p) }
+}
+
+@Composable
+private fun PickRow(
+    title: String,
+    subtitle: String,
+    stock: String?,
+    badges: List<String> = emptyList(),
+    favorite: Boolean? = null,
+    onFavorite: () -> Unit = {},
+    onClick: () -> Unit,
+) {
     val colors = LocalKnitColors.current
     Surface(shape = RoundedCornerShape(16.dp), color = colors.panel, modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
-        Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 if (badges.isNotEmpty()) Badges(badges)
                 Text(title, color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
                 Text(subtitle, color = colors.textSecondary, fontSize = 13.sp)
                 if (stock != null) Text(stock, color = if (colors.isDark) colors.accent else colors.textPrimary, fontSize = 13.sp)
+            }
+            if (favorite != null) {
+                KnitIconButton(
+                    if (favorite) R.drawable.ic_star else R.drawable.ic_star_border,
+                    stringResource(if (favorite) R.string.picker_unfavorite else R.string.picker_favorite),
+                    onFavorite,
+                )
             }
         }
     }

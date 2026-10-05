@@ -62,7 +62,28 @@ const context = {
     base64Decode: (s) => Buffer.from(s, 'base64'),
     DigestAlgorithm: { SHA_256: 'sha256' },
     computeDigest: (alg, text) => require('crypto').createHash(alg).update(String(text)).digest(),
-    newBlob: (bytes, mime, name) => ({ bytes, mime, name }),
+    newBlob: (bytes, mime, name) => ({
+      bytes, mime, name,
+      getBytes: () => (typeof bytes === 'string' ? Buffer.from(bytes, 'utf8') : Buffer.from(bytes)),
+      getDataAsString: () => (typeof bytes === 'string' ? bytes : Buffer.from(bytes).toString('utf8')),
+    }),
+    gzip: (blob) => context.Utilities.newBlob(require('zlib').gzipSync(blob.getBytes()), 'application/x-gzip'),
+    ungzip: (blob) => context.Utilities.newBlob(require('zlib').gunzipSync(blob.getBytes())),
+  },
+  // Кэш скрипта: по умолчанию «пустой» (проверки видят правки листов сразу); в конце — проверка с настоящим кэшем.
+  CacheService: {
+    store: null,
+    getScriptCache() {
+      const self = this;
+      return {
+        get: (k) => (self.store && k in self.store ? self.store[k] : null),
+        getAll: (keys) => Object.fromEntries(keys.filter((k) => self.store && k in self.store).map((k) => [k, self.store[k]])),
+        put: (k, v) => { if (self.store) self.store[k] = String(v); },
+        putAll: (o) => { if (self.store) Object.assign(self.store, o); },
+        remove: (k) => { if (self.store) delete self.store[k]; },
+        removeAll: (ks) => { if (self.store) ks.forEach((k) => delete self.store[k]); },
+      };
+    },
   },
   ContentService: { createTextOutput: (t) => ({ text: t, setMimeType() { return this; } }), MimeType: { JSON: 'json' } },
   DriveApp: {
@@ -88,7 +109,7 @@ const context = {
   },
 };
 const code = fs.readFileSync(path.join(__dirname, '..', 'Code.gs'), 'utf8');
-const fn = new Function(...Object.keys(context), code + '\nreturn { doGet, doPost };');
+const fn = new Function(...Object.keys(context), code + '\nreturn { doGet, doPost, onEdit };');
 const api = fn(...Object.values(context));
 
 const call = (body) => JSON.parse(api.doPost({ postData: { contents: JSON.stringify(Object.assign({ key: 'secret' }, body)) } }).text);
@@ -235,6 +256,17 @@ function msRespond(code, body) { return { getResponseCode: () => code, getConten
 context.UrlFetchApp.fetch = (url, options) => {
   const method = options.method;
   const body = options.payload ? JSON.parse(options.payload) : undefined;
+  if (url.indexOf('https://suggestions.dadata.ru/') === 0) {
+    if (options.headers.Authorization !== 'Token dd-key') return msRespond(403, {});
+    if (body.query === '9705239429') {
+      return msRespond(200, { suggestions: [{ value: 'ООО "СОЛВЕР"', data: {
+        inn: '9705239429', kpp: '772301001', ogrn: '1257700099832', state: { status: 'ACTIVE' },
+        name: { short_with_opf: 'ООО "СОЛВЕР"', full_with_opf: 'ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ "СОЛВЕР"' },
+        management: { name: 'Соланджи Басил', post: 'ГЕНЕРАЛЬНЫЙ ДИРЕКТОР' },
+        address: { value: 'г Москва, ул Чагинская, д 4', unrestricted_value: '109380, г Москва, ул Чагинская, д 4' } } }] });
+    }
+    return msRespond(200, { suggestions: [] });
+  }
   msCalls.push({ method, url, body });
   assert.ok(options.headers.Authorization === 'Bearer tok' && options.headers['Accept-Encoding'] === 'gzip');
   const [path, query = ''] = url.replace(MS, '').split('?');
@@ -375,6 +407,20 @@ assert.deepStrictEqual(msDb.variant[0].barcodes, [{ ean13: '2900000000025' }]);
 assert.strictEqual(call({ action: 'msBarcode', msType: 'variant', msId: 'v1' }).barcode, '2900000000025');
 assert.ok(/Неверный товар/.test(call({ action: 'msBarcode', msType: 'counterparty', msId: 'c1' }).error));
 
+// DaData: без ключа — понятная ошибка; с ключом — реквизиты по ИНН.
+assert.ok(/DADATA_KEY/.test(call({ action: 'innLookup', inn: '9705239429' }).error));
+context.PropertiesService.props.DADATA_KEY = 'dd-key';
+const party = call({ action: 'innLookup', inn: '9705239429' }).party;
+assert.strictEqual(party.name, 'ООО "СОЛВЕР"');
+assert.strictEqual(party.kpp, '772301001');
+assert.strictEqual(party.address, '109380, г Москва, ул Чагинская, д 4');
+assert.strictEqual(party.director, 'Соланджи Басил');
+assert.ok(/не найдена/.test(call({ action: 'innLookup', inn: '7726358110' }).error));
+assert.ok(/10 или 12/.test(call({ action: 'innLookup', inn: '123' }).error));
+context.PropertiesService.props.DADATA_KEY = 'wrong';
+assert.ok(/неверный ключ/.test(call({ action: 'innLookup', inn: '9705239429' }).error));
+context.PropertiesService.props.DADATA_KEY = 'dd-key';
+
 // Позиция-модификация → в заказ как variant.
 call({ action: 'saveQuote', quote: Object.assign({}, msQuote, { id: 'q-var', lines: [{ msId: 'v1', msType: 'variant', product: 'Подвяз', qty: 10, price: 150 }] }) });
 assert.strictEqual(msDb.customerorder.find((o) => o.externalCode === 'q-var').positions[0].assortment.meta.href, MS + '/entity/variant/v1');
@@ -410,5 +456,39 @@ assert.strictEqual(call({ action: 'quotes', month: '1999-01' }).quotes.length, 0
 const light = call({ action: 'quotes', light: true }).quotes;
 assert.strictEqual(light.length, sheets['КП'].data.length - 1);
 assert.ok(light.every((q) => q.data === ''));
+
+// ---- Скорость: кэш справочников (сброс правкой таблицы) и сжатие больших ответов.
+context.CacheService.store = {};
+const reads = { n: 0 };
+const settingsSheet = sheets['Настройки'];
+const realRange = settingsSheet.getDataRange.bind(settingsSheet);
+settingsSheet.getDataRange = () => { reads.n++; return realRange(); };
+call({ action: 'ping' });
+const afterFirst = reads.n;
+call({ action: 'ping' });
+call({ action: 'catalog' });
+assert.strictEqual(reads.n, afterFirst, 'настройки берутся из кэша');
+settingsSheet.data.push(['Сайт', 'new.example']);
+assert.ok(!call({ action: 'catalog' }).sheets.settings.some((r) => r[1] === 'new.example'), 'до правки — кэш');
+api.onEdit({});
+assert.ok(call({ action: 'catalog' }).sheets.settings.some((r) => r[1] === 'new.example'), 'после правки — свежие данные');
+// Сжатие: большой ответ приходит как gz (base64 gzip), маленький — как есть.
+for (let i = 0; i < 400; i++) sheets['Клиенты'].data.push(['ООО Клиент ' + i, 'Контакт ' + i, 'c' + i + '@example.ru', '+7 900 000-00-' + i, '7700000000', '']);
+api.onEdit({});
+const big = call({ action: 'catalog', gz: true });
+assert.ok(big.gz && !big.sheets);
+const raw = JSON.stringify(call({ action: 'catalog' }));
+assert.ok(big.gz.length * 3 < raw.length, 'сжатие в 3+ раза: ' + big.gz.length + ' из ' + raw.length);
+const unpacked = JSON.parse(require('zlib').gunzipSync(Buffer.from(big.gz, 'base64')).toString('utf8'));
+assert.strictEqual(unpacked.ok, true);
+assert.ok(unpacked.sheets.clients.length > 400);
+assert.strictEqual(call({ action: 'ping', gz: true }).ok, true);
+// Каталог МойСклад — из кэша (без запросов к МойСклад), «Обновить» — заново.
+call({ action: 'msCatalog' }); // первый запрос заполняет кэш
+const msBefore = msCalls.length;
+call({ action: 'msCatalog' });
+assert.strictEqual(msCalls.length, msBefore);
+call({ action: 'msCatalog', fresh: true });
+assert.ok(msCalls.length > msBefore);
 
 console.log('Apps Script: все проверки пройдены');

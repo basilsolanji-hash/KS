@@ -217,7 +217,7 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         _sync.update { it.copy(msLoading = true, msError = null) }
         viewModelScope.launch {
             try {
-                val o = SheetClient(config).msCatalog()
+                val o = SheetClient(config).msCatalog(fresh = force)
                 store.saveMsCatalog(o)
                 applyMs(o)
                 _sync.update { it.copy(msLoading = false) }
@@ -491,6 +491,8 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
                 .put("email", d.clientEmail)
                 .put("phone", d.clientPhone)
                 .put("inn", d.clientInn)
+                .put("kpp", d.clientKpp)
+                .put("address", d.clientAddress)
                 .put("subtotal", totals.totalWithoutVat.toDouble())
                 .put("vat", totals.vat.toDouble())
                 .put("total", totals.total.toDouble())
@@ -599,7 +601,16 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
     /** Все КП таблицы (без данных черновика) — для долгов; без таблицы — архив телефона. */
     val deals: StateFlow<List<HistoryItem>?> = _deals.asStateFlow()
 
+    private var dealsLoadedAt = 0L
+
+    /** Для панели «Сегодня»: не чаще раза в [maxAgeMs], чтобы главный экран не ждал таблицу. */
+    fun loadDealsIfStale(maxAgeMs: Long = 5 * 60_000L) {
+        if (_deals.value != null && System.currentTimeMillis() - dealsLoadedAt < maxAgeMs) return
+        loadDeals()
+    }
+
     fun loadDeals() {
+        dealsLoadedAt = System.currentTimeMillis()
         val config = _syncConfig.value
         if (!config.enabled) {
             _deals.value = archiveItems()
@@ -725,6 +736,8 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
             quoteDate = item.date.substringBefore(' '),
             client = item.client.ifBlank { draft.clientCompany },
             clientInn = draft.clientInn,
+            clientKpp = draft.clientKpp,
+            clientAddress = draft.clientAddress,
             clientEmail = draft.clientEmail,
             lines = lines,
             total = total,
@@ -809,7 +822,28 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         store.saveDraft(_draft.value)
     }
 
+    private val _favorites = MutableStateFlow(store.favoriteMs)
+    val favorites: StateFlow<Set<String>> = _favorites.asStateFlow()
+    private val _recent = MutableStateFlow(store.recentMs)
+    val recent: StateFlow<List<String>> = _recent.asStateFlow()
+
+    fun toggleFavorite(product: Product) {
+        val id = product.externalId.ifBlank { return }
+        val next = if (id in _favorites.value) _favorites.value - id else _favorites.value + id
+        _favorites.value = next
+        store.favoriteMs = next
+    }
+
+    /** Товар МойСклад выбран — в «Недавние». */
+    fun rememberPicked(product: Product) {
+        val id = product.externalId.ifBlank { return }
+        val next = (listOf(id) + _recent.value.filterNot { it == id }).take(12)
+        _recent.value = next
+        store.recentMs = next
+    }
+
     fun addLine(product: Product) = updateDraft { d ->
+        rememberPicked(product)
         val quantity = product.minOrder.takeIf { it.signum() > 0 }
             ?.stripTrailingZeros()?.toPlainString()?.replace('.', ',')
             .orEmpty()
@@ -820,7 +854,58 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         d.copy(lines = d.lines.map { if (it.id == id) transform(it) else it })
     }
 
-    fun removeLine(id: Long) = updateDraft { d -> d.copy(lines = d.lines.filterNot { it.id == id }) }
+    /** Удалённая позиция и её место — для «Отменить» (несколько секунд после удаления). */
+    private val _removed = MutableStateFlow<Pair<Int, DraftLine>?>(null)
+    val removed: StateFlow<Pair<Int, DraftLine>?> = _removed.asStateFlow()
+
+    fun removeLine(id: Long) {
+        val d = _draft.value
+        val index = d.lines.indexOfFirst { it.id == id }
+        if (index < 0) return
+        _removed.value?.second?.photoPath?.let { PhotoStore.delete(it) }
+        _removed.value = index to d.lines[index]
+        updateDraft { it.copy(lines = it.lines.filterNot { l -> l.id == id }) }
+        undoTimer?.cancel()
+        undoTimer = viewModelScope.launch {
+            kotlinx.coroutines.delay(6_000)
+            forgetRemoved()
+        }
+    }
+
+    private var undoTimer: kotlinx.coroutines.Job? = null
+
+    fun undoRemove() {
+        val (index, line) = _removed.value ?: return
+        undoTimer?.cancel()
+        _removed.value = null
+        updateDraft { it.copy(lines = it.lines.toMutableList().apply { add(index.coerceIn(0, size), line) }) }
+    }
+
+    /** Время на «Отменить» вышло: фото удалённой позиции больше не нужно. */
+    fun forgetRemoved() {
+        _removed.value?.second?.photoPath?.let { PhotoStore.delete(it) }
+        _removed.value = null
+    }
+
+    /** Реквизиты клиента по ИНН (DaData): название, КПП, адрес; контакт — директор, если пусто. `null` — успех. */
+    suspend fun lookupInn(): String? {
+        val config = _syncConfig.value
+        if (!config.enabled) return "Нужно подключение к Google Таблице"
+        return try {
+            val p = SheetClient(config).innLookup(_draft.value.clientInn)
+            updateDraft {
+                it.copy(
+                    clientCompany = p.optString("name").ifBlank { it.clientCompany },
+                    clientKpp = p.optString("kpp").ifBlank { it.clientKpp },
+                    clientAddress = p.optString("address").ifBlank { it.clientAddress },
+                    clientContact = it.clientContact.ifBlank { p.optString("director") },
+                )
+            }
+            if (p.optString("status").let { s -> s.isNotBlank() && s != "ACTIVE" }) "Внимание: организация не действует (${p.optString("status")})" else null
+        } catch (e: Exception) {
+            e.message ?: "DaData недоступна"
+        }
+    }
 
     /** Новое КП. В локальном режиме номер увеличивается на 1, с таблицей — выдаётся при сохранении. */
     fun newQuote() = updateDraft {

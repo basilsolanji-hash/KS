@@ -120,8 +120,12 @@ class SheetClient(private val config: SyncConfig) {
     }
 
     /** Товары, остатки и клиенты МойСклад (через скрипт таблицы); `null` — МойСклад не подключён. */
-    suspend fun msCatalog(): JSONObject? =
-        get("msCatalog").optJSONObject("ms")?.takeIf { it.optBoolean("enabled") }
+    suspend fun msCatalog(fresh: Boolean = false): JSONObject? =
+        get("msCatalog", "fresh" to if (fresh) "1" else "").optJSONObject("ms")?.takeIf { it.optBoolean("enabled") }
+
+    /** Реквизиты организации по ИНН (DaData через скрипт таблицы). */
+    suspend fun innLookup(inn: String): JSONObject =
+        get("innLookup", "inn" to inn).optJSONObject("party") ?: throw SheetException("DaData не вернула реквизиты")
 
     /** EAN-13 товара или модификации МойСклад; если штрихкода нет — скрипт создаёт его в МойСклад. */
     suspend fun msBarcode(type: String, id: String): String {
@@ -205,7 +209,8 @@ class SheetClient(private val config: SyncConfig) {
     private suspend fun request(start: URL, postBody: String?): JSONObject = withContext(Dispatchers.IO) {
         if (start.protocol != "https") throw SheetException("Адрес должен начинаться с https://")
         var url = start
-        var body = postBody
+        // Просим сжатый ответ: большие справочники и каталог МойСклад приходят в 5–10 раз меньше.
+        var body = postBody?.let { b -> if (b.startsWith("{") && b.length > 2) "{\"gz\":true," + b.substring(1) else b }
         repeat(MAX_REDIRECTS) {
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = false
@@ -236,17 +241,25 @@ class SheetClient(private val config: SyncConfig) {
                     throw SheetException("Google вернул страницу вместо данных: проверьте адрес и доступ «Все» в развертывании")
                 }
                 val json = try {
-                    JSONObject(text)
+                    JSONObject(text).let { o -> if (o.has("gz")) JSONObject(gunzip(o.optString("gz"))) else o }
                 } catch (e: JSONException) {
                     throw SheetException("Некорректный ответ таблицы")
+                } catch (e: java.io.IOException) {
+                    throw SheetException("Некорректный сжатый ответ таблицы")
                 }
                 if (!json.optBoolean("ok")) throw SheetException(json.optString("error").ifBlank { "Ошибка таблицы" })
                 return@withContext json
             } finally {
-                conn.disconnect()
+                // Без disconnect(): соединение остаётся открытым и следующий запрос не тратит время на TLS.
+                runCatching { conn.inputStream.close() }
             }
         }
         throw SheetException("Слишком много перенаправлений")
+    }
+
+    private fun gunzip(base64: String): String {
+        val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+        return java.util.zip.GZIPInputStream(bytes.inputStream()).bufferedReader(Charsets.UTF_8).use { it.readText() }
     }
 
     private fun rows(array: JSONArray?): List<List<String>> =
