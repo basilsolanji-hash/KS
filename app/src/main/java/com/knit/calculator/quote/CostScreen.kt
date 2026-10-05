@@ -91,7 +91,7 @@ fun CostScreen(viewModel: QuoteViewModel, onBack: () -> Unit, onOpenQuote: () ->
             handOps = c?.let { s(it.handOperations) }.orEmpty(), opPrice = c?.let { s(it.operationPrice) }.orEmpty(),
             wto = c?.let { s(it.wto) }.orEmpty(), packaging = c?.let { s(it.packaging) }.orEmpty(),
             waste = c?.let { s(it.wastePercent) }.orEmpty(),
-            quantity = p.minOrder.takeIf { it.signum() > 0 }?.let(::s) ?: f.quantity,
+            quantity = p.minOrder.takeIf { it > BigDecimal.ONE }?.let(::s) ?: f.quantity,
             price = s(QuoteCalculator.unitPrice(p, emptyMap(), d(f.quantity).max(BigDecimal.ONE)).first),
         )
     }
@@ -137,7 +137,7 @@ fun CostScreen(viewModel: QuoteViewModel, onBack: () -> Unit, onOpenQuote: () ->
                 if (price.signum() > 0) {
                     val loss = eco.unitProfit.signum() < 0
                     Text(
-                        stringResource(R.string.cost_at_price, rub(price), rub(eco.unitProfit), eco.marginPercent.toPlainString(), rub(eco.totalProfit)),
+                        stringResource(R.string.cost_at_price, rub(price), rub(eco.unitProfit), eco.marginPercent.stripTrailingZeros().toPlainString().replace('.', ','), rub(eco.totalProfit)),
                         color = if (loss) Color(0xFFD32F2F) else colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                     )
                 }
