@@ -940,8 +940,15 @@ private fun choiceLabel(choice: PriceChoice): String {
 private fun AddItemButton(catalog: List<Product>, onAdd: (Product) -> Unit, onOpenCatalog: () -> Unit) {
     val colors = LocalKnitColors.current
     var expanded by remember { mutableStateOf(false) }
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     Box {
-        OutlinedButton(onClick = { if (catalog.isEmpty()) onOpenCatalog() else expanded = true }) {
+        // Сначала убираем клавиатуру: иначе экран сдвигается и список закрывается сам (приходилось нажимать дважды).
+        OutlinedButton(onClick = {
+            focus.clearFocus()
+            keyboard?.hide()
+            if (catalog.isEmpty()) onOpenCatalog() else expanded = true
+        }) {
             Icon(painterResource(R.drawable.ic_add), null, Modifier.size(18.dp), tint = colors.textPrimary)
             Spacer(Modifier.width(6.dp))
             Text(stringResource(R.string.quote_add_item), color = colors.textPrimary)

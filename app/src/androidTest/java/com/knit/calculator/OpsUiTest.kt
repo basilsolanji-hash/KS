@@ -64,11 +64,12 @@ class OpsUiTest {
     @Test fun paymentProductionAndStock() {
         // КП на 600 подвязов: 94 800 ₽.
         compose.onNodeWithText("Коммерческое предложение").performClick()
-        compose.onNodeWithText("Компания клиента").performTextInput("ООО «Пример»")
         compose.onNodeWithText("Добавить позицию").performScrollTo().performClick()
         // Пункт меню появляется во всплывающем окне — ждём его.
         compose.waitUntil(15_000) { compose.onAllNodes(hasText("Подвяз трикотажный")).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Подвяз трикотажный").performClick()
+        // Клиента — после позиции: подсказка клиентов перекрывает кнопку «Добавить позицию».
+        compose.onNodeWithText("Компания клиента").performScrollTo().performTextInput("ООО «Пример»")
         val qty = compose.onNode(hasSetTextAction() and hasText("Количество"))
         qty.performTextClearance()
         qty.performTextInput("600")

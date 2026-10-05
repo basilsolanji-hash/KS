@@ -76,10 +76,11 @@ class V16UiTest {
 
     @Test fun templatesAndClientCard() {
         compose.onNodeWithText("Коммерческое предложение").performClick()
-        compose.onNodeWithText("Компания клиента").performTextInput("ООО Ромашка")
         compose.onNodeWithText("Добавить позицию").performScrollTo().performClick()
         compose.waitUntil(15_000) { compose.onAllNodes(hasText("Подвяз трикотажный")).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Подвяз трикотажный").performClick()
+        // Клиента — после позиции: подсказка клиентов перекрывает кнопку «Добавить позицию».
+        compose.onNodeWithText("Компания клиента").performScrollTo().performTextInput("ООО Ромашка")
         val qty = compose.onNode(hasSetTextAction() and hasText("Количество"))
         qty.performTextClearance()
         qty.performTextInput("600")
