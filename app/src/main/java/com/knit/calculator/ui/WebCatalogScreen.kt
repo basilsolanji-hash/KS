@@ -70,8 +70,11 @@ fun WebCatalogScreen(startUrl: String, onBack: () -> Unit) {
                         // Ссылки сайта фабрики — внутри приложения, остальные (WhatsApp, телефон…) — в системе.
                         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                             val uri = request.url
-                            val internal = (uri.scheme == "http" || uri.scheme == "https") &&
-                                uri.host.orEmpty().endsWith(android.net.Uri.parse(startUrl).host.orEmpty())
+                            // Точное совпадение сайта (или его поддомен): «evilfabrika-ks.ru» — уже чужой сайт.
+                            val base = android.net.Uri.parse(startUrl).host.orEmpty().removePrefix("www.")
+                            val host = uri.host.orEmpty().removePrefix("www.")
+                            val internal = (uri.scheme == "http" || uri.scheme == "https") && base.isNotEmpty() &&
+                                (host == base || host.endsWith(".$base"))
                             if (internal) return false
                             runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
                             return true

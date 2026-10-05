@@ -140,3 +140,34 @@ class MoySkladTest {
         assertEquals(listOf("Подвязы", "Поло-воротники"), MoySklad.topGroups(list))
     }
 }
+
+class MoySkladVariantsTest {
+    private fun bd(s: String) = BigDecimal(s)
+    private val client = listOf("Состав / материала", "Цвет", "Размер")
+
+    private fun v(id: String, color: String, size: String, badges: List<String> = emptyList()) = MoySklad.product(
+        MsItem(
+            id, "Подвяз двуслойный 1х1", group = "Подвязы", type = "variant", badges = badges,
+            tiers = listOf(bd("1") to bd("150")),
+            chars = mapOf("Цвет" to color, "Размер" to size, "Тип резинки" to "1х1", "Состав / материала" to "хлопок 95%", "Артикул" to "A-$id"),
+        ),
+        client,
+    )!!
+
+    @Test fun clientCharacteristicsInName() {
+        val p = v("v1", "бордовый / белый", "115х14 см")
+        assertEquals("Подвяз двуслойный 1х1, хлопок 95%, бордовый / белый, 115х14 см", p.name)
+        assertEquals("variant", p.externalType)
+        assertEquals("1х1", p.attributes["Тип резинки"])
+    }
+
+    @Test fun filtersAndBadgesFirst() {
+        val list = listOf(v("v1", "белый", "115х14 см"), v("v2", "чёрный", "115х14 см", listOf("Топ-продажа")), v("v3", "белый", "115х16 см"))
+        assertEquals(listOf("v2", "v1", "v3").map { MoySklad.productId(it) }, MoySklad.search(list, "").map { it.id })
+        assertEquals(listOf(MoySklad.productId("v3")), MoySklad.search(list, "", filters = mapOf("Цвет" to "белый", "Размер" to "115х16 см")).map { it.id })
+        assertEquals(listOf("белый", "чёрный"), MoySklad.filterValues(list, "Цвет"))
+        // Уникальные значения (артикулы) — не чипы, а поиск.
+        assertEquals(emptyList<String>(), MoySklad.filterValues(list, "Тип резинки"))
+        assertEquals(listOf(MoySklad.productId("v3")), MoySklad.search(list, "A-v3").map { it.id })
+    }
+}

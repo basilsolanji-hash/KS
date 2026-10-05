@@ -118,10 +118,22 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _unlockedPin = MutableStateFlow(store.directorPin)
 
-    /** Режим директора: себестоимость, прибыль и экономика видны; PIN не задан — режим у всех. */
-    val director: StateFlow<Boolean> = kotlinx.coroutines.flow.combine(_settings, _unlockedPin) { s, pin ->
-        s.directorPin.isBlank() || pin == s.directorPin
+    /** Роль по ключу доступа (с таблицей решает сервер: себестоимость менеджеру и не приходит). */
+    private val _serverRole = MutableStateFlow(store.serverRole)
+
+    /**
+     * Режим директора: себестоимость, прибыль и экономика видны. С таблицей — по роли ключа (лист «Менеджеры»),
+     * без таблицы — по PIN (PIN не задан — режим у всех).
+     */
+    val director: StateFlow<Boolean> = kotlinx.coroutines.flow.combine(_settings, _unlockedPin, _serverRole, _syncConfig) { s, pin, role, config ->
+        if (config.enabled) role == "director" else s.directorPin.isBlank() || pin == s.directorPin
     }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, true)
+
+    private fun applyRole(remote: RemoteCatalog) {
+        store.serverRole = remote.role
+        store.serverManager = remote.manager
+        _serverRole.value = remote.role
+    }
 
     fun unlockDirector(pin: String): Boolean {
         val ok = pin.trim().isNotEmpty() && pin.trim() == _settings.value.directorPin
@@ -149,7 +161,14 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
     private val _notices = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 8)
     val notices: kotlinx.coroutines.flow.SharedFlow<String> = _notices
 
+    private val _msFilters = MutableStateFlow<List<String>>(emptyList())
+    /** Характеристики-фильтры выбора позиции (лист «Настройки» → «МойСклад: фильтры»). */
+    val msFilters: StateFlow<List<String>> = _msFilters.asStateFlow()
+
     private fun applyMs(o: JSONObject?) {
+        fun strings(a: JSONArray?) = if (a == null) emptyList() else (0 until a.length()).map { a.optString(it) }.filter { it.isNotBlank() }
+        val clientChars = strings(o?.optJSONArray("clientChars"))
+        _msFilters.value = strings(o?.optJSONArray("filters"))
         val products = o?.optJSONArray("products")
         val items = if (products == null) emptyList() else (0 until products.length()).mapNotNull { products.optJSONObject(it) }.mapNotNull { p ->
             fun money(key: String) = p.optString(key).takeIf { it.isNotBlank() && it != "null" }?.toBigDecimalOrNull()
@@ -166,7 +185,11 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
                     group = p.optString("group"), weightGrams = money("weight"), buyPrice = money("buyPrice"),
                     minPrice = money("minPrice"), description = p.optString("description"), tiers = tiers,
                     stock = if (p.isNull("stock")) null else money("stock"),
+                    type = p.optString("type").ifBlank { "product" },
+                    chars = p.optJSONObject("chars")?.let { c -> c.keys().asSequence().associateWith { k -> c.optString(k) } }.orEmpty(),
+                    badges = strings(p.optJSONArray("badges")),
                 ),
+                clientChars,
             )
         }
         _msProducts.value = items
@@ -185,11 +208,11 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Товары МойСклад: при подключённой таблице — раз в 12 часов или по кнопке. */
-    fun refreshMs(force: Boolean = false) {
+    fun refreshMs(force: Boolean = false, maxAgeMs: Long = 12 * 3_600_000L) {
         val config = _syncConfig.value
         if (!config.enabled || _sync.value.msLoading) return
         val age = System.currentTimeMillis() - (_sync.value.msLoadedAt ?: 0L)
-        if (!force && _sync.value.msLoadedAt != null && age < 12 * 3_600_000L) return
+        if (!force && _sync.value.msLoadedAt != null && age < maxAgeMs) return
         _sync.update { it.copy(msLoading = true, msError = null) }
         viewModelScope.launch {
             try {
@@ -240,6 +263,7 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val remote = SheetClient(config).catalog(store.logoVersion)
                 applyLogo(remote.logo)
+                applyRole(remote)
                 val newCache = SheetCache(remote.sheets, remote.url, System.currentTimeMillis(), remote.contract)
                 cache = newCache
                 store.saveSheetCache(newCache)
@@ -264,6 +288,7 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val remote = SheetClient(config).catalog()
                 applyLogo(remote.logo)
+                applyRole(remote)
                 _syncConfig.value = config
                 store.saveSyncConfig(config)
                 cache = SheetCache(remote.sheets, remote.url, System.currentTimeMillis(), remote.contract).also(store::saveSheetCache)
@@ -418,7 +443,8 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
                         .put("price", l.unitPrice.toDouble())
                         .put("sum", l.total.toDouble())
                         .put("discount", l.discountPercent.toDouble())
-                        .put("msId", v.product.externalId),
+                        .put("msId", v.product.externalId)
+                        .put("msType", v.product.externalType),
                 )
             }
             val payload = JSONObject()
@@ -470,7 +496,8 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         return result
     }
 
-    private fun author() = listOf(_syncConfig.value.manager, Build.MODEL.orEmpty()).filter { it.isNotBlank() }.joinToString(" / ")
+    private fun author() = listOf(store.serverManager.ifBlank { _syncConfig.value.manager }, Build.MODEL.orEmpty())
+        .filter { it.isNotBlank() }.joinToString(" / ")
 
     private fun validUntilMillis(settings: CompanySettings): Long? {
         val days = YarnCalculator.parseDecimal(settings.validityDays)?.toInt()?.takeIf { it > 0 } ?: return null
@@ -514,20 +541,62 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             try {
-                _history.value = SheetClient(config).quotes(200).map { q ->
-                    HistoryItem(
-                        id = q.id, number = q.number, date = q.date, month = q.month, client = q.client,
-                        total = BigDecimal.valueOf(q.total), profit = q.profit?.let(BigDecimal::valueOf),
-                        status = q.status, author = q.author, data = q.data, validUntil = q.validUntil,
-                        products = q.products.mapValues { BigDecimal.valueOf(it.value) },
-                    )
-                }
+                _history.value = SheetClient(config).quotes(200).map(::historyItem)
             } catch (e: Exception) {
                 _historyError.value = e.message ?: "Нет связи с таблицей"
                 if (_history.value == null) _history.value = archiveItems()
             }
         }
     }
+
+    private fun historyItem(q: RemoteQuote) = HistoryItem(
+        id = q.id, number = q.number, date = q.date, month = q.month, client = q.client,
+        total = BigDecimal.valueOf(q.total), profit = q.profit?.let(BigDecimal::valueOf),
+        status = q.status, author = q.author, data = q.data, validUntil = q.validUntil,
+        products = q.products.mapValues { BigDecimal.valueOf(it.value) },
+    )
+
+    // ---------- Все КП: долги и отчёт не ограничены последними 200 ----------
+
+    private val _deals = MutableStateFlow<List<HistoryItem>?>(null)
+    /** Все КП таблицы (без данных черновика) — для долгов; без таблицы — архив телефона. */
+    val deals: StateFlow<List<HistoryItem>?> = _deals.asStateFlow()
+
+    fun loadDeals() {
+        val config = _syncConfig.value
+        if (!config.enabled) {
+            _deals.value = archiveItems()
+            return
+        }
+        viewModelScope.launch {
+            try {
+                _deals.value = SheetClient(config).quotes(light = true).map(::historyItem)
+            } catch (e: Exception) {
+                _historyError.value = e.message ?: "Нет связи с таблицей"
+            }
+        }
+    }
+
+    private val _months = MutableStateFlow<Map<String, List<HistoryItem>>>(emptyMap())
+    val months: StateFlow<Map<String, List<HistoryItem>>> = _months.asStateFlow()
+
+    /** Все КП месяца из таблицы — для отчёта. */
+    fun loadMonth(month: String) {
+        val config = _syncConfig.value
+        if (!config.enabled) return
+        viewModelScope.launch {
+            try {
+                val items = SheetClient(config).quotes(month = month).map(::historyItem)
+                _months.update { it + (month to items) }
+            } catch (e: Exception) {
+                _historyError.value = e.message ?: "Нет связи с таблицей"
+            }
+        }
+    }
+
+    /** Полное КП (с черновиком) для документов: из истории или, у старых КП, загружаем отдельно. */
+    fun fullItem(item: HistoryItem): HistoryItem =
+        if (item.data.isNotBlank()) item else _history.value?.firstOrNull { it.id == item.id } ?: item
 
     private fun archiveItems(): List<HistoryItem> {
         val dateFormat = java.text.SimpleDateFormat("dd.MM.yyyy HH:mm", java.util.Locale.getDefault())
@@ -581,7 +650,7 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun report(month: String): MonthReport? {
-        val items = _history.value ?: return null
+        val items = (if (_syncConfig.value.enabled) _months.value[month] else null) ?: _history.value ?: return null
         return ReportCalculator.month(
             items.map { QuoteSummary(it.month, it.status, it.total, it.profit, it.author, it.products) },
             month,
@@ -603,7 +672,9 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Сделка из истории: позиции с ценами на момент сохранения (у старых КП — по текущему прайсу). */
     fun deal(item: HistoryItem): DealDoc? {
-        val draft = QuoteStore.draftFromJson(item.data) ?: return null
+        // У старых КП из «всех КП» нет черновика — документ без позиций (счёт одной строкой).
+        val full = fullItem(item)
+        val draft = if (full.data.isBlank()) QuoteDraft(clientCompany = full.client) else QuoteStore.draftFromJson(full.data) ?: return null
         val settings = _settings.value
         val lines = draft.snapshot.ifEmpty {
             lineViews(draft, _catalog.value, settings).mapNotNull { v ->

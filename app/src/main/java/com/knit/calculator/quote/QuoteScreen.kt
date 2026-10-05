@@ -109,6 +109,7 @@ fun QuoteScreen(
     val msProducts by viewModel.msProducts.collectAsStateWithLifecycle()
     val views = remember(draft, catalog, settings, msProducts) { viewModel.lineViews(draft, catalog, settings) }
     var showPicker by rememberSaveable { mutableStateOf(false) }
+    val msFilters by viewModel.msFilters.collectAsStateWithLifecycle()
     val totals = remember(views, settings) { viewModel.totals(views, settings) }
     val colors = LocalKnitColors.current
     val context = LocalContext.current
@@ -313,7 +314,8 @@ fun QuoteScreen(
                 )
             }
             if (sync.msEnabled || msProducts.isNotEmpty()) {
-                OutlinedButton(onClick = { showPicker = true; viewModel.refreshMs() }) {
+                // Остатки свежие: при выборе товара обновляем, если данным больше часа.
+                OutlinedButton(onClick = { showPicker = true; viewModel.refreshMs(maxAgeMs = 3_600_000L) }) {
                     Icon(painterResource(R.drawable.ic_add), null, Modifier.size(18.dp), tint = colors.textPrimary)
                     Spacer(Modifier.width(6.dp))
                     Text(stringResource(R.string.quote_add_item), color = colors.textPrimary)
@@ -395,6 +397,7 @@ fun QuoteScreen(
             calculator = catalog,
             msProducts = msProducts,
             sync = sync,
+            filterNames = msFilters,
             onRefresh = { viewModel.refreshMs(force = true) },
             onPick = { viewModel.addLine(it); showPicker = false },
             onDismiss = { showPicker = false },
@@ -651,6 +654,11 @@ private fun LineCard(
             }
             Text(details, color = colors.textSecondary, fontSize = 14.sp)
             stockText(product, msStore)?.let { Text(it, color = colors.textSecondary, fontSize = 14.sp) }
+            if (product.badges.isNotEmpty()) Badges(product.badges)
+            // Характеристики МойСклад, которых нет в названии (для менеджера, в КП не печатаются).
+            product.attributes.filter { (_, v) -> v.isNotBlank() && v != "-" && !product.name.contains(v) }
+                .map { (k, v) -> "$k: $v" }.joinToString(" · ").takeIf { it.isNotBlank() }
+                ?.let { Text(it, color = colors.textSecondary, fontSize = 13.sp) }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(end = 8.dp)) {
                 KnitField(
                     value = view.draft.discount,

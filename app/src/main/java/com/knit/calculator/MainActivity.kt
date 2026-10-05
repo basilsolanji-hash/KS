@@ -68,9 +68,10 @@ class MainActivity : ComponentActivity() {
             val sync by quoteViewModel.sync.collectAsStateWithLifecycle()
             val settings by quoteViewModel.settings.collectAsStateWithLifecycle()
             val director by quoteViewModel.director.collectAsStateWithLifecycle()
-            // Предупреждения (например, «не записано в МойСклад») — всплывающим сообщением.
+            // Предупреждения (например, «не записано в МойСклад») — окном, чтобы не пропустить.
+            var notice by androidx.compose.runtime.remember { mutableStateOf<String?>(null) }
             androidx.compose.runtime.LaunchedEffect(Unit) {
-                quoteViewModel.notices.collect { android.widget.Toast.makeText(this@MainActivity, it, android.widget.Toast.LENGTH_LONG).show() }
+                quoteViewModel.notices.collect { notice = it }
             }
             KnitTheme(darkTheme = darkTheme) {
                 when (screen) {
@@ -126,6 +127,18 @@ class MainActivity : ComponentActivity() {
                     Screen.PAYMENTS -> PaymentsScreen(quoteViewModel, opsViewModel, onBack = ::back, onOpenProduction = { open(Screen.PRODUCTION) })
                     Screen.PRODUCTION -> ProductionScreen(quoteViewModel, opsViewModel, onBack = ::back)
                     Screen.STOCK -> StockScreen(quoteViewModel, opsViewModel, onBack = ::back)
+                }
+                notice?.let { text ->
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { notice = null },
+                        title = { androidx.compose.material3.Text(androidx.compose.ui.res.stringResource(R.string.notice_title)) },
+                        text = { androidx.compose.material3.Text(text) },
+                        confirmButton = {
+                            androidx.compose.material3.TextButton(onClick = { notice = null }) {
+                                androidx.compose.material3.Text(androidx.compose.ui.res.stringResource(R.string.ok))
+                            }
+                        },
+                    )
                 }
             }
         }

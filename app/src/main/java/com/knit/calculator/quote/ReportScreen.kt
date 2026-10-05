@@ -54,8 +54,11 @@ fun ReportScreen(viewModel: QuoteViewModel, onBack: () -> Unit) {
     val title = SimpleDateFormat("LLLL yyyy", Locale("ru")).format(month.time).replaceFirstChar { it.uppercase() }
 
     BackHandler(onBack = onBack)
+    val months by viewModel.months.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.loadHistory() }
-    val report = remember(history, key) { viewModel.report(key) }
+    // С таблицей — все КП выбранного месяца, а не только последние 200.
+    LaunchedEffect(key) { viewModel.loadMonth(key) }
+    val report = remember(history, months, key) { viewModel.report(key) }
 
     Column(Modifier.fillMaxSize().background(colors.background).safeDrawingPadding()) {
         ScreenTopBar(stringResource(R.string.report_title), onBack)

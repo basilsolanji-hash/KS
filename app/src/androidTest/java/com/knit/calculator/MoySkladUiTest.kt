@@ -33,21 +33,31 @@ class MoySkladUiTest {
         override fun starting(description: Description) {
             val store = QuoteStore(targetContext)
             store.saveSyncConfig(SyncConfig("https://script.google.com/macros/s/test/exec", "k", "Тест"))
-            fun product(id: String, name: String, article: String, group: String, stock: Int, prices: List<Pair<Int, String>>) =
-                JSONObject().put("id", id).put("name", name).put("article", article).put("group", group)
-                    .put("weight", 84.9).put("buyPrice", "143.95").put("minPrice", "143.95").put("stock", stock)
-                    .put("tiers", JSONArray().apply { prices.forEach { (q, p) -> put(JSONObject().put("from", q).put("price", p)) } })
+            fun product(
+                id: String, name: String, article: String, group: String, stock: Int, prices: List<Pair<Int, String>>,
+                chars: Map<String, String> = emptyMap(), badges: List<String> = emptyList(),
+            ) = JSONObject().put("id", id).put("name", name).put("article", article).put("group", group).put("type", "variant")
+                .put("weight", 84.9).put("buyPrice", "143.95").put("minPrice", "143.95").put("stock", stock)
+                .put("tiers", JSONArray().apply { prices.forEach { (q, p) -> put(JSONObject().put("from", q).put("price", p)) } })
+                .put("chars", JSONObject(chars)).put("badges", JSONArray(badges))
             val tiers = listOf(1 to "201.53", 10 to "194.33", 20 to "187.13", 50 to "172.74", 100 to "165.54", 500 to "158.34")
             store.saveMsCatalog(
                 JSONObject().put("enabled", true).put("store", "Электросталь").put("loadedAt", System.currentTimeMillis())
                     .put(
                         "products",
                         JSONArray()
-                            .put(product("p1", "Подвяз трикотажный 1×1 (ПЭ) Белый, 14х100 см", "11-001 0067", "Подвязы/Полиэстер", 120, tiers))
-                            .put(product("p2", "Подвяз трикотажный 2×2 Чёрный, 16х100 см", "22-013", "Подвязы/Хлопок", 0, tiers))
+                            .put(
+                                product(
+                                    "p1", "Подвяз трикотажный 1×1 (ПЭ) Белый, 14х100 см", "11-001 0067", "Подвязы/Полиэстер", 120, tiers,
+                                    mapOf("Цвет" to "Белый", "Тип резинки" to "1х1", "Артикул производитель" to "AP-77"), listOf("Топ-продажа"),
+                                ),
+                            )
+                            .put(product("p2", "Подвяз трикотажный 2×2 Чёрный, 16х100 см", "22-013", "Подвязы/Хлопок", 0, tiers, mapOf("Цвет" to "Чёрный", "Тип резинки" to "2х2")))
                             .put(product("p3", "Поло-воротник белый", "PV-1", "Поло-воротники", 5, listOf(1 to "120"))),
                     )
-                    .put("clients", JSONArray().put(JSONObject().put("name", "ООО \"БРЕНД СИТИ\"").put("inn", "7726358110"))),
+                    .put("clients", JSONArray().put(JSONObject().put("name", "ООО \"БРЕНД СИТИ\"").put("inn", "7726358110")))
+                    .put("filters", JSONArray(listOf("Артикул", "Цвет", "Тип резинки", "Тип", "Артикул производитель")))
+                    .put("clientChars", JSONArray(listOf("Состав / материала", "Цвет", "Размер"))),
             )
         }
     }
@@ -61,8 +71,13 @@ class MoySkladUiTest {
         compose.onNodeWithText("Коммерческое предложение").performClick()
         compose.onNodeWithText("Добавить позицию").performScrollTo().performClick()
         compose.onNodeWithText("Товары МойСклад (3)").assertExists()
-        compose.onNode(hasSetTextAction() and hasText("Поиск: название или артикул")).performTextInput("белый подвяз")
+        compose.onNode(hasSetTextAction() and hasText("Поиск: название или артикул")).performTextInput("подвяз")
         compose.onNodeWithText("Поло-воротник белый").assertDoesNotExist()
+        // Фильтр по характеристике «Цвет» и значок «Топ-продажа».
+        compose.onNodeWithText("Белый").performClick()
+        compose.onNodeWithText("Подвяз трикотажный 2×2 Чёрный, 16х100 см").assertDoesNotExist()
+        compose.onNodeWithText("★ Топ-продажа").assertExists()
+        compose.onAllNodes(hasText("Артикул производитель: AP-77", substring = true)).onFirst().assertExists()
         compose.onNodeWithText("На складе Электросталь: 120 шт").assertExists()
         Shots.take("50_ms_picker", compose)
         compose.onNodeWithText("Подвяз трикотажный 1×1 (ПЭ) Белый, 14х100 см").performClick()

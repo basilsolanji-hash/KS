@@ -23,7 +23,7 @@ data class CompanySettings(
     val legalName: String = "ООО «Солвер»",
     val legalFullName: String = "Общество с ограниченной ответственностью «Солвер»",
     val inn: String = "9705239429",
-    val kpp: String = "770501001",
+    val kpp: String = "772301001",
     val ogrn: String = "1257700099832",
     val legalAddress: String = "109380, г. Москва, м.о. Люблино, ул. Чагинская, д. 4, стр. 13, пом. 9/3",
     val factAddress: String = "144010, Московская обл., г. Электросталь, ул. Ялагина, 3",

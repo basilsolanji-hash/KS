@@ -152,6 +152,15 @@ class QuoteStore(context: Context) {
         if (o == null) msFile.delete() else msFile.writeText(o.toString())
     }
 
+    /** Роль по ключу из таблицы («director» / «manager») и имя менеджера из листа «Менеджеры». */
+    var serverRole: String
+        get() = prefs.getString("server_role", "director").orEmpty()
+        set(value) = prefs.edit().putString("server_role", value).apply()
+
+    var serverManager: String
+        get() = prefs.getString("server_manager", "").orEmpty()
+        set(value) = prefs.edit().putString("server_manager", value).apply()
+
     /** PIN, которым на этом телефоне открыт режим директора. */
     var directorPin: String
         get() = prefs.getString("director_pin", "").orEmpty()

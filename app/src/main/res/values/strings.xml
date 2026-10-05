@@ -504,5 +504,14 @@
     <string name="picker_more">Ещё %1$d — уточните поиск</string>
     <string name="picker_nothing">Ничего не найдено</string>
     <string name="catalog_ms_info">МойСклад: %1$d товаров с ценами по тиражам, остатки склада «%2$s», обновлено %3$s. Ниже — изделия под заказ (расчёт по прайсу из таблицы).</string>
-    <string name="payments_ms_note">Оплаты — по данным МойСклад (в том числе внесённые бухгалтером). Новая оплата отсюда создаёт входящий платёж в МойСклад.</string>
+    <string name="payments_ms_note">Оплаты — по данным МойСклад (в том числе внесённые бухгалтером). Платёж в МойСклад привязывайте к заказу «КП-№» — иначе приложение его не увидит. Новая оплата отсюда создаёт входящий платёж сама.</string>
+    <string name="payment_overpay">Сумма больше долга на %1$s. Проверьте — нажмите ещё раз, если всё верно.</string>
+    <string name="payment_overpay_confirm">Да, сохранить</string>
+    <string name="status_confirm_title">Сменить статус?</string>
+    <string name="status_confirm_text">КП № %1$d → «%2$s». Статус изменится в таблице и в МойСклад.</string>
+    <string name="status_confirm_ok">Сменить</string>
+    <string name="notice_title">Внимание</string>
+    <string name="ok">OK</string>
+    <string name="ms_filters">Фильтры</string>
+    <string name="ms_filters_reset">Сбросить</string>
 </resources>

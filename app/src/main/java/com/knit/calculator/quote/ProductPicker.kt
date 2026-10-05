@@ -60,6 +60,7 @@ fun ProductPicker(
     calculator: List<Product>,
     msProducts: List<Product>,
     sync: SyncStatus,
+    filterNames: List<String> = emptyList(),
     onRefresh: () -> Unit,
     onPick: (Product) -> Unit,
     onDismiss: () -> Unit,
@@ -68,7 +69,9 @@ fun ProductPicker(
     var query by rememberSaveable { mutableStateOf("") }
     var group by rememberSaveable { mutableStateOf<String?>(null) }
     val groups = remember(msProducts) { MoySklad.topGroups(msProducts) }
-    val found = remember(msProducts, query, group) { MoySklad.search(msProducts, query, group) }
+    // Фильтры по характеристикам МойСклад: характеристика → выбранное значение.
+    var selected by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    val found = remember(msProducts, query, group, selected) { MoySklad.search(msProducts, query, group, selected) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(Modifier.fillMaxSize().background(colors.background).safeDrawingPadding()) {
             ScreenTopBar(stringResource(R.string.picker_title), onDismiss) {
@@ -119,6 +122,38 @@ fun ProductPicker(
                             }
                         }
                     }
+                    filterNames.forEach { name ->
+                        // Значения — среди найденного без учёта этого же фильтра.
+                        val values = MoySklad.filterValues(MoySklad.search(msProducts, query, group, selected - name), name)
+                        if (values.isNotEmpty()) {
+                            item(key = "f$name") {
+                                Column {
+                                    Text(name, color = colors.textSecondary, fontSize = 13.sp)
+                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        items(listOf<String?>(null) + values) { value ->
+                                            FilterChip(
+                                                selected = selected[name] == value,
+                                                onClick = { selected = if (value == null) selected - name else selected + (name to value) },
+                                                label = { Text(value ?: stringResource(R.string.picker_all_groups)) },
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = colors.equalsKey,
+                                                    selectedLabelColor = colors.equalsKeyText,
+                                                    labelColor = colors.textPrimary,
+                                                ),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (selected.isNotEmpty()) {
+                        item(key = "freset") {
+                            androidx.compose.material3.TextButton(onClick = { selected = emptyMap() }) {
+                                Text(stringResource(R.string.ms_filters_reset), color = colors.textSecondary)
+                            }
+                        }
+                    }
                     items(found.take(MAX_RESULTS), key = { "m" + it.id }) { p ->
                         val from = p.tiers.lastOrNull()?.let { t -> QuoteCalculator.unitPrice(p, emptyMap(), t.fromQuantity).first }
                         val price = buildList {
@@ -126,7 +161,10 @@ fun ProductPicker(
                             if (from != null && from < p.basePrice) add(stringResource(R.string.picker_from_price, QuoteCalculator.formatMoney(from)))
                             if (p.code.isNotBlank()) add(p.code)
                         }.joinToString(" · ")
-                        PickRow(p.name, price, stockText(p, sync.msStore)) { onPick(p) }
+                        // Характеристики-фильтры, которых нет в названии (артикул производителя, тип резинки…).
+                        val details = filterNames.mapNotNull { n -> p.attributes[n]?.takeIf { v -> v.isNotBlank() && v != "-" && !p.name.contains(v) }?.let { "$n: $it" } }
+                            .joinToString(" · ")
+                        PickRow(p.name, listOf(price, details).filter { it.isNotBlank() }.joinToString("\n"), stockText(p, sync.msStore), p.badges) { onPick(p) }
                     }
                     if (found.size > MAX_RESULTS) {
                         item { Text(stringResource(R.string.picker_more, found.size - MAX_RESULTS), color = colors.textSecondary, fontSize = 13.sp) }
@@ -148,14 +186,28 @@ private fun Header(text: String) {
 }
 
 @Composable
-private fun PickRow(title: String, subtitle: String, stock: String?, onClick: () -> Unit) {
+private fun PickRow(title: String, subtitle: String, stock: String?, badges: List<String> = emptyList(), onClick: () -> Unit) {
     val colors = LocalKnitColors.current
     Surface(shape = RoundedCornerShape(16.dp), color = colors.panel, modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
+                if (badges.isNotEmpty()) Badges(badges)
                 Text(title, color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
                 Text(subtitle, color = colors.textSecondary, fontSize = 13.sp)
                 if (stock != null) Text(stock, color = if (colors.isDark) colors.accent else colors.textPrimary, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+/** Значки «Топ-продажа», «Популярный». */
+@Composable
+fun Badges(badges: List<String>) {
+    val colors = LocalKnitColors.current
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 2.dp)) {
+        badges.forEach {
+            Surface(shape = RoundedCornerShape(8.dp), color = colors.equalsKey, contentColor = colors.equalsKeyText) {
+                Text("★ $it", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
             }
         }
     }

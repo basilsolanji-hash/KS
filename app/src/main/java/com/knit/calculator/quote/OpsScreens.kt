@@ -254,6 +254,10 @@ fun DealActionHost(
         DealAction.PAYMENT -> {
             var amount by remember(item) { mutableStateOf(QuoteCalculator.money(remaining).stripTrailingZeros().toPlainString().replace('.', ',')) }
             var note by remember(item) { mutableStateOf("") }
+            // Сумма больше долга (опечатка?) — сохраняем только после второго подтверждения.
+            var overpayConfirmed by remember(item) { mutableStateOf(false) }
+            val entered = YarnCalculator.parseDecimal(amount)
+            val overpay = entered != null && entered > remaining
             val colors = LocalKnitColors.current
             AlertDialog(
                 onDismissRequest = { if (!busy) onDismiss() },
@@ -263,6 +267,12 @@ fun DealActionHost(
                         Text(stringResource(R.string.payment_state, rub(deal.total), rub(paid), rub(remaining)), fontSize = 14.sp)
                         KnitField(amount, { amount = it }, R.string.payment_amount, suffix = "₽")
                         KnitField(note, { note = it }, R.string.payment_note, text = true, maxLength = 100)
+                        if (overpay && entered != null) {
+                            Text(
+                                stringResource(R.string.payment_overpay, rub(entered - remaining)),
+                                color = DEBT_RED, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                            )
+                        }
                     }
                 },
                 confirmButton = {
@@ -271,6 +281,7 @@ fun DealActionHost(
                         onClick = {
                             val value = YarnCalculator.parseDecimal(amount)?.takeIf { it.signum() > 0 }
                             if (value == null) toast(context.getString(R.string.payment_invalid))
+                            else if (overpay && !overpayConfirmed) overpayConfirmed = true
                             else scope.launch(Dispatchers.Main) {
                                 busy = true
                                 val error = opsVm.addPayment(item.id, deal.quoteNumber, deal.client, value, System.currentTimeMillis(), note)
@@ -285,7 +296,12 @@ fun DealActionHost(
                                 onDismiss()
                             }
                         },
-                    ) { Text(stringResource(R.string.save), color = colors.textPrimary, fontWeight = FontWeight.SemiBold) }
+                    ) {
+                        Text(
+                            stringResource(if (overpay && overpayConfirmed) R.string.payment_overpay_confirm else R.string.save),
+                            color = if (overpay && overpayConfirmed) DEBT_RED else colors.textPrimary, fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                 },
                 dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text(stringResource(R.string.cancel), color = colors.textSecondary) } },
                 containerColor = colors.panel,
@@ -359,17 +375,20 @@ fun PaymentsScreen(quoteVm: QuoteViewModel, opsVm: OpsViewModel, onBack: () -> U
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val history by quoteVm.history.collectAsStateWithLifecycle()
+    val deals by quoteVm.deals.collectAsStateWithLifecycle()
     val ops by opsVm.data.collectAsStateWithLifecycle()
     var request by remember { mutableStateOf<Pair<HistoryItem, DealAction>?>(null) }
     LaunchedEffect(Unit) {
         quoteVm.loadHistory()
+        quoteVm.loadDeals()
         opsVm.load()
     }
-    val items = history.orEmpty()
+    // Долги — по всем КП (не только последним 200 из истории).
+    val items = deals ?: history.orEmpty()
     val report = Debts.report(items.map { Deal(it.id, it.number, it.client, it.total, it.status) }, ops.paymentsForDebts)
 
     FormScreen(stringResource(R.string.payments_title), onBack, actions = {
-        KnitIconButton(R.drawable.ic_arrow_down, stringResource(R.string.sync_refresh), { quoteVm.loadHistory(); opsVm.load() })
+        KnitIconButton(R.drawable.ic_arrow_down, stringResource(R.string.sync_refresh), { quoteVm.loadHistory(); quoteVm.loadDeals(); opsVm.load() })
     }) {
         OpsStatus(opsVm, quoteVm)
         if (ops.msPaid != null) Text(stringResource(R.string.payments_ms_note), color = colors.textSecondary, fontSize = 14.sp)

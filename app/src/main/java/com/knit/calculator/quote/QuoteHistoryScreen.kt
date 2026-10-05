@@ -65,6 +65,15 @@ fun QuoteHistoryScreen(
     val repeated = stringResource(R.string.history_repeated)
 
     var request by remember { mutableStateOf<Pair<HistoryItem, DealAction>?>(null) }
+    // «Отказ» и «Оплачено» — только после подтверждения (уходят и в МойСклад).
+    var pendingStatus by remember { mutableStateOf<Pair<HistoryItem, QuoteStatus>?>(null) }
+    fun applyStatus(q: HistoryItem, status: QuoteStatus) {
+        scope.launch(Dispatchers.Main) {
+            viewModel.setStatus(q, status)?.let {
+                Toast.makeText(context, context.getString(R.string.status_error, it), Toast.LENGTH_LONG).show()
+            }
+        }
+    }
 
     BackHandler(onBack = onBack)
     LaunchedEffect(Unit) {
@@ -100,11 +109,8 @@ fun QuoteHistoryScreen(
                         },
                         onDeal = { action -> request = q to action },
                         onStatus = { status ->
-                            scope.launch(Dispatchers.Main) {
-                                viewModel.setStatus(q, status)?.let {
-                                    Toast.makeText(context, context.getString(R.string.status_error, it), Toast.LENGTH_LONG).show()
-                                }
-                            }
+                            if (status == QuoteStatus.REJECTED || status == QuoteStatus.PAID) pendingStatus = q to status
+                            else applyStatus(q, status)
                         },
                     )
                 }
@@ -112,6 +118,15 @@ fun QuoteHistoryScreen(
         }
     }
     DealActionHost(request, viewModel, opsViewModel, onDismiss = { request = null }, onOpenProduction = onOpenProduction)
+    pendingStatus?.let { (q, status) ->
+        ConfirmDialog(
+            title = stringResource(R.string.status_confirm_title),
+            text = stringResource(R.string.status_confirm_text, q.number, status.title),
+            confirm = stringResource(R.string.status_confirm_ok),
+            onConfirm = { pendingStatus = null; applyStatus(q, status) },
+            onDismiss = { pendingStatus = null },
+        )
+    }
 }
 
 @Composable

@@ -98,6 +98,12 @@ data class Product(
     /** Минимальная цена продажи за единицу. */
     val minPrice: BigDecimal? = null,
     val description: String = "",
+    /** Характеристики модификации МойСклад (Цвет, Размер, Артикул…). */
+    val attributes: Map<String, String> = emptyMap(),
+    /** «Топ-продажа», «Популярный». */
+    val badges: List<String> = emptyList(),
+    /** «product» или «variant» — тип позиции в МойСклад. */
+    val externalType: String = "product",
 )
 
 /** Выбор клиента: изделие, варианты параметров (id группы → id варианта) и количество. */

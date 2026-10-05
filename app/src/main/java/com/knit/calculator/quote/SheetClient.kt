@@ -10,7 +10,6 @@ import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
-import java.net.URLEncoder
 
 /** Ошибка связи с таблицей; [message] понятно пользователю. */
 class SheetException(message: String) : IOException(message)
@@ -32,6 +31,10 @@ data class RemoteCatalog(
     val logo: RemoteLogo? = null,
     /** Лист «Договор»: текст договора поставки (если лист есть). */
     val contract: List<List<String>> = emptyList(),
+    /** Роль по ключу: «director» или «manager» (себестоимость и прибыль — только директору). */
+    val role: String = "director",
+    /** Имя менеджера из листа «Менеджеры» (у личного ключа). */
+    val manager: String = "",
 )
 
 data class RemoteQuote(
@@ -74,14 +77,18 @@ class SheetClient(private val config: SyncConfig) {
                 clients = rows(sheets.optJSONArray("clients")),
             ),
             contract = rows(sheets.optJSONArray("contract")),
+            role = o.optString("role").ifBlank { "director" },
+            manager = o.optString("manager"),
             logo = o.optJSONObject("logo")?.let { l ->
                 RemoteLogo(l.optString("version"), l.optString("data").takeIf { it.isNotBlank() }?.let { android.util.Base64.decode(it, android.util.Base64.DEFAULT) })
             },
         )
     }
 
-    suspend fun quotes(limit: Int = 50): List<RemoteQuote> {
-        val array = get("quotes", "limit" to limit.toString()).optJSONArray("quotes") ?: JSONArray()
+    /** КП: последние [limit]; [month] — все КП месяца («2026-10»); [light] — все КП без данных черновика. */
+    suspend fun quotes(limit: Int = 50, month: String = "", light: Boolean = false): List<RemoteQuote> {
+        val array = get("quotes", "limit" to limit.toString(), "month" to month, "light" to (if (light) "1" else ""))
+            .optJSONArray("quotes") ?: JSONArray()
         return (0 until array.length()).mapNotNull { array.optJSONObject(it) }.map {
             RemoteQuote(
                 number = it.optInt("number"),
@@ -181,11 +188,11 @@ class SheetClient(private val config: SyncConfig) {
         return MsResult.from(request(URL(config.url.trim()), body.toString()).optJSONObject("ms"))
     }
 
+    /** Чтение — тоже POST: ключ доступа не попадает в адрес запроса (журналы, история). */
     private suspend fun get(action: String, vararg params: Pair<String, String>): JSONObject {
-        val query = (listOf("action" to action, "key" to config.key) + params)
-            .joinToString("&") { (k, v) -> "$k=" + URLEncoder.encode(v, "UTF-8") }
-        val base = config.url.trim()
-        return request(URL(base + (if ('?' in base) "&" else "?") + query), null)
+        val body = JSONObject().put("action", action).put("key", config.key)
+        params.filter { it.second.isNotEmpty() }.forEach { (k, v) -> body.put(k, v) }
+        return request(URL(config.url.trim()), body.toString())
     }
 
     private suspend fun request(start: URL, postBody: String?): JSONObject = withContext(Dispatchers.IO) {
