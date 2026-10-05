@@ -3,6 +3,7 @@ package com.knit.calculator.quote
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,6 +57,7 @@ fun QuoteHistoryScreen(
     onOpenProduction: () -> Unit,
     onOpened: () -> Unit,
     onOpenLabels: (HistoryItem) -> Unit = {},
+    onOpenClient: (String) -> Unit = {},
 ) {
     val history by viewModel.history.collectAsStateWithLifecycle()
     val error by viewModel.historyError.collectAsStateWithLifecycle()
@@ -137,6 +139,7 @@ fun QuoteHistoryScreen(
                             }
                         },
                         onDeal = { action -> if (action == DealAction.LABELS) onOpenLabels(q) else request = q to action },
+                        onClient = { onOpenClient(q.client) },
                         onStatus = { status ->
                             if (status == QuoteStatus.REJECTED || status == QuoteStatus.PAID) pendingStatus = q to status
                             else applyStatus(q, status)
@@ -165,6 +168,7 @@ private fun HistoryCard(
     onRepeat: () -> Unit,
     onDeal: (DealAction) -> Unit,
     onStatus: (QuoteStatus) -> Unit,
+    onClient: () -> Unit = {},
 ) {
     val colors = LocalKnitColors.current
     var menu by remember { mutableStateOf(false) }
@@ -174,7 +178,11 @@ private fun HistoryCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(stringResource(R.string.history_quote_title, item.number, item.date), color = colors.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                    if (item.client.isNotBlank()) Text(item.client, color = colors.textSecondary, fontSize = 14.sp)
+                    // Клиент — ссылка на карточку клиента (все КП, оплаты, долг, контакты).
+                    if (item.client.isNotBlank()) Text(
+                        item.client + " ›", color = colors.textSecondary, fontSize = 14.sp,
+                        modifier = Modifier.clickable(onClick = onClient),
+                    )
                     if (item.author.isNotBlank()) Text(item.author, color = colors.textSecondary, fontSize = 12.sp)
                 }
                 Text(

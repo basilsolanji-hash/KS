@@ -874,6 +874,33 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
 
     private var undoTimer: kotlinx.coroutines.Job? = null
 
+    private val _templates = MutableStateFlow(store.loadTemplates())
+    val templates: StateFlow<List<QuoteTemplate>> = _templates.asStateFlow()
+
+    /** Позиции текущего КП — в шаблон (с тем же названием — заменяется). */
+    fun saveTemplate(name: String) {
+        val clean = name.trim().ifBlank { return }
+        val lines = _draft.value.lines.map { it.copy(id = 0, photoPath = null, photoFileId = null) }
+        if (lines.isEmpty()) return
+        val next = listOf(QuoteTemplate(clean, lines)) + _templates.value.filterNot { it.name.equals(clean, ignoreCase = true) }
+        _templates.value = next
+        store.saveTemplates(next)
+    }
+
+    fun deleteTemplate(name: String) {
+        val next = _templates.value.filterNot { it.name == name }
+        _templates.value = next
+        store.saveTemplates(next)
+    }
+
+    /** Позиции шаблона — в конец КП (товары, которых больше нет в каталоге, пропускаются). */
+    fun applyTemplate(t: QuoteTemplate): Int {
+        val known = (_catalog.value + _msProducts.value).map { it.id }.toSet()
+        val lines = t.lines.filter { it.productId in known }.map { it.copy(id = newId()) }
+        updateDraft { it.copy(lines = it.lines + lines) }
+        return lines.size
+    }
+
     /** Копия позиции сразу после неё (без фото): тот же товар — меняют размер, цвет или количество. */
     fun duplicateLine(id: Long) = updateDraft { d ->
         val index = d.lines.indexOfFirst { it.id == id }

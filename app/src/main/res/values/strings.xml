@@ -591,6 +591,7 @@
     <string name="about_error">ошибка: %1$s</string>
     <string name="about_ms_on">%1$d товаров · склад %2$s · обновлено %3$s</string>
     <string name="about_news">Что нового</string>
+    <string name="about_news_170">1.7.0 — вход по отпечатку / PIN телефона; журнал действий в таблице (лист «Журнал»); резервная копия таблицы (каждый день, 14 копий); карточка клиента (все КП, оплаты, долг, звонок, WhatsApp, письмо); шаблоны КП.</string>
     <string name="about_news_162">1.6.2 — экран «Товары МойСклад» с карточкой (цены по тиражу, остаток, штрихкод, характеристики, «В КП», «Этикетка»); QR для оплаты на счёте (ГОСТ Р 56042); копирование позиции; подсказка, если МойСклад не подключён.</string>
     <string name="about_news_161">1.6.1 — настройки разделами; подключение телефона по QR-коду из таблицы; КП по шагам «Клиент → Позиции → Итог», итог и «Сохранить» всегда внизу; ежедневная сводка в 9:00 (долги, отгрузки, просрочки, КП без ответа).</string>
     <string name="about_news_160">1.6.0 — проверка ИНН, e-mail и телефона; реквизиты клиента по ИНН (DaData); КПП и адрес клиента в счёте и договоре; контроль минимальной цены; «Отменить» удаление позиции; избранные и недавние товары; поиск в истории КП; панель «Сегодня»; экран «О версии».</string>
@@ -629,4 +630,30 @@
     <string name="products_label">Этикетка</string>
     <string name="products_to_quote">В КП</string>
     <string name="products_close">Закрыть</string>
+    <!-- v1.7.0 -->
+    <string name="lock_title">Фабрика KS</string>
+    <string name="lock_subtitle">Подтвердите вход отпечатком или PIN-кодом телефона</string>
+    <string name="lock_unlock">Войти</string>
+    <string name="lock_setting">Вход по отпечатку / PIN телефона</string>
+    <string name="lock_setting_hint">При запуске и после 5 минут в фоне — защита данных, если телефон потерян.</string>
+    <string name="lock_unavailable">На телефоне не настроена блокировка экрана (PIN, отпечаток).</string>
+    <string name="template_apply">Из шаблона…</string>
+    <string name="template_save">Сохранить как шаблон</string>
+    <string name="template_title">Шаблоны КП</string>
+    <string name="template_row">%1$s · позиций: %2$d</string>
+    <string name="template_name">Название шаблона</string>
+    <string name="template_delete">Удалить шаблон</string>
+    <string name="template_missing">%1$d поз. из шаблона пропущено: этих товаров больше нет в каталоге.</string>
+    <string name="client_title">Клиент</string>
+    <string name="client_inn">ИНН %1$s</string>
+    <string name="client_call">Позвонить</string>
+    <string name="client_whatsapp">WhatsApp</string>
+    <string name="client_email">Письмо</string>
+    <string name="client_quotes">КП: %1$d на %2$s</string>
+    <string name="client_paid">Оплачено: %1$s</string>
+    <string name="client_debt">Долг: %1$s</string>
+    <string name="client_new_quote">Новое КП для клиента</string>
+    <string name="client_history">Все КП клиента</string>
+    <string name="client_no_quotes">КП этому клиенту ещё нет.</string>
+    <string name="client_row_debt">долг %1$s</string>
 </resources>

@@ -66,7 +66,7 @@ import java.util.TimeZone
 
 private fun date(ms: Long) = if (ms <= 0) "—" else SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(Date(ms))
 private fun rub(v: BigDecimal) = QuoteCalculator.formatMoney(v) + " ₽"
-private val DEBT_RED = Color(0xFFD93B3B)
+internal val DEBT_RED = Color(0xFFD93B3B)
 
 /** Действия со сделкой из истории КП. */
 enum class DealAction { INVOICE, CONTRACT, ORDER, PAYMENT, LABELS }

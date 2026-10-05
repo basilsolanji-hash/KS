@@ -104,11 +104,26 @@ function doPost(e) {
 
 function handle_(req) {
   gzipOut_ = !!req.gz;
+  lastOk_ = false;
+  var out = route_(req);
+  // Журнал действий: кто, когда и что изменил (только успешные изменения).
+  if (lastOk_ && JOURNAL[req.action] && who_) {
+    try { journal_(SpreadsheetApp.getActiveSpreadsheet(), who_, req); } catch (e) {}
+  }
+  return out;
+}
+
+var who_ = null;
+var lastOk_ = false;
+
+function route_(req) {
+  who_ = null;
   try {
     msCache_ = {};
     settingsMemo_ = null;
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var who = auth_(ss, String(req.key || '').trim());
+    who_ = who;
     var director = who.role === 'director';
     // Изменения заказов и оплат — оплаченные суммы МойСклад читаются заново.
     if (MS_WRITE_ACTIONS.indexOf(req.action) >= 0) {
@@ -261,6 +276,100 @@ function cacheBump_() {
   try {
     CacheService.getScriptCache().put('gen', newGen_(), 21600);
   } catch (e) {}
+}
+
+// ---------------------------------------------------------------- Журнал действий
+
+var JOURNAL_SHEET = 'Журнал';
+var JOURNAL = {
+  saveQuote: 'КП сохранено',
+  setStatus: 'Статус КП',
+  addInvoice: 'Счёт',
+  addPayment: 'Оплата',
+  deletePayment: 'Оплата удалена',
+  saveOrder: 'Заказ на производство',
+  addYarnMoves: 'Склад пряжи',
+  sendEmail: 'Письмо клиенту',
+  msBarcode: 'Штрихкод МойСклад',
+};
+
+function journalDetails_(ss, req) {
+  var rub = function (v) { return (Number(v) || 0).toFixed(2).replace('.', ',') + ' ₽'; };
+  var number = function (id) { var r = quoteRow_(ss, String(id || '')); return r ? '№ ' + r[0] : ''; };
+  switch (req.action) {
+    case 'saveQuote': { var q = req.quote || {}; return [number(q.id) || 'новое', q.client, rub(q.total)].filter(String).join(' · '); }
+    case 'setStatus': return [number(req.id), '→ ' + req.status].filter(String).join(' ');
+    case 'addInvoice': { var i = req.invoice || {}; return 'КП № ' + i.quoteNumber + ' · ' + rub(i.amount) + ' · ' + (i.purpose || ''); }
+    case 'addPayment': { var p = req.payment || {}; return 'КП № ' + p.quoteNumber + ' · ' + (p.client || '') + ' · ' + rub(p.amount); }
+    case 'deletePayment': return 'ID ' + req.id;
+    case 'saveOrder': { var o = req.order || {}; return 'КП № ' + o.quoteNumber + ' · ' + (o.stage || ''); }
+    case 'addYarnMoves': return (req.moves || []).map(function (m) { return m.yarn + ' ' + m.kg + ' кг'; }).join(', ');
+    case 'sendEmail': return (req.kind || 'КП') + ' → ' + (req.to || '');
+    case 'msBarcode': return req.msType + ' ' + req.msId;
+  }
+  return '';
+}
+
+function journal_(ss, who, req) {
+  var sheet = ss.getSheetByName(JOURNAL_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(JOURNAL_SHEET);
+    sheet.appendRow(['Дата', 'Кто', 'Действие', 'Подробности']);
+  }
+  var person = who.name || (who.role === 'director' ? 'Директор' : 'Менеджер');
+  sheet.appendRow([new Date(), person, JOURNAL[req.action], journalDetails_(ss, req)]);
+}
+
+// ---------------------------------------------------------------- Резервная копия
+
+var BACKUP_FOLDER = 'Фабрика KS — резервные копии';
+var BACKUP_KEEP = 14;
+
+function backupFolder_() {
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty('BACKUP_FOLDER');
+  if (id) {
+    try { return DriveApp.getFolderById(id); } catch (e) {}
+  }
+  var found = DriveApp.getFoldersByName(BACKUP_FOLDER);
+  var folder = found.hasNext() ? found.next() : DriveApp.createFolder(BACKUP_FOLDER);
+  props.setProperty('BACKUP_FOLDER', folder.getId());
+  return folder;
+}
+
+/** Копия таблицы в папку «Фабрика KS — резервные копии»; хранятся последние 14 копий. */
+function backupNow_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var folder = backupFolder_();
+  var name = ss.getName() + ' — копия ' + Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'yyyy-MM-dd HH:mm');
+  DriveApp.getFileById(ss.getId()).makeCopy(name, folder);
+  var files = [];
+  var it = folder.getFiles();
+  while (it.hasNext()) files.push(it.next());
+  files.sort(function (a, b) { return b.getDateCreated().getTime() - a.getDateCreated().getTime(); });
+  files.slice(BACKUP_KEEP).forEach(function (f) { f.setTrashed(true); });
+  return name;
+}
+
+/** Триггер: каждый день в 3:00. */
+function backupDaily() {
+  backupNow_();
+}
+
+/** Меню: копия прямо сейчас. */
+function backupMenu() {
+  var name = backupNow_();
+  SpreadsheetApp.getUi().alert('Резервная копия создана: «' + name + '»\nПапка на Диске: «' + BACKUP_FOLDER + '» (хранятся последние ' + BACKUP_KEEP + ').');
+}
+
+/** Меню: включить ежедневную копию в 3:00 (повторное включение не создаёт второй триггер). */
+function backupEnable() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'backupDaily') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('backupDaily').timeBased().everyDays(1).atHour(3).create();
+  backupNow_();
+  SpreadsheetApp.getUi().alert('Ежедневная резервная копия включена (около 3:00). Первая копия уже создана в папке «' + BACKUP_FOLDER + '».');
 }
 
 /** Простой триггер: любая правка таблицы вручную — справочники перечитываются. */
@@ -761,6 +870,7 @@ function text_(value) {
 }
 
 function json_(obj) {
+  lastOk_ = !!(obj && obj.ok);
   var text = JSON.stringify(obj);
   if (gzipOut_ && text.length > 20000) {
     var packed = Utilities.base64Encode(Utilities.gzip(Utilities.newBlob(text, 'application/json')).getBytes());
@@ -784,6 +894,10 @@ var MS_STATE_COLOR = 3200456; // #30D5C8
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Фабрика KS')
     .addItem('QR для подключения телефона…', 'qrConnect')
+    .addSeparator()
+    .addItem('Резервная копия сейчас', 'backupMenu')
+    .addItem('Ежедневная резервная копия (включить)', 'backupEnable')
+    .addSeparator()
     .addItem('Подключить МойСклад…', 'msConnect')
     .addItem('Отключить МойСклад', 'msDisconnect')
     .addToUi();

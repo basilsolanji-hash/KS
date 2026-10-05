@@ -2,7 +2,7 @@ package com.knit.calculator
 
 import android.graphics.Color
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -36,9 +36,29 @@ import com.knit.calculator.yarn.YarnScreen
 import com.knit.calculator.yarn.YarnViewModel
 
 /** Экраны приложения; переход «назад» описан у каждого экрана. */
-private enum class Screen { HOME, CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY, REPORT, ORDER_YARN, SHOP, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS }
+private enum class Screen { HOME, CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY, REPORT, ORDER_YARN, SHOP, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, CLIENT }
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
+
+    // Блокировка: при запуске и после 5 минут в фоне (если включена в настройках).
+    private var locked by mutableStateOf(false)
+    private var stoppedAt = 0L
+
+    override fun onStart() {
+        super.onStart()
+        val away = stoppedAt > 0 && System.currentTimeMillis() - stoppedAt > LOCK_AFTER_MS
+        if (com.knit.calculator.quote.QuoteStore(this).appLock && away && com.knit.calculator.ui.AppLock.available(this)) locked = true
+    }
+
+    override fun onStop() {
+        super.onStop()
+        stoppedAt = System.currentTimeMillis()
+    }
+
+    private companion object {
+        const val LOCK_AFTER_MS = 5 * 60_000L
+    }
+
 
     private val viewModel: CalculatorViewModel by viewModels()
     private val yarnViewModel: YarnViewModel by viewModels()
@@ -48,6 +68,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null && com.knit.calculator.quote.QuoteStore(this).appLock && com.knit.calculator.ui.AppLock.available(this)) locked = true
         // Ежедневная сводка (9:00): долги, отгрузки, просрочки, КП без ответа.
         com.knit.calculator.quote.DailyDigest.schedule(this, com.knit.calculator.quote.QuoteStore(this).digestEnabled)
         enableEdgeToEdge()
@@ -67,6 +88,7 @@ class MainActivity : ComponentActivity() {
             var stack by rememberSaveable { mutableStateOf(listOf(Screen.HOME.name)) }
             val screen = Screen.valueOf(stack.last())
             fun open(s: Screen) { stack = stack + s.name }
+            var clientName by rememberSaveable { mutableStateOf("") }
             fun back() { stack = if (stack.size > 1) stack.dropLast(1) else stack }
             val sync by quoteViewModel.sync.collectAsStateWithLifecycle()
             val settings by quoteViewModel.settings.collectAsStateWithLifecycle()
@@ -104,6 +126,10 @@ class MainActivity : ComponentActivity() {
                 quoteViewModel.notices.collect { notice = it }
             }
             KnitTheme(darkTheme = darkTheme) {
+                if (locked) {
+                    com.knit.calculator.ui.LockScreen { com.knit.calculator.ui.AppLock.prompt(this@MainActivity) { locked = false } }
+                    return@KnitTheme
+                }
                 when (screen) {
                     Screen.HOME -> HomeScreen(sync, themeMode, director, onTheme = viewModel::cycleTheme, day = day, version = version) { action ->
                         open(
@@ -139,6 +165,7 @@ class MainActivity : ComponentActivity() {
                         opsViewModel = opsViewModel,
                         onBack = ::back,
                         onOpenProduction = { open(Screen.PRODUCTION) },
+                        onOpenClient = { name -> clientName = name; open(Screen.CLIENT) },
                         onOpenLabels = { item ->
                             // Этикетки на все позиции МойСклад заказа: по одной копии, в упаковке — количество из КП.
                             val items = quoteViewModel.labelProducts(item)
@@ -173,6 +200,9 @@ class MainActivity : ComponentActivity() {
                     Screen.PRODUCTION -> ProductionScreen(quoteViewModel, opsViewModel, onBack = ::back)
                     Screen.STOCK -> StockScreen(quoteViewModel, opsViewModel, onBack = ::back)
                     Screen.LABELS -> com.knit.calculator.label.LabelScreen(quoteViewModel, labelViewModel, onBack = ::back)
+                    Screen.CLIENT -> com.knit.calculator.quote.ClientScreen(
+                        quoteViewModel, opsViewModel, clientName, onBack = ::back, onNewQuote = { open(Screen.QUOTE) },
+                    )
                     Screen.PRODUCTS -> com.knit.calculator.quote.ProductsScreen(
                         quoteViewModel,
                         onBack = ::back,

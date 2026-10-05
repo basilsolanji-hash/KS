@@ -73,4 +73,36 @@ class V16UiTest {
         compose.onNodeWithText("Подключить по QR-коду").assertDoesNotExist()
         Shots.take("64_settings_tabs", compose)
     }
+
+    @Test fun templatesAndClientCard() {
+        compose.onNodeWithText("Коммерческое предложение").performClick()
+        compose.onNodeWithText("Компания клиента").performTextInput("ООО Ромашка")
+        compose.onNodeWithText("Добавить позицию").performScrollTo().performClick()
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Подвяз трикотажный")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Подвяз трикотажный").performClick()
+        val qty = compose.onNode(hasSetTextAction() and hasText("Количество"))
+        qty.performTextClearance()
+        qty.performTextInput("600")
+
+        // Шаблон: сохранить набор позиций и вернуть его одной кнопкой.
+        compose.onNodeWithText("Сохранить как шаблон").performScrollTo().performClick()
+        compose.onNode(hasSetTextAction() and hasText("Название шаблона")).performTextInput("Подвязы 600")
+        compose.onAllNodes(hasText("Сохранить")).onFirst().assertExists()
+        compose.onNode(hasText("Сохранить") and androidx.compose.ui.test.hasClickAction() and androidx.compose.ui.test.hasAnyAncestor(androidx.compose.ui.test.isDialog())).performClick()
+        compose.onNodeWithText("Из шаблона…").performScrollTo().performClick()
+        compose.onNodeWithText("Подвязы 600 · позиций: 1").performClick()
+        compose.onAllNodes(hasText("2. Подвяз трикотажный", substring = true)).onFirst().assertExists()
+        Shots.take("65_template", compose)
+
+        // Карточка клиента из истории КП.
+        compose.onNodeWithText("Сохранить КП").performScrollTo().performClick()
+        Thread.sleep(3_000)
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("История КП").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodes(hasText("ООО Ромашка ›")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("ООО Ромашка ›").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodes(hasText("КП: 1 на", substring = true)).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Новое КП для клиента").assertExists()
+        Shots.take("66_client_card", compose)
+    }
 }

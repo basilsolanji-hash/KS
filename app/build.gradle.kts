@@ -12,8 +12,8 @@ android {
         applicationId = "com.knit.calculator"
         minSdk = 24
         targetSdk = 35
-        versionCode = 11
-        versionName = "1.6.2"
+        versionCode = 12
+        versionName = "1.7.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -73,6 +73,8 @@ dependencies {
     implementation(libs.androidx.work.runtime)
     // Сканер QR для подключения телефона к таблице (камера — через сервисы Google, без разрешения).
     implementation(libs.play.services.code.scanner)
+    // Вход по отпечатку / PIN телефона.
+    implementation(libs.androidx.biometric)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)

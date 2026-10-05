@@ -216,6 +216,9 @@ data class DraftLine(
  * @property id уникальный идентификатор КП (одинаковый на всех телефонах после сохранения в таблицу).
  * @property saved КП уже сохранено в таблицу и получило номер [number].
  */
+/** Шаблон КП — частый набор позиций одной кнопкой. */
+data class QuoteTemplate(val name: String, val lines: List<DraftLine>)
+
 data class QuoteDraft(
     val id: String = UUID.randomUUID().toString(),
     val number: Int = 1,

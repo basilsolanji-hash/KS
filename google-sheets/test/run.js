@@ -109,7 +109,7 @@ const context = {
   },
 };
 const code = fs.readFileSync(path.join(__dirname, '..', 'Code.gs'), 'utf8');
-const fn = new Function(...Object.keys(context), code + '\nreturn { doGet, doPost, onEdit };');
+const fn = new Function(...Object.keys(context), code + '\nreturn { doGet, doPost, onEdit, backupNow_ };');
 const api = fn(...Object.values(context));
 
 const call = (body) => JSON.parse(api.doPost({ postData: { contents: JSON.stringify(Object.assign({ key: 'secret' }, body)) } }).text);
@@ -490,5 +490,43 @@ call({ action: 'msCatalog' });
 assert.strictEqual(msCalls.length, msBefore);
 call({ action: 'msCatalog', fresh: true });
 assert.ok(msCalls.length > msBefore);
+
+// ---- Журнал действий: успешные изменения записываются, ошибки и чтение — нет.
+const journal = sheets['Журнал'];
+assert.ok(journal, 'лист «Журнал» создан');
+assert.deepStrictEqual(journal.data[0], ['Дата', 'Кто', 'Действие', 'Подробности']);
+const kinds = journal.data.slice(1).map((r) => r[2]);
+assert.ok(kinds.includes('КП сохранено') && kinds.includes('Оплата') && kinds.includes('Статус КП'));
+assert.ok(!kinds.includes(undefined));
+const beforeLog = journal.data.length;
+call({ action: 'quotes' });
+call({ action: 'setStatus', id: 'нет-такого', status: 'Оплачено' });
+assert.strictEqual(journal.data.length, beforeLog, 'чтение и ошибки не пишутся');
+asManager({ action: 'addYarnMoves', moves: [{ id: 'jm1', date: 1, yarn: 'Хлопок', kg: 5 }] });
+const lastLog = journal.data[journal.data.length - 1];
+assert.deepStrictEqual([lastLog[1], lastLog[2], lastLog[3]], ['Иван', 'Склад пряжи', 'Хлопок 5 кг']);
+
+// ---- Резервная копия: копия в папку, хранятся последние 14.
+ss.getId = () => 'ss1';
+const backupFiles = [];
+const folder = { getId: () => 'bf', getFiles: () => { let i = 0; return { hasNext: () => i < backupFiles.length, next: () => backupFiles[i++] }; } };
+context.DriveApp.getFoldersByName = () => ({ hasNext: () => false });
+context.DriveApp.createFolder = () => folder;
+const realGetFolder = context.DriveApp.getFolderById;
+context.DriveApp.getFolderById = (id) => (id === 'bf' ? folder : realGetFolder(id));
+context.DriveApp.getFileById = (id) => ({
+  getBlob: () => ({ id }),
+  makeCopy: (name, f) => {
+    assert.strictEqual(f, folder);
+    const file = { name, trashed: false, created: backupFiles.length, getDateCreated: () => new Date(file.created), setTrashed(v) { file.trashed = v; } };
+    backupFiles.push(file);
+    return file;
+  },
+});
+for (let i = 0; i < 16; i++) api.backupNow_();
+assert.strictEqual(backupFiles.length, 16);
+assert.strictEqual(backupFiles.filter((f) => f.trashed).length, 2);
+assert.ok(backupFiles[0].trashed && backupFiles[1].trashed && !backupFiles[15].trashed);
+assert.ok(/^Тест — копия /.test(backupFiles[0].name));
 
 console.log('Apps Script: все проверки пройдены');

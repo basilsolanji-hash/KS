@@ -152,6 +152,9 @@ fun QuoteScreen(
     var confirmBelowMin by remember { mutableStateOf<QuoteAction?>(null) }
     var innBusy by remember { mutableStateOf(false) }
     val removed by viewModel.removed.collectAsStateWithLifecycle()
+    val templates by viewModel.templates.collectAsStateWithLifecycle()
+    var showTemplates by remember { mutableStateOf(false) }
+    var saveTemplate by remember { mutableStateOf<String?>(null) }
     // Позиции дешевле минимальной цены МойСклад: менеджеру — запрет, директору — подтверждение.
     val belowMin = views.filter { v -> val min = v.product.minPrice; v.line != null && min != null && v.line.unitPrice < min }
 
@@ -411,6 +414,16 @@ fun QuoteScreen(
                 }
             }
 
+            // Шаблоны КП: частые наборы позиций одной кнопкой.
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (templates.isNotEmpty()) TextButton(onClick = { showTemplates = true }) {
+                    Text(stringResource(R.string.template_apply), color = colors.textPrimary)
+                }
+                if (draft.lines.isNotEmpty()) TextButton(onClick = { saveTemplate = "" }) {
+                    Text(stringResource(R.string.template_save), color = colors.textSecondary)
+                }
+            }
+
             KnitField(
                 draft.comment, { v -> viewModel.updateDraft { it.copy(comment = v) } }, R.string.quote_comment,
                 text = true, singleLine = false, maxLength = 500,
@@ -482,6 +495,47 @@ fun QuoteScreen(
                 }
             }
         }
+    }
+
+    if (showTemplates) {
+        AlertDialog(
+            onDismissRequest = { showTemplates = false },
+            title = { Text(stringResource(R.string.template_title)) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    templates.forEach { t ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                stringResource(R.string.template_row, t.name, t.lines.size),
+                                color = colors.textPrimary, fontSize = 16.sp,
+                                modifier = Modifier.weight(1f).clickable {
+                                    showTemplates = false
+                                    val added = viewModel.applyTemplate(t)
+                                    if (added < t.lines.size) checkError = context.getString(R.string.template_missing, t.lines.size - added)
+                                }.padding(vertical = 10.dp),
+                            )
+                            KnitIconButton(R.drawable.ic_delete, stringResource(R.string.template_delete), { viewModel.deleteTemplate(t.name) })
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showTemplates = false }) { Text(stringResource(R.string.cancel), color = colors.textSecondary) } },
+            containerColor = colors.panel,
+        )
+    }
+    saveTemplate?.let { name ->
+        AlertDialog(
+            onDismissRequest = { saveTemplate = null },
+            title = { Text(stringResource(R.string.template_save)) },
+            text = { KnitField(name, { saveTemplate = it }, R.string.template_name, text = true, maxLength = 60) },
+            confirmButton = {
+                TextButton(onClick = { viewModel.saveTemplate(name); saveTemplate = null }, enabled = name.isNotBlank()) {
+                    Text(stringResource(R.string.save), color = colors.textPrimary, fontWeight = FontWeight.SemiBold)
+                }
+            },
+            dismissButton = { TextButton(onClick = { saveTemplate = null }) { Text(stringResource(R.string.cancel), color = colors.textSecondary) } },
+            containerColor = colors.panel,
+        )
     }
 
     checkError?.let { text ->

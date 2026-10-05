@@ -152,6 +152,7 @@ class MoySkladUiTest {
         Shots.take("55_product_card", compose)
         compose.onNodeWithText("В КП").performClick()
         compose.onAllNodes(hasText("Подвяз трикотажный 1×1 (ПЭ) Белый, 14х100 см", substring = true)).onFirst().assertExists()
-        compose.onNodeWithText("Итого").assertExists()
+        // Позиция в КП ждёт количество.
+        compose.onNode(hasSetTextAction() and hasText("Количество")).assertExists()
     }
 }

@@ -162,6 +162,44 @@ class QuoteStore(context: Context) {
         set(value) = prefs.edit().putString("server_manager", value).apply()
 
     /** PIN, которым на этом телефоне открыт режим директора. */
+    /** Шаблоны КП: название → позиции (товар, варианты, количество, скидка). */
+    fun loadTemplates(): List<QuoteTemplate> = runCatching {
+        val a = org.json.JSONArray(prefs.getString("templates", "[]"))
+        (0 until a.length()).mapNotNull { a.optJSONObject(it) }.map { t ->
+            val lines = t.optJSONArray("lines") ?: org.json.JSONArray()
+            QuoteTemplate(
+                t.optString("name"),
+                (0 until lines.length()).mapNotNull { lines.optJSONObject(it) }.map { l ->
+                    val sel = l.optJSONObject("selected") ?: org.json.JSONObject()
+                    DraftLine(
+                        id = 0, productId = l.optLong("productId"),
+                        selected = sel.keys().asSequence().associate { it.toLong() to sel.getLong(it) },
+                        quantity = l.optString("quantity"), discount = l.optString("discount"),
+                    )
+                },
+            )
+        }
+    }.getOrDefault(emptyList())
+
+    fun saveTemplates(list: List<QuoteTemplate>) {
+        val a = org.json.JSONArray()
+        list.forEach { t ->
+            val lines = org.json.JSONArray()
+            t.lines.forEach { l ->
+                val sel = org.json.JSONObject()
+                l.selected.forEach { (k, v) -> sel.put(k.toString(), v) }
+                lines.put(org.json.JSONObject().put("productId", l.productId).put("selected", sel).put("quantity", l.quantity).put("discount", l.discount))
+            }
+            a.put(org.json.JSONObject().put("name", t.name).put("lines", lines))
+        }
+        prefs.edit().putString("templates", a.toString()).apply()
+    }
+
+    /** Вход по отпечатку / PIN телефона при запуске и после 5 минут в фоне. */
+    var appLock: Boolean
+        get() = prefs.getBoolean("app_lock", false)
+        set(v) { prefs.edit().putBoolean("app_lock", v).apply() }
+
     /** Ежедневная сводка в 9:00 (долги, отгрузки, КП без ответа). */
     var digestEnabled: Boolean
         get() = prefs.getBoolean("digest", true)
