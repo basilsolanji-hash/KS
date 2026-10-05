@@ -191,6 +191,8 @@ function route_(req) {
         ['ms:d', 'ms:m'].forEach(function (k) { try { CacheService.getScriptCache().remove(k); } catch (e) {} });
         return json_({ ok: true, product: updated });
       }
+      case 'msImage':
+        return json_({ ok: true, image: msImage_(String(req.msType || ''), String(req.msId || '')) });
       case 'msBarcode':
         return json_({ ok: true, barcode: msCreateBarcode_(String(req.msType || ''), String(req.msId || '')) });
       case 'uploadFile':
@@ -1447,6 +1449,25 @@ function msUpdateProduct_(type, id, changes) {
   var tiers = msTiers_(fresh.salePrices);
   if (!tiers.length && type === 'variant') tiers = msTiers_(ms_('get', '/entity/product/' + parentId).salePrices);
   return { id: id, tiers: tiers };
+}
+
+/** Первое фото товара МойСклад (у модификации без фото — фото товара) в base64; `null` — фото нет. */
+function msImage_(type, id) {
+  if (!msEnabled_()) throw new Error('МойСклад не подключён');
+  if ((type !== 'product' && type !== 'variant') || !/^[\w-]+$/.test(id)) throw new Error('Неверный товар');
+  var rows = ms_('get', '/entity/' + type + '/' + id + '/images').rows || [];
+  if (!rows.length && type === 'variant') {
+    var v = ms_('get', '/entity/variant/' + id);
+    rows = ms_('get', '/entity/product/' + msIdOf_(v.product) + '/images').rows || [];
+  }
+  if (!rows.length) return null;
+  var img = rows[0];
+  // Крупные фото (> 1,5 МБ) — уменьшенной копией, чтобы КП и PDF оставались лёгкими.
+  var href = (img.size > 1500000 && img.miniature && img.miniature.downloadHref) || (img.meta && img.meta.downloadHref);
+  if (!href) return null;
+  var res = UrlFetchApp.fetch(href, { headers: { Authorization: 'Bearer ' + msToken_(), 'Accept-Encoding': 'gzip' }, muteHttpExceptions: true, followRedirects: true });
+  if (res.getResponseCode() >= 400) throw new Error('МойСклад: фото не скачалось (' + res.getResponseCode() + ')');
+  return Utilities.base64Encode(res.getBlob().getBytes());
 }
 
 function msMoney_(v) {

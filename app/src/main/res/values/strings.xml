@@ -761,6 +761,7 @@
     <string name="products_edit_min">Мин. цена</string>
     <string name="products_edit_save">Сохранить в МойСклад</string>
     <string name="products_edit_hint">Изменения сразу сохраняются в МойСклад и записываются в журнал таблицы.</string>
+    <string name="quote_photo_ms">Фото товара из МойСклад</string>
     <string name="scan_barcode">Сканировать штрихкод</string>
     <string name="scan_not_found">Штрихкод %s не найден среди товаров — проверьте или обновите каталог.</string>
     <string name="chart_ship">Отгрузки (МойСклад)</string>

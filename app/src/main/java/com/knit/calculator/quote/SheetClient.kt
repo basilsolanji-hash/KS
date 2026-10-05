@@ -129,6 +129,13 @@ class SheetClient(private val config: SyncConfig) {
         return request(URL(config.url.trim()), body.toString())
     }
 
+    /** Первое фото товара МойСклад; `null` — фото нет. */
+    suspend fun msImage(type: String, id: String): ByteArray? {
+        val data = get("msImage", "msType" to type, "msId" to id).optString("image")
+        if (data.isBlank() || data == "null") return null
+        return android.util.Base64.decode(data, android.util.Base64.DEFAULT)
+    }
+
     suspend fun msBarcode(type: String, id: String): String {
         val code = get("msBarcode", "msType" to type, "msId" to id).optString("barcode")
         if (!com.knit.calculator.core.Ean13.isValid(code)) throw SheetException("МойСклад не вернул штрихкод")

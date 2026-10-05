@@ -298,6 +298,11 @@ context.UrlFetchApp.fetch = (url, options) => {
     assert.ok(params.momentFrom && params.momentTo);
     return msRespond(200, { series: [{ date: '2099-01-01 00:00:00.000', quantity: 1200, sum: 45000000 }, { date: '2099-02-01 00:00:00.000', quantity: 0, sum: 0 }] });
   }
+  if (path === '/entity/product/p1/images') {
+    return msRespond(200, { rows: [{ size: 10, meta: { downloadHref: MS + '/download/img1' }, miniature: { downloadHref: MS + '/download/mini1' } }] });
+  }
+  if (/\/images$/.test(path)) return msRespond(200, { rows: [] });
+  if (path === '/download/img1') return Object.assign(msRespond(200), { getBlob: () => ({ getBytes: () => [1, 2, 3] }) });
   if (path === '/context/companysettings/pricetype') {
     return msRespond(200, ['1 штук', '10 штук', '20 штук', '50 штук', 'от 100 штук', 'от 500 штук'].map((n, i) => ({ name: n, meta: { href: MS + '/pt/' + i } })));
   }
@@ -550,6 +555,11 @@ const updV = call({ action: 'msUpdateProduct', msType: 'variant', msId: 'v1', ch
 assert.deepStrictEqual(updV.product.tiers.map((t) => [t.from, t.price]), [[1, 150], [10, 140], [500, 120]]);
 assert.strictEqual(msDb.product[2].article, 'A-1');
 assert.ok(call({ action: 'msUpdateProduct', msType: 'bad', msId: 'p1', changes: {} }).error);
+
+// Фото товара: своё; у модификации без фото — фото товара; нет фото — null.
+const imgRes = call({ action: 'msImage', msType: 'product', msId: 'p1' });
+assert.strictEqual(imgRes.image, 'AQID');
+assert.strictEqual(call({ action: 'msImage', msType: 'variant', msId: 'v1' }).image, null);
 
 // ---- Зарплата менеджеров: оклад 60 000 + 3 % от оплат месяца по КП менеджера.
 const ym = new Date().toISOString().slice(0, 7);

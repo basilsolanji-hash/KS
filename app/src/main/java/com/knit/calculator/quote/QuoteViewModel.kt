@@ -370,6 +370,28 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Товар МойСклад позиции (для фото и карточки); `null` — позиция из калькулятора. */
+    fun msProductOf(productId: Long): Product? = msIndex[productId]
+
+    /** Фото товара из МойСклад в позицию КП: `null` — успех, иначе текст для менеджера. */
+    suspend fun photoFromMs(lineId: Long): String? {
+        val config = _syncConfig.value
+        val line = _draft.value.lines.firstOrNull { it.id == lineId } ?: return null
+        val product = msIndex[line.productId] ?: return "Это не товар МойСклад"
+        return try {
+            val bytes = SheetClient(config).msImage(product.externalType, product.externalId)
+                ?: return "У товара в МойСклад нет фото"
+            val dir = java.io.File(getApplication<Application>().filesDir, "photos").apply { mkdirs() }
+            val file = java.io.File(dir, "${line.id}-ms-${System.currentTimeMillis()}.jpg")
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { file.writeBytes(bytes) }
+            line.photoPath?.let { PhotoStore.delete(it) }
+            updateLine(line.id) { it.copy(photoPath = file.absolutePath, photoFileId = null) }
+            null
+        } catch (e: Exception) {
+            e.message ?: "МойСклад недоступен"
+        }
+    }
+
     /** Фото из КП другого телефона скачиваем с Диска. */
     private fun downloadMissingPhotos() {
         val config = _syncConfig.value

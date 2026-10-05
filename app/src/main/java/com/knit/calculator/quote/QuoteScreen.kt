@@ -404,6 +404,11 @@ fun QuoteScreen(
                         PhotoStore.delete(view.draft.photoPath)
                         viewModel.updateLine(view.draft.id) { it.copy(photoPath = null) }
                     },
+                    onPhotoMs = if (viewModel.msProductOf(view.draft.productId) == null) null else ({
+                        scope.launch {
+                            viewModel.photoFromMs(view.draft.id)?.let { msg -> android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show() }
+                        }
+                    }),
                     msStore = sync.msStore,
                     belowMinPrice = view in belowMin,
                 )
@@ -698,7 +703,7 @@ private fun ClientPicker(clients: List<Client>, onDismiss: () -> Unit, onPick: (
 }
 
 @Composable
-private fun PhotoButton(path: String?, onGallery: () -> Unit, onCamera: () -> Unit, onRemove: () -> Unit) {
+private fun PhotoButton(path: String?, onGallery: () -> Unit, onCamera: () -> Unit, onRemove: () -> Unit, onMs: (() -> Unit)? = null) {
     val colors = LocalKnitColors.current
     var menu by remember { mutableStateOf(false) }
     val bitmap = remember(path) { PhotoStore.load(path)?.asImageBitmap() }
@@ -718,6 +723,9 @@ private fun PhotoButton(path: String?, onGallery: () -> Unit, onCamera: () -> Un
             }
         }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = colors.panel) {
+            if (onMs != null) {
+                DropdownMenuItem(text = { Text(stringResource(R.string.quote_photo_ms), color = colors.textPrimary) }, onClick = { menu = false; onMs() })
+            }
             DropdownMenuItem(text = { Text(stringResource(R.string.quote_photo_camera), color = colors.textPrimary) }, onClick = { menu = false; onCamera() })
             DropdownMenuItem(text = { Text(stringResource(R.string.quote_photo_gallery), color = colors.textPrimary) }, onClick = { menu = false; onGallery() })
             if (path != null) {
@@ -853,6 +861,7 @@ private fun LineCard(
     onGallery: () -> Unit,
     onCamera: () -> Unit,
     onRemovePhoto: () -> Unit,
+    onPhotoMs: (() -> Unit)? = null,
     msStore: String = "",
     belowMinPrice: Boolean = false,
     onCopy: () -> Unit = {},
@@ -928,7 +937,7 @@ private fun LineCard(
                     label = R.string.quote_discount_field,
                     modifier = Modifier.width(130.dp),
                 )
-                PhotoButton(view.draft.photoPath, onGallery, onCamera, onRemovePhoto)
+                PhotoButton(view.draft.photoPath, onGallery, onCamera, onRemovePhoto, onPhotoMs)
             }
             if (view.discountTooHigh) {
                 val max = YarnCalculator.formatCompact(maxDiscount, 2)
