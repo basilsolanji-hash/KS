@@ -108,10 +108,10 @@ class MoySkladUiTest {
         compose.onNodeWithText("Коммерческое предложение").performClick()
         compose.onNodeWithText("Добавить позицию").performScrollTo().performClick()
         // Метка «Распродажа» — красная, фильтр одним нажатием.
-        compose.onNodeWithText("% Распродажа").assertExists()
         compose.onNodeWithText("Распродажа").performClick()
         compose.onNodeWithText("Подвяз трикотажный 2×2 Чёрный, 16х100 см").assertDoesNotExist()
-        compose.onNodeWithText("Поло-воротник белый").assertExists()
+        compose.onNodeWithText("Поло-воротник белый").performScrollTo().assertExists()
+        compose.onNodeWithText("% Распродажа").assertExists()
         Shots.take("52_ms_sale_filter", compose)
         compose.onNodeWithText("Распродажа").performClick()
         // Ручной сканер вводит штрихкод в поиск — товар выбирается сам.
