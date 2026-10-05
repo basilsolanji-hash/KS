@@ -489,4 +489,20 @@
     <string name="director_login">Войти как директор</string>
     <string name="director_logout">Выйти из режима директора</string>
     <string name="director_wrong_pin">Неверный PIN</string>
+    <!-- v1.4: МойСклад -->
+    <string name="ms_stock">На складе %1$s: %2$s %3$s</string>
+    <string name="ms_to_order">Нет на складе — под заказ</string>
+    <string name="ms_refresh">Обновить товары МойСклад</string>
+    <string name="ms_updated">МойСклад: обновлено %1$s</string>
+    <string name="ms_error">МойСклад: %1$s</string>
+    <string name="picker_title">Добавить позицию</string>
+    <string name="picker_calculator">Под заказ (расчёт по прайсу)</string>
+    <string name="picker_moysklad">Товары МойСклад (%1$d)</string>
+    <string name="picker_search">Поиск: название или артикул</string>
+    <string name="picker_all_groups">Все</string>
+    <string name="picker_from_price">от %1$s ₽ за тираж</string>
+    <string name="picker_more">Ещё %1$d — уточните поиск</string>
+    <string name="picker_nothing">Ничего не найдено</string>
+    <string name="catalog_ms_info">МойСклад: %1$d товаров с ценами по тиражам, остатки склада «%2$s», обновлено %3$s. Ниже — изделия под заказ (расчёт по прайсу из таблицы).</string>
+    <string name="payments_ms_note">Оплаты — по данным МойСклад (в том числе внесённые бухгалтером). Новая оплата отсюда создаёт входящий платёж в МойСклад.</string>
 </resources>

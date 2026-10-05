@@ -163,7 +163,7 @@ fun DealActionHost(
         }
         return
     }
-    val paid = ops.payments.filter { it.quoteId == item.id }.fold(BigDecimal.ZERO) { a, p -> a + p.amount }
+    val paid = ops.paymentsForDebts.filter { it.quoteId == item.id }.fold(BigDecimal.ZERO) { a, p -> a + p.amount }
     val remaining = (deal.total - paid).max(BigDecimal.ZERO)
     fun toast(text: String) = Toast.makeText(context, text, Toast.LENGTH_LONG).show()
 
@@ -366,12 +366,14 @@ fun PaymentsScreen(quoteVm: QuoteViewModel, opsVm: OpsViewModel, onBack: () -> U
         opsVm.load()
     }
     val items = history.orEmpty()
-    val report = Debts.report(items.map { Deal(it.id, it.number, it.client, it.total, it.status) }, ops.payments)
+    val report = Debts.report(items.map { Deal(it.id, it.number, it.client, it.total, it.status) }, ops.paymentsForDebts)
 
     FormScreen(stringResource(R.string.payments_title), onBack, actions = {
         KnitIconButton(R.drawable.ic_arrow_down, stringResource(R.string.sync_refresh), { quoteVm.loadHistory(); opsVm.load() })
     }) {
         OpsStatus(opsVm, quoteVm)
+        if (ops.msPaid != null) Text(stringResource(R.string.payments_ms_note), color = colors.textSecondary, fontSize = 14.sp)
+        ops.msError?.let { Text(stringResource(R.string.ms_error, it), color = colors.textPrimary, fontSize = 14.sp) }
         OpsCard {
             Text(stringResource(R.string.payments_total_debt), color = colors.textSecondary, fontSize = 14.sp)
             Text(rub(report.totalDebt), color = if (report.totalDebt.signum() > 0) DEBT_RED else colors.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold)
@@ -429,6 +431,7 @@ fun PaymentsScreen(quoteVm: QuoteViewModel, opsVm: OpsViewModel, onBack: () -> U
 @Composable
 fun ProductionScreen(quoteVm: QuoteViewModel, opsVm: OpsViewModel, onBack: () -> Unit) {
     val colors = LocalKnitColors.current
+    val sync by quoteVm.sync.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val ops by opsVm.data.collectAsStateWithLifecycle()
@@ -489,7 +492,7 @@ fun ProductionScreen(quoteVm: QuoteViewModel, opsVm: OpsViewModel, onBack: () ->
                                 onClick = {
                                     menu = false
                                     if (st != order.stage) scope.launch(Dispatchers.Main) {
-                                        opsVm.setStage(order, st)?.let { Toast.makeText(context, context.getString(R.string.ops_error, it), Toast.LENGTH_LONG).show() }
+                                        opsVm.setStage(order, st, ownYarnStock = !sync.msEnabled)?.let { Toast.makeText(context, context.getString(R.string.ops_error, it), Toast.LENGTH_LONG).show() }
                                     }
                                 },
                             )

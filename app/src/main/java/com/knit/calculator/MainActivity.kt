@@ -68,6 +68,10 @@ class MainActivity : ComponentActivity() {
             val sync by quoteViewModel.sync.collectAsStateWithLifecycle()
             val settings by quoteViewModel.settings.collectAsStateWithLifecycle()
             val director by quoteViewModel.director.collectAsStateWithLifecycle()
+            // Предупреждения (например, «не записано в МойСклад») — всплывающим сообщением.
+            androidx.compose.runtime.LaunchedEffect(Unit) {
+                quoteViewModel.notices.collect { android.widget.Toast.makeText(this@MainActivity, it, android.widget.Toast.LENGTH_LONG).show() }
+            }
             KnitTheme(darkTheme = darkTheme) {
                 when (screen) {
                     Screen.HOME -> HomeScreen(sync, themeMode, director, onTheme = viewModel::cycleTheme) { action ->

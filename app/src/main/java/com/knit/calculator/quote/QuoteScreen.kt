@@ -106,7 +106,9 @@ fun QuoteScreen(
     val catalog by viewModel.catalog.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val clients by viewModel.clients.collectAsStateWithLifecycle()
-    val views = remember(draft, catalog, settings) { viewModel.lineViews(draft, catalog, settings) }
+    val msProducts by viewModel.msProducts.collectAsStateWithLifecycle()
+    val views = remember(draft, catalog, settings, msProducts) { viewModel.lineViews(draft, catalog, settings) }
+    var showPicker by rememberSaveable { mutableStateOf(false) }
     val totals = remember(views, settings) { viewModel.totals(views, settings) }
     val colors = LocalKnitColors.current
     val context = LocalContext.current
@@ -307,9 +309,18 @@ fun QuoteScreen(
                         PhotoStore.delete(view.draft.photoPath)
                         viewModel.updateLine(view.draft.id) { it.copy(photoPath = null) }
                     },
+                    msStore = sync.msStore,
                 )
             }
-            AddItemButton(catalog, onAdd = viewModel::addLine, onOpenCatalog = onOpenCatalog)
+            if (sync.msEnabled || msProducts.isNotEmpty()) {
+                OutlinedButton(onClick = { showPicker = true; viewModel.refreshMs() }) {
+                    Icon(painterResource(R.drawable.ic_add), null, Modifier.size(18.dp), tint = colors.textPrimary)
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(R.string.quote_add_item), color = colors.textPrimary)
+                }
+            } else {
+                AddItemButton(catalog, onAdd = viewModel::addLine, onOpenCatalog = onOpenCatalog)
+            }
 
             KnitField(
                 draft.comment, { v -> viewModel.updateDraft { it.copy(comment = v) } }, R.string.quote_comment,
@@ -376,6 +387,17 @@ fun QuoteScreen(
             containerColor = colors2.panel,
             titleContentColor = colors2.textPrimary,
             textContentColor = colors2.textSecondary,
+        )
+    }
+
+    if (showPicker) {
+        ProductPicker(
+            calculator = catalog,
+            msProducts = msProducts,
+            sync = sync,
+            onRefresh = { viewModel.refreshMs(force = true) },
+            onPick = { viewModel.addLine(it); showPicker = false },
+            onDismiss = { showPicker = false },
         )
     }
 
@@ -578,6 +600,7 @@ private fun LineCard(
     onGallery: () -> Unit,
     onCamera: () -> Unit,
     onRemovePhoto: () -> Unit,
+    msStore: String = "",
 ) {
     val colors = LocalKnitColors.current
     val product = view.product
@@ -620,12 +643,14 @@ private fun LineCard(
             } else {
                 buildList {
                     add(stringResource(R.string.quote_price_line, QuoteCalculator.formatMoney(line.unitPrice), product.unit))
-                    if (line.volumeFactor.compareTo(BigDecimal.ONE) != 0) add(stringResource(R.string.quote_volume, QuoteCalculator.formatFactor(line.volumeFactor)))
+                    // У товаров МойСклад цена по тиражу — готовая, коэффициент не показываем.
+                    if (product.externalId.isBlank() && line.volumeFactor.compareTo(BigDecimal.ONE) != 0) add(stringResource(R.string.quote_volume, QuoteCalculator.formatFactor(line.volumeFactor)))
                     if (line.discountPercent.signum() > 0) add(stringResource(R.string.kp_discount, YarnCalculator.formatCompact(line.discountPercent, 2)))
                     if (line.setupFee.signum() > 0) add(stringResource(R.string.quote_setup, QuoteCalculator.formatMoney(line.setupFee)))
                 }.joinToString(" · ")
             }
             Text(details, color = colors.textSecondary, fontSize = 14.sp)
+            stockText(product, msStore)?.let { Text(it, color = colors.textSecondary, fontSize = 14.sp) }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(end = 8.dp)) {
                 KnitField(
                     value = view.draft.discount,

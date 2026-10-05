@@ -142,6 +142,16 @@ class QuoteStore(context: Context) {
             .apply()
     }
 
+    // ---------------- МойСклад (копия товаров для работы без связи) ----------------
+
+    private val msFile = java.io.File(context.applicationContext.filesDir, "moysklad.json")
+
+    fun loadMsCatalog(): JSONObject? = runCatching { if (msFile.exists()) JSONObject(msFile.readText()) else null }.getOrNull()
+
+    fun saveMsCatalog(o: JSONObject?) {
+        if (o == null) msFile.delete() else msFile.writeText(o.toString())
+    }
+
     /** PIN, которым на этом телефоне открыт режим директора. */
     var directorPin: String
         get() = prefs.getString("director_pin", "").orEmpty()

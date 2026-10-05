@@ -108,7 +108,15 @@ fun CatalogScreen(viewModel: QuoteViewModel, onBack: () -> Unit, onEdit: (Long?)
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val fromSheet = sync.connected
 
+    val msProducts by viewModel.msProducts.collectAsStateWithLifecycle()
     FormScreen(stringResource(R.string.catalog_title), onBack) {
+        if (sync.msEnabled) {
+            val updated = sync.msLoadedAt?.let { java.text.SimpleDateFormat("dd.MM HH:mm", java.util.Locale.getDefault()).format(java.util.Date(it)) } ?: "—"
+            Text(stringResource(R.string.catalog_ms_info, msProducts.size, sync.msStore.ifBlank { "—" }, updated), color = colors.textSecondary, fontSize = 14.sp)
+            sync.msError?.let { Text(stringResource(R.string.ms_error, it), color = colors.textPrimary, fontSize = 14.sp) }
+            ActionButton(R.string.ms_refresh, R.drawable.ic_arrow_down, primary = false, Modifier.fillMaxWidth()) { viewModel.refreshMs(force = true) }
+            if (sync.msLoading) Text(stringResource(R.string.sync_loading), color = colors.textSecondary, fontSize = 14.sp)
+        }
         // Прайс-лист для клиента и QR-код на каталог сайта.
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             ActionButton(R.string.price_list_pdf, R.drawable.ic_doc, primary = false, Modifier.weight(1f)) {

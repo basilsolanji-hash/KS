@@ -110,7 +110,7 @@ fun HomeScreen(sync: SyncStatus, themeMode: ThemeMode, director: Boolean, onThem
             Triple(HomeAction.SHOP, R.string.home_shop, R.drawable.ic_web),
             Triple(HomeAction.CALCULATOR, R.string.home_calculator, R.drawable.ic_calculator),
             Triple(HomeAction.SETTINGS, R.string.home_settings, R.drawable.ic_settings),
-        )
+        ).filter { (action, _, _) -> !(action == HomeAction.STOCK && sync.msEnabled) } // с МойСклад склад — там
         tiles.chunked(2).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 row.forEach { (action, label, icon) ->

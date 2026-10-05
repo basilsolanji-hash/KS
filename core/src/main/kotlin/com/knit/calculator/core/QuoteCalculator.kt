@@ -87,6 +87,17 @@ data class Product(
     val composition: List<YarnShare> = emptyList(),
     /** Код изделия из таблицы (для связи параметров и коэффициентов). */
     val code: String = "",
+    /** ID товара в МойСклад; пусто — изделие из таблицы (калькулятор «под заказ»). */
+    val externalId: String = "",
+    /** Группа товаров МойСклад («Подвязы/Вязка 1х1»). */
+    val group: String = "",
+    /** Остаток на складе; `null` — не известен. */
+    val stock: BigDecimal? = null,
+    /** Себестоимость (закупочная цена МойСклад) за единицу. */
+    val buyPrice: BigDecimal? = null,
+    /** Минимальная цена продажи за единицу. */
+    val minPrice: BigDecimal? = null,
+    val description: String = "",
 )
 
 /** Выбор клиента: изделие, варианты параметров (id группы → id варианта) и количество. */

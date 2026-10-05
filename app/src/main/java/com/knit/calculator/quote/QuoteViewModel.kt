@@ -67,6 +67,12 @@ data class SyncStatus(
     val error: String? = null,
     val warnings: List<String> = emptyList(),
     val sheetUrl: String = "",
+    /** МойСклад подключён в скрипте таблицы. */
+    val msEnabled: Boolean = false,
+    val msLoading: Boolean = false,
+    val msLoadedAt: Long? = null,
+    val msStore: String = "",
+    val msError: String? = null,
 )
 
 /** Результат сохранения КП перед формированием PDF. */
@@ -131,7 +137,74 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         _unlockedPin.value = ""
     }
 
+    // ---------- МойСклад ----------
+
+    private val _msProducts = MutableStateFlow<List<Product>>(emptyList())
+    /** Товары МойСклад с ценами по тиражам и остатками склада. */
+    val msProducts: StateFlow<List<Product>> = _msProducts.asStateFlow()
+    private var msIndex: Map<Long, Product> = emptyMap()
+    private var msClients: List<Client> = emptyList()
+
+    /** Короткие сообщения для пользователя (например, предупреждение МойСклад). */
+    private val _notices = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 8)
+    val notices: kotlinx.coroutines.flow.SharedFlow<String> = _notices
+
+    private fun applyMs(o: JSONObject?) {
+        val products = o?.optJSONArray("products")
+        val items = if (products == null) emptyList() else (0 until products.length()).mapNotNull { products.optJSONObject(it) }.mapNotNull { p ->
+            fun money(key: String) = p.optString(key).takeIf { it.isNotBlank() && it != "null" }?.toBigDecimalOrNull()
+            val tiers = p.optJSONArray("tiers")?.let { a ->
+                (0 until a.length()).mapNotNull { a.optJSONObject(it) }.mapNotNull { t ->
+                    val from = t.optString("from").toBigDecimalOrNull() ?: return@mapNotNull null
+                    val price = t.optString("price").toBigDecimalOrNull() ?: return@mapNotNull null
+                    from to price
+                }
+            }.orEmpty()
+            com.knit.calculator.core.MoySklad.product(
+                com.knit.calculator.core.MsItem(
+                    id = p.optString("id"), name = p.optString("name"), article = p.optString("article"),
+                    group = p.optString("group"), weightGrams = money("weight"), buyPrice = money("buyPrice"),
+                    minPrice = money("minPrice"), description = p.optString("description"), tiers = tiers,
+                    stock = if (p.isNull("stock")) null else money("stock"),
+                ),
+            )
+        }
+        _msProducts.value = items
+        msIndex = items.associateBy { it.id }
+        val clients = o?.optJSONArray("clients")
+        msClients = if (clients == null) emptyList() else (0 until clients.length()).mapNotNull { clients.optJSONObject(it) }.map {
+            Client(it.optString("name"), "", it.optString("email"), it.optString("phone"), it.optString("inn"))
+        }
+        _clients.value = mergeClients(_clients.value, msClients)
+        _sync.update {
+            it.copy(
+                msEnabled = o != null, msStore = o?.optString("store").orEmpty(),
+                msLoadedAt = o?.optLong("loadedAt")?.takeIf { t -> t > 0 },
+            )
+        }
+    }
+
+    /** Товары МойСклад: при подключённой таблице — раз в 12 часов или по кнопке. */
+    fun refreshMs(force: Boolean = false) {
+        val config = _syncConfig.value
+        if (!config.enabled || _sync.value.msLoading) return
+        val age = System.currentTimeMillis() - (_sync.value.msLoadedAt ?: 0L)
+        if (!force && _sync.value.msLoadedAt != null && age < 12 * 3_600_000L) return
+        _sync.update { it.copy(msLoading = true, msError = null) }
+        viewModelScope.launch {
+            try {
+                val o = SheetClient(config).msCatalog()
+                store.saveMsCatalog(o)
+                applyMs(o)
+                _sync.update { it.copy(msLoading = false) }
+            } catch (e: Exception) {
+                _sync.update { it.copy(msLoading = false, msError = e.message ?: "Нет связи с МойСклад") }
+            }
+        }
+    }
+
     init {
+        if (_syncConfig.value.enabled) applyMs(store.loadMsCatalog())
         applySources()
         if (_syncConfig.value.enabled) refresh()
     }
@@ -145,7 +218,7 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
             parsedExtras = parsed
             _catalog.value = parsed.products
             _settings.value = CompanySettings.fromSheet(parsed.settings)
-            _clients.value = mergeClients(parsed.clients, store.loadLocalClients())
+            _clients.value = mergeClients(parsed.clients, store.loadLocalClients() + msClients)
             _sync.update { it.copy(connected = true, lastSync = c.loadedAt, warnings = parsed.warnings, sheetUrl = c.sheetUrl) }
         } else {
             parsedExtras = DefaultCatalog.parsed
@@ -171,6 +244,7 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
                 store.saveSheetCache(newCache)
                 applySources()
                 _sync.update { it.copy(loading = false, error = null) }
+                refreshMs()
             } catch (e: Exception) {
                 _sync.update { it.copy(loading = false, error = e.message ?: "Нет связи с таблицей") }
             }
@@ -196,6 +270,7 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
                 _sync.update { it.copy(loading = false) }
                 dropMissingLines()
                 onResult(null)
+                refreshMs(force = true)
             } catch (e: Exception) {
                 _sync.update { it.copy(loading = false) }
                 onResult(e.message ?: "Нет связи с таблицей")
@@ -299,6 +374,8 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         store.saveSyncConfig(_syncConfig.value)
         cache = null
         store.saveSheetCache(null)
+        store.saveMsCatalog(null)
+        applyMs(null)
         _history.value = null
         _sync.value = SyncStatus()
         applySources()
@@ -339,7 +416,8 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
                         .put("unit", v.product.unit)
                         .put("price", l.unitPrice.toDouble())
                         .put("sum", l.total.toDouble())
-                        .put("discount", l.discountPercent.toDouble()),
+                        .put("discount", l.discountPercent.toDouble())
+                        .put("msId", v.product.externalId),
                 )
             }
             val payload = JSONObject()
@@ -360,7 +438,9 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
                 .put("data", QuoteStore.draftToJson(d.copy(saved = true)))
                 .put("lines", lines)
             result = try {
-                number = SheetClient(config).saveQuote(payload)
+                val (saved, ms) = SheetClient(config).saveQuote(payload)
+                number = saved
+                ms?.error?.let { _notices.tryEmit("КП № $saved сохранено, но в МойСклад не записано: $it") }
                 SaveResult.Saved(number)
             } catch (e: Exception) {
                 return SaveResult.Failed(e.message ?: "Нет связи с таблицей")
@@ -466,7 +546,9 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         val config = _syncConfig.value
         if (config.enabled) {
             try {
-                SheetClient(config).setStatus(item.id, status)
+                SheetClient(config).setStatus(item.id, status)?.error?.let {
+                    _notices.tryEmit("Статус сохранён, но в МойСклад не изменён: $it")
+                }
             } catch (e: Exception) {
                 return e.message ?: "Нет связи с таблицей"
             }
@@ -593,13 +675,16 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         val costSettings = settings.costSettings()
         val max = settings.maxDiscount
         return draft.lines.mapNotNull { d ->
-            val product = catalog.firstOrNull { it.id == d.productId } ?: return@mapNotNull null
+            val product = catalog.firstOrNull { it.id == d.productId } ?: msIndex[d.productId] ?: return@mapNotNull null
             val qty = YarnCalculator.parseDecimal(d.quantity)?.takeIf { it.signum() > 0 }
             val wanted = YarnCalculator.parseDecimal(d.discount)?.max(BigDecimal.ZERO) ?: BigDecimal.ZERO
             val discount = wanted.min(max)
             val line = qty?.let { QuoteCalculator.line(QuoteLineInput(product, d.selected, it, discount)) }
             val economics = line?.let {
-                CostCalculator.line(it, parsedExtras.costs[product.code.lowercase()], costSettings, parsedExtras.yarnPrices)
+                val buy = product.buyPrice
+                // Товар МойСклад: себестоимость — закупочная цена (уже полная, без доли постоянных расходов).
+                if (buy != null) CostCalculator.line(it, com.knit.calculator.core.ProductCost(yarnPerUnit = buy), costSettings.copy(fixedMonthly = BigDecimal.ZERO), emptyMap())
+                else CostCalculator.line(it, parsedExtras.costs[product.code.lowercase()], costSettings, parsedExtras.yarnPrices)
             }
             DraftLineView(d, product, line, economics, discountTooHigh = wanted > max)
         }
@@ -635,8 +720,10 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun dropMissingLines() {
-        val ids = _catalog.value.map { it.id }.toSet()
-        updateDraft { d -> d.copy(lines = d.lines.filter { it.productId in ids }) }
+        // Товары МойСклад могут быть ещё не загружены — такие строки не трогаем.
+        val msPending = _syncConfig.value.enabled && _msProducts.value.isEmpty()
+        val ids = (_catalog.value + _msProducts.value).map { it.id }.toSet()
+        updateDraft { d -> d.copy(lines = d.lines.filter { it.productId in ids || msPending }) }
     }
 
     // ---------- Ассортимент (локальный режим, без таблицы) ----------

@@ -98,3 +98,45 @@ class ContractTemplateTest {
         assertEquals(setOf("номер", "город", "дата", "поставщик", "директор", "покупатель", "сумма", "сумма_прописью", "ставка_ндс", "ндс", "предоплата", "срок", "доставка"), keys)
     }
 }
+
+class MoySkladTest {
+    private fun bd(s: String) = BigDecimal(s)
+
+    @Test fun tierPricesExactlyAsInMoySklad() {
+        val item = MsItem(
+            id = "p1", name = "Подвяз 1×1 ПЭ белый 14×100", article = "11-001", group = "Подвязы/Вязка 1х1",
+            buyPrice = bd("143.95"), minPrice = bd("143.95"), stock = bd("120"),
+            tiers = listOf(bd("1") to bd("201.53"), bd("10") to bd("194.33"), bd("20") to bd("187.13"), bd("50") to bd("172.74"), bd("100") to bd("165.54"), bd("500") to bd("158.34")),
+        )
+        val p = MoySklad.product(item)!!
+        fun price(q: Int) = QuoteCalculator.unitPrice(p, emptyMap(), BigDecimal(q)).first
+        assertEquals(0, bd("201.53").compareTo(price(1)))
+        assertEquals(0, bd("201.53").compareTo(price(9)))
+        assertEquals(0, bd("194.33").compareTo(price(10)))
+        assertEquals(0, bd("172.74").compareTo(price(99)))
+        assertEquals(0, bd("165.54").compareTo(price(100)))
+        assertEquals(0, bd("158.34").compareTo(price(600)))
+        // Позиция 600 шт: 95 004,00 ₽.
+        assertEquals(0, bd("95004.00").compareTo(QuoteCalculator.line(QuoteLineInput(p, emptyMap(), BigDecimal(600))).total))
+        assertEquals("p1", p.externalId)
+        assertEquals(MoySklad.productId("p1"), p.id)
+    }
+
+    @Test fun noPriceForOnePiece() {
+        val p = MoySklad.product(MsItem("p2", "A", tiers = listOf(bd("100") to bd("50"), bd("500") to bd("45"))))!!
+        assertEquals(0, bd("100").compareTo(p.minOrder))
+        assertEquals(null, MoySklad.product(MsItem("p3", "B")))
+    }
+
+    @Test fun searchByWordsAndGroup() {
+        val list = listOf(
+            Product(1, "Подвяз 1×1 белый 14×100", "шт", bd("1"), code = "11-001", group = "Подвязы/Вязка 1х1"),
+            Product(2, "Подвяз 2×2 чёрный 16×100", "шт", bd("1"), code = "22-013", group = "Подвязы/Вязка 2х2"),
+            Product(3, "Поло-воротник белый", "шт", bd("1"), group = "Поло-воротники"),
+        )
+        assertEquals(listOf(1L), MoySklad.search(list, "белый подвяз").map { it.id })
+        assertEquals(listOf(2L), MoySklad.search(list, "22-013").map { it.id })
+        assertEquals(listOf(1L, 2L), MoySklad.search(list, "", "Подвязы").map { it.id })
+        assertEquals(listOf("Подвязы", "Поло-воротники"), MoySklad.topGroups(list))
+    }
+}

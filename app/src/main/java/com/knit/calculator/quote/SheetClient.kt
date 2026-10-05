@@ -15,6 +15,13 @@ import java.net.URLEncoder
 /** Ошибка связи с таблицей; [message] понятно пользователю. */
 class SheetException(message: String) : IOException(message)
 
+/** Ответ МойСклад на запись: номер документа или ошибка. */
+data class MsResult(val name: String, val error: String?) {
+    companion object {
+        fun from(o: JSONObject?): MsResult? = o?.let { MsResult(it.optString("name"), it.optString("error").ifBlank { null }) }
+    }
+}
+
 /** Логотип из папки Диска: [data] есть, только если версия изменилась. */
 data class RemoteLogo(val version: String, val data: ByteArray?)
 
@@ -93,13 +100,21 @@ class SheetClient(private val config: SyncConfig) {
         }
     }
 
-    /** Сохраняет КП и возвращает его номер (новый или прежний для того же ID). */
-    suspend fun saveQuote(quote: JSONObject): Int {
+    /**
+     * Сохраняет КП и возвращает номер (новый или прежний для того же ID) и ответ МойСклад
+     * (`null` — МойСклад не подключён; ошибка МойСклад не мешает сохранению в таблицу).
+     */
+    suspend fun saveQuote(quote: JSONObject): Pair<Int, MsResult?> {
         val body = JSONObject().put("action", "saveQuote").put("key", config.key).put("quote", quote)
-        val number = request(URL(config.url.trim()), body.toString()).optInt("number", 0)
+        val response = request(URL(config.url.trim()), body.toString())
+        val number = response.optInt("number", 0)
         if (number <= 0) throw SheetException("Таблица не выдала номер КП")
-        return number
+        return number to MsResult.from(response.optJSONObject("ms"))
     }
+
+    /** Товары, остатки и клиенты МойСклад (через скрипт таблицы); `null` — МойСклад не подключён. */
+    suspend fun msCatalog(): JSONObject? =
+        get("msCatalog").optJSONObject("ms")?.takeIf { it.optBoolean("enabled") }
 
     /** Загружает фото образца, PDF КП или документ (kind = "doc") в папку Диска; возвращает id файла. */
     suspend fun uploadFile(
@@ -160,10 +175,10 @@ class SheetClient(private val config: SyncConfig) {
         return android.util.Base64.decode(data, android.util.Base64.DEFAULT)
     }
 
-    /** Меняет статус КП в листе «КП». */
-    suspend fun setStatus(id: String, status: QuoteStatus) {
+    /** Меняет статус КП в листе «КП» (и в «Заказе покупателя» МойСклад). */
+    suspend fun setStatus(id: String, status: QuoteStatus): MsResult? {
         val body = JSONObject().put("action", "setStatus").put("key", config.key).put("id", id).put("status", status.title)
-        request(URL(config.url.trim()), body.toString())
+        return MsResult.from(request(URL(config.url.trim()), body.toString()).optJSONObject("ms"))
     }
 
     private suspend fun get(action: String, vararg params: Pair<String, String>): JSONObject {

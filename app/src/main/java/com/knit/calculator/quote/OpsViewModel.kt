@@ -27,7 +27,14 @@ data class OpsData(
     val payments: List<Payment> = emptyList(),
     val orders: List<ProductionOrder> = emptyList(),
     val moves: List<YarnMove> = emptyList(),
-)
+    /** Оплачено по «Заказам покупателя» МойСклад (ID КП → сумма); `null` — МойСклад не подключён. */
+    val msPaid: Map<String, BigDecimal>? = null,
+    val msError: String? = null,
+) {
+    /** Оплаты для расчёта долгов: с МойСклад — по его данным (их вносит и бухгалтер), иначе — из листа «Оплаты». */
+    val paymentsForDebts: List<Payment>
+        get() = msPaid?.map { (quoteId, paid) -> Payment("ms-$quoteId", quoteId, 0, "", 0, paid, "МойСклад") } ?: payments
+}
 
 /** JSON учёта: тот же формат, что отдаёт скрипт таблицы (action = ops). */
 object OpsJson {
@@ -83,6 +90,8 @@ object OpsJson {
             YarnMove(it.optString("id").ifBlank { UUID.randomUUID().toString() }, it.optLong("date"), it.optString("yarn"),
                 money(it, "kg"), it.optString("reason"))
         },
+        msPaid = o.optJSONObject("ms")?.optJSONArray("orders")?.objects()?.associate { it.optString("quoteId") to money(it, "paid") },
+        msError = o.optJSONObject("ms")?.optString("error")?.ifBlank { null },
     )
 
     fun toJson(d: OpsData): JSONObject = JSONObject()
@@ -169,7 +178,10 @@ class OpsViewModel(application: Application) : AndroidViewModel(application) {
 
     suspend fun addPayment(quoteId: String, quoteNumber: Int, client: String, amount: BigDecimal, date: Long, note: String): String? {
         val p = Payment(UUID.randomUUID().toString(), quoteId, quoteNumber, client, date, amount, note.trim())
-        return change({ it.addPayment(OpsJson.payment(p).put("author", author())) }) { it.copy(payments = it.payments + p) }
+        val error = change({ it.addPayment(OpsJson.payment(p).put("author", author())) }) { it.copy(payments = it.payments + p) }
+        // Оплаченная сумма в МойСклад пересчитывается там — перечитываем.
+        if (error == null && _data.value.msPaid != null) load()
+        return error
     }
 
     suspend fun deletePayment(p: Payment): String? =
@@ -200,9 +212,10 @@ class OpsViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Новый этап заказа. При переходе в вязку пряжа заказа один раз списывается со склада.
      */
-    suspend fun setStage(order: ProductionOrder, stage: OrderStage): String? {
+    suspend fun setStage(order: ProductionOrder, stage: OrderStage, ownYarnStock: Boolean = true): String? {
         val now = System.currentTimeMillis()
-        val writeOff = stage != OrderStage.NEW && !order.yarnWrittenOff && order.yarn.isNotEmpty()
+        // С МойСклад склад пряжи ведётся там — своё списание не делаем.
+        val writeOff = ownYarnStock && stage != OrderStage.NEW && !order.yarnWrittenOff && order.yarn.isNotEmpty()
         if (writeOff) {
             val moves = order.yarn.map {
                 YarnMove("order-${order.quoteId}-${it.yarn}", now, it.yarn, it.kg.negate(), "Заказ по КП № ${order.quoteNumber}")
