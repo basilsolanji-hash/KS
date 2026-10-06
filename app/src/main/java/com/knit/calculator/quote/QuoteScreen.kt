@@ -724,8 +724,9 @@ private fun PhotoButton(path: String?, onGallery: () -> Unit, onCamera: () -> Un
     val colors = LocalKnitColors.current
     var menu by remember { mutableStateOf(false) }
     // Миниатюра 56 dp: маленькая копия и не на главном потоке.
-    val bitmap by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, path) {
-        value = kotlinx.coroutines.withContext(Dispatchers.IO) { PhotoStore.loadScaled(path, 200)?.asImageBitmap() }
+    var bitmap by remember(path) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    LaunchedEffect(path) {
+        bitmap = kotlinx.coroutines.withContext(Dispatchers.IO) { PhotoStore.loadScaled(path, 200)?.asImageBitmap() }
     }
     Box {
         val thumb = bitmap
