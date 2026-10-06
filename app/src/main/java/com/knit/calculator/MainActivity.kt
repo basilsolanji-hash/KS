@@ -81,6 +81,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        applySecureScreen(this)
         if (savedInstanceState == null && lockOn()) locked = true
         // Ежедневная сводка (9:00): долги, отгрузки, просрочки, КП без ответа.
         com.knit.calculator.quote.DailyDigest.schedule(this, com.knit.calculator.quote.QuoteStore(this).digestEnabled)
@@ -342,5 +343,14 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
+    }
+}
+
+/** Запрет снимков экрана по настройке «secureScreen» (сразу, без перезапуска). */
+fun applySecureScreen(activity: android.app.Activity) {
+    if (com.knit.calculator.quote.QuoteStore(activity).secureScreen) {
+        activity.window.setFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE, android.view.WindowManager.LayoutParams.FLAG_SECURE)
+    } else {
+        activity.window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
     }
 }

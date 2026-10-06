@@ -467,6 +467,25 @@ fun CompanyScreen(viewModel: QuoteViewModel, onBack: () -> Unit) {
                     },
                 )
             }
+            // Запрет снимков экрана — меняет только директор.
+            if (director) {
+                var secure by rememberSaveable { mutableStateOf(QuoteStore(context).secureScreen) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.secure_setting), color = colors.textPrimary, fontSize = 16.sp)
+                        Text(stringResource(R.string.secure_setting_hint), color = colors.textSecondary, fontSize = 13.sp)
+                    }
+                    Switch(
+                        checked = secure,
+                        onCheckedChange = { v ->
+                            secure = v
+                            QuoteStore(context).secureScreen = v
+                            (context as? android.app.Activity)?.let { com.knit.calculator.applySecureScreen(it) }
+                        },
+                        colors = SwitchDefaults.colors(checkedTrackColor = colors.equalsKey, checkedThumbColor = colors.equalsKeyText),
+                    )
+                }
+            }
             // Вход по отпечатку / PIN телефона.
             val lockAvailable = remember { com.knit.calculator.ui.AppLock.available(context) }
             var lock by rememberSaveable { mutableStateOf(QuoteStore(context).appLock) }

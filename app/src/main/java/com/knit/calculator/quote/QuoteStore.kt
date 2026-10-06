@@ -225,6 +225,11 @@ class QuoteStore(context: Context) {
         get() = prefs.getString("home_shortcuts", null)?.split(',')?.filter { it.isNotBlank() }
         set(v) { prefs.edit().putString("home_shortcuts", v?.joinToString(",")).apply() }
 
+    /** Запрет снимков и записи экрана (финансы и клиенты не уходят скриншотами). По умолчанию включён. */
+    var secureScreen: Boolean
+        get() = prefs.getBoolean("secure_screen", true)
+        set(v) { prefs.edit().putBoolean("secure_screen", v).apply() }
+
     /** Блоки главного экрана по порядку; `null` — все. */
     var homeWidgets: List<String>?
         get() = prefs.getString("home_widgets", null)?.split(',')?.filter { it.isNotBlank() }

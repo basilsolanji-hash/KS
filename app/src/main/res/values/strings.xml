@@ -636,6 +636,8 @@
     <string name="lock_unlock">Войти</string>
     <string name="lock_setting">Вход по отпечатку / PIN телефона</string>
     <string name="lock_setting_hint">При запуске и после 5 минут в фоне — защита данных, если телефон потерян.</string>
+    <string name="secure_setting">Запрет снимков экрана</string>
+    <string name="secure_setting_hint">На этом телефоне скриншоты и запись экрана приложения недоступны. У менеджеров запрет включён всегда.</string>
     <string name="pin_setting">Свой PIN-код (4 цифры)</string>
     <string name="pin_setting_hint">Код только для этого телефона: при запуске и после 5 минут в фоне. 5 ошибок — пауза 30 секунд.</string>
     <string name="pin_new">Новый PIN-код</string>

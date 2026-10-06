@@ -18,9 +18,11 @@ val targetContext: Context get() = InstrumentationRegistry.getInstrumentation().
 /** Сбрасывает данные приложения перед запуском экрана; [theme] — «LIGHT»/«DARK» для скриншотов. */
 class ResetAppRule(private val theme: String = "LIGHT") : TestWatcher() {
     override fun starting(description: Description) {
-        listOf("calculator_history", "calculator_settings", "yarn_calculator", "quote", "ops", "labels").forEach {
+        listOf("calculator_history", "calculator_settings", "yarn_calculator", "quote", "ops", "labels", "work", "comms", "warehouse").forEach {
             targetContext.getSharedPreferences(it, Context.MODE_PRIVATE).edit().clear().commit()
         }
+        // Скриншоты тестов: запрет снимков экрана выключен.
+        targetContext.getSharedPreferences("quote", Context.MODE_PRIVATE).edit().putBoolean("secure_screen", false).commit()
         targetContext.getSharedPreferences("calculator_settings", Context.MODE_PRIVATE).edit().putString("theme", theme).commit()
         File(targetContext.filesDir, "moysklad.json").delete()
     }
