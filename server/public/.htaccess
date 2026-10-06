@@ -1,5 +1,6 @@
 # Только HTTPS, без списка файлов; все запросы — в index.php.
 Options -Indexes
+DirectoryIndex index.php
 RewriteEngine On
 RewriteCond %{HTTPS} !=on
 RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]

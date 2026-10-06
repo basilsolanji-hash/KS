@@ -203,7 +203,7 @@ jobs:
             echo "Секреты beget не заданы — выкладка пропущена"; exit 0
           fi
           sudo apt-get install -y -qq lftp > /dev/null
-          SITE_DIR="${SITE_DIR:-staff.fabrika-ks.ru}"
+          SITE_DIR="${SITE_DIR:-.}"
           mkdir -p deploy/ks/src deploy/public_html
           cp server/src/*.php deploy/ks/src/
           cp server/public/index.php server/public/.htaccess deploy/public_html/
@@ -216,7 +216,8 @@ jobs:
           lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "
             set ftp:ssl-allow yes; set net:max-retries 2; set net:timeout 20;
             mkdir -p $SITE_DIR/ks; mirror -R --no-perms deploy/ks $SITE_DIR/ks;
-            mirror -R --no-perms deploy/public_html $SITE_DIR/public_html; bye"
+            mirror -R --no-perms deploy/public_html $SITE_DIR/public_html;
+            rm -f $SITE_DIR/public_html/index.html; bye"
           rm -rf deploy
           # Проверка: сайт отвечает, база подключается (запрос без входа должен дойти до проверки ключа).
           URL="${KS_URL:-https://staff.fabrika-ks.ru/}"
