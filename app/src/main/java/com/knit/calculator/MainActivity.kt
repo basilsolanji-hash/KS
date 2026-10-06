@@ -38,9 +38,10 @@ import com.knit.calculator.ui.CalculatorScreen
 import com.knit.calculator.ui.theme.KnitTheme
 import com.knit.calculator.yarn.YarnScreen
 import com.knit.calculator.yarn.YarnViewModel
+import com.knit.calculator.staff.TrainingScreen
 
 /** Экраны приложения; переход «назад» описан у каждого экрана. */
-private enum class Screen { HOME, CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY, REPORT, ORDER_YARN, SHOP, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, CLIENT, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI, STAFF_SERVER, STAFF_PRODUCTION, EMPLOYEES, RATING, ACTIVITY, MS_ORDERS, TASKS, PROFILE, PAYROLL }
+private enum class Screen { HOME, CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY, REPORT, ORDER_YARN, SHOP, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, CLIENT, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI, STAFF_SERVER, STAFF_PRODUCTION, EMPLOYEES, RATING, ACTIVITY, MS_ORDERS, TASKS, PROFILE, PAYROLL, TRAINING }
 
 class MainActivity : FragmentActivity() {
 
@@ -333,6 +334,7 @@ class MainActivity : FragmentActivity() {
                                 HomeAction.TASKS -> Screen.TASKS
                                 HomeAction.PROFILE -> { profileTarget = null; Screen.PROFILE }
                                 HomeAction.PAYROLL -> { profileTarget = null; Screen.PAYROLL }
+                                HomeAction.TRAINING -> Screen.TRAINING
                             },
                         )
                     }
@@ -396,6 +398,7 @@ class MainActivity : FragmentActivity() {
                     Screen.MS_ORDERS -> com.knit.calculator.staff.MsOrdersScreen(ordersViewModel, onBack = ::back)
                     Screen.TASKS -> com.knit.calculator.staff.TasksScreen(tasksViewModel, staffMe, openTask, onBack = { openTask = null; back() })
                     Screen.PROFILE -> com.knit.calculator.staff.ProfileScreen(profileViewModel, staffMe, profileTarget, onPayroll = { profileTarget = it; open(Screen.PAYROLL) }, onBack = ::back)
+                    Screen.TRAINING -> TrainingScreen(staffMe?.role, onBack = ::back)
                     Screen.PAYROLL -> {
                         val people by tasksViewModel.people.collectAsStateWithLifecycle()
                         androidx.compose.runtime.LaunchedEffect(Unit) { if (people.isEmpty()) tasksViewModel.loadPeople() }
