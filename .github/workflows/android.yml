@@ -38,7 +38,10 @@ jobs:
             echo "$KS_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/ks.jks"
             echo "KS_KEYSTORE_FILE=$RUNNER_TEMP/ks.jks" >> "$GITHUB_ENV"
             echo "Подпись: постоянный ключ из секретов"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "::warning::Проверка PR без постоянного ключа — APK только для тестов"
           else
+            # Временно: пока не задан KS_KEYSTORE_PASSWORD — предупреждение (после — сделать ошибкой, см. ROADMAP).
             echo "::warning::Секреты KS_KEYSTORE_BASE64 / KS_KEYSTORE_PASSWORD не заданы — APK подписан одноразовым ключом и не обновит прежнюю версию"
           fi
 
@@ -77,19 +80,6 @@ jobs:
             app/build/reports/
             core/build/reports/
           if-no-files-found: ignore
-
-      - name: Publish APK to GitHub Release
-        if: github.event_name == 'push'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: build-${{ github.run_number }}
-          target_commitish: ${{ github.sha }}
-          name: Фабрика "KS" — сборка ${{ github.run_number }}
-          body: |
-            Устанавливайте KnitCalculator-release.apk.
-            Подпись — постоянным ключом фабрики (если заданы секреты репозитория), новые версии ставятся поверх.
-          prerelease: true
-          files: dist/*.apk
 
   ui-tests:
     # Проверка на эмуляторе Android: сценарии калькулятора, расхода пряжи, КП и PDF + скриншоты.
@@ -151,12 +141,49 @@ jobs:
           path: ui-screenshots.zip
           if-no-files-found: ignore
 
-      - name: Attach screenshots to release
-        if: always() && github.event_name == 'push'
+  # Публикация — только после всех проверок: APK с непрошедшими тестами пользователям не выдаётся.
+  publish:
+    needs: [build, ui-tests]
+    if: always() && github.event_name != 'pull_request' && needs.build.result == 'success' && needs.ui-tests.result != 'cancelled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: KnitCalculator-apk
+          path: dist
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: ui-screenshots
+          path: shots
+
+      - name: Publish APK to GitHub Release
+        if: needs.ui-tests.result == 'success'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          files: ui-screenshots.zip
+          target_commitish: ${{ github.sha }}
+          name: ФАБРИКА — сборка ${{ github.run_number }}
+          body: |
+            Устанавливайте KnitCalculator-release.apk. Все проверки пройдены (модульные, lint, сценарии на эмуляторе).
+            Подпись — постоянным ключом фабрики, новые версии ставятся поверх.
+          prerelease: true
+          files: |
+            dist/KnitCalculator-release.apk
+            shots/ui-screenshots.zip
+
+      # Тесты не прошли: только снимки экрана для разбора, без APK.
+      - name: Publish failed test screenshots
+        if: needs.ui-tests.result == 'failure'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}-failed
+          target_commitish: ${{ github.sha }}
+          name: ФАБРИКА — сборка ${{ github.run_number }} (тесты не прошли)
+          body: Сценарии на эмуляторе не прошли — APK не публикуется.
+          prerelease: true
+          files: shots/ui-screenshots.zip
 
   # Сервер staff.fabrika-ks.ru: тесты (SQLite и MySQL, как на beget) и выкладка по FTP, если заданы секреты.
   server:
@@ -188,7 +215,8 @@ jobs:
 
       # Пароли — только из секретов GitHub; config.php собирается здесь и уходит на сервер выше папки сайта.
       - name: Deploy to beget
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        # Рабочий сервер — только из рабочей ветки (или main), не из любой отправленной ветки.
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/claude/android-calculator-knit-erp-n3j1ya' || github.ref == 'refs/heads/main')
         env:
           FTP_HOST: ${{ secrets.BEGET_FTP_HOST }}
           FTP_USER: ${{ secrets.BEGET_FTP_USER }}
@@ -219,7 +247,7 @@ jobs:
           ], true) . ";\n");'
           printf 'Require all denied\n' > deploy/ks/.htaccess
           lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "
-            set ftp:ssl-allow yes; set net:max-retries 2; set net:timeout 20;
+            set ftp:ssl-force true; set ftp:ssl-protect-data true; set ssl:verify-certificate yes; set net:max-retries 2; set net:timeout 20;
             mkdir -p $SITE_DIR/ks; mirror -R --no-perms deploy/ks $SITE_DIR/ks;
             mirror -R --no-perms deploy/public_html $SITE_DIR/public_html;
             rm -f $SITE_DIR/public_html/index.html; echo '--- папка сайта:'; cls -la $SITE_DIR; echo '--- public_html:'; cls -la $SITE_DIR/public_html; bye"
