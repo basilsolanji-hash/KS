@@ -258,6 +258,8 @@ jobs:
             done
             echo "::warning::Не загружен $2"; return 1
           }
+          # Диагностика (временно): подробный ответ сервера FTP для большого файла.
+          lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "debug 3; set ftp:ssl-allow yes; set net:max-retries 1; set net:timeout 20; put deploy/ks/src/ApiServer.php -o ${P}ks/src/ApiServer.php; bye" 2>&1 | grep -v -i "PASS\|USER" | tail -40 || true
           for f in deploy/ks/src/*.php; do up "$f" "${P}ks/src/$(basename $f)" || true; done
           up deploy/ks/config.php "${P}ks/config.php" || true
           up deploy/ks/.htaccess "${P}ks/.htaccess" || true
