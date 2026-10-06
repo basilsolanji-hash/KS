@@ -203,6 +203,8 @@ jobs:
             echo "Секреты beget не заданы — выкладка пропущена"; exit 0
           fi
           sudo apt-get install -y -qq lftp > /dev/null
+          # Сверка ключа установки без раскрытия: длина и начало хэша (sha256).
+          echo "KS_SETUP_KEY: длина $(printf '%s' "$KS_SETUP_KEY" | wc -c), sha256 $(printf '%s' "$KS_SETUP_KEY" | tr -d '[:space:]' | sha256sum | cut -c1-12)"
           SITE_DIR="${SITE_DIR:-.}"
           mkdir -p deploy/ks/src deploy/public_html
           cp server/src/*.php deploy/ks/src/
