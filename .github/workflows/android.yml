@@ -247,22 +247,23 @@ jobs:
           ], true) . ";\n");'
           printf 'Require all denied\n' > deploy/ks/.htaccess
           # Каждый файл отдельной командой put.
-          # Диагностика (временно): один и тот же Api.php в разные места.
-          for dest in ks/t1.php ks/src/t2.php ks/src/T3.txt ks/Api.php; do
-            if lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "set ftp:ssl-allow yes; set net:max-retries 1; set net:timeout 20; put server/src/Api.php -o $dest; rm -f $dest; bye" >/dev/null 2>&1; then echo "probe $dest: OK"; else echo "probe $dest: НЕ ПРОШЛА"; fi
-          done
-          head -c 30000 server/src/Api.php > half1.php; tail -c +30001 server/src/Api.php > half2.php
-          for f in half1.php half2.php; do
-            if lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "set ftp:ssl-allow yes; set net:max-retries 1; set net:timeout 20; put $f -o ks/src/$f; rm -f ks/src/$f; bye" >/dev/null 2>&1; then echo "probe src/$f: OK"; else echo "probe src/$f: НЕ ПРОШЛА"; fi
-          done
           # Папки — отдельным подключением: ошибка «уже есть» портит следующую передачу в том же сеансе.
           lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "set ftp:ssl-allow yes; mkdir -p -f $SITE_DIR/ks/src; bye" || true
-          CMDS="set ftp:ssl-allow yes; set net:max-retries 4; set net:timeout 30;"
-          for f in deploy/ks/src/*.php; do CMDS="$CMDS put $f -o $SITE_DIR/ks/src/$(basename $f);"; done
-          CMDS="$CMDS put deploy/ks/config.php -o $SITE_DIR/ks/config.php; put deploy/ks/.htaccess -o $SITE_DIR/ks/.htaccess;"
-          CMDS="$CMDS put deploy/public_html/index.php -o $SITE_DIR/public_html/index.php; put deploy/public_html/.htaccess -o $SITE_DIR/public_html/.htaccess;"
-          CMDS="$CMDS rm -f $SITE_DIR/public_html/index.html; echo '--- папка сайта:'; cls -la $SITE_DIR/ks/src; bye"
-          lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "$CMDS"
+          # Каждый файл — отдельным подключением (на beget перезапись в общем сеансе обрывается), повтор до 3 раз.
+          [ "$SITE_DIR" = "." ] && P="" || P="$SITE_DIR/"
+          up() {
+            for try in 1 2 3; do
+              lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "set ftp:ssl-allow yes; set net:max-retries 1; set net:timeout 30; rm -f $2; put $1 -o $2; bye" && return 0
+              sleep 3
+            done
+            echo "::warning::Не загружен $2"; return 1
+          }
+          for f in deploy/ks/src/*.php; do up "$f" "${P}ks/src/$(basename $f)"; done
+          up deploy/ks/config.php "${P}ks/config.php"
+          up deploy/ks/.htaccess "${P}ks/.htaccess"
+          up deploy/public_html/index.php "${P}public_html/index.php"
+          up deploy/public_html/.htaccess "${P}public_html/.htaccess"
+          lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "set ftp:ssl-allow yes; rm -f ${P}public_html/index.html; cls -la ${P}ks/src; bye" || true
           rm -rf deploy
           # Проверка: сайт отвечает, база подключается (запрос без входа должен дойти до проверки ключа).
           URL="${KS_URL:-https://staff.fabrika-ks.ru/}"
