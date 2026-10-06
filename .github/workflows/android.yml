@@ -247,6 +247,14 @@ jobs:
           ], true) . ";\n");'
           printf 'Require all denied\n' > deploy/ks/.htaccess
           # Каждый файл отдельной командой put.
+          # Диагностика (временно): один и тот же Api.php в разные места.
+          for dest in ks/t1.php ks/src/t2.php ks/src/T3.txt ks/Api.php; do
+            if lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "set ftp:ssl-allow yes; set net:max-retries 1; set net:timeout 20; put server/src/Api.php -o $dest; rm -f $dest; bye" >/dev/null 2>&1; then echo "probe $dest: OK"; else echo "probe $dest: НЕ ПРОШЛА"; fi
+          done
+          head -c 30000 server/src/Api.php > half1.php; tail -c +30001 server/src/Api.php > half2.php
+          for f in half1.php half2.php; do
+            if lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "set ftp:ssl-allow yes; set net:max-retries 1; set net:timeout 20; put $f -o ks/src/$f; rm -f ks/src/$f; bye" >/dev/null 2>&1; then echo "probe src/$f: OK"; else echo "probe src/$f: НЕ ПРОШЛА"; fi
+          done
           # Папки — отдельным подключением: ошибка «уже есть» портит следующую передачу в том же сеансе.
           lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "set ftp:ssl-allow yes; mkdir -p -f $SITE_DIR/ks/src; bye" || true
           CMDS="set ftp:ssl-allow yes; set net:max-retries 4; set net:timeout 30;"
