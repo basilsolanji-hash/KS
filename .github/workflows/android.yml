@@ -253,7 +253,7 @@ jobs:
           [ "$SITE_DIR" = "." ] && P="" || P="$SITE_DIR/"
           up() {
             for try in 1 2 3; do
-              lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "set ftp:ssl-allow yes; set net:max-retries 1; set net:timeout 30; rm -f $2; put $1 -o $2; bye" && return 0
+              lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "set ftp:ssl-allow yes; set net:max-retries 1; set net:timeout 20; put $1 -o $2; bye" && return 0
               sleep 3
             done
             echo "::warning::Не загружен $2"; return 1
