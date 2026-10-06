@@ -921,6 +921,22 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Значение строки листа «Настройки» (последняя загрузка таблицы). */
+    fun sheetSetting(name: String): String? = parsedExtras.settings[name]
+
+    /** Директор меняет строку «Настроек» из приложения; `null` — успех. */
+    suspend fun setSheetSetting(name: String, value: String): String? {
+        val config = _syncConfig.value
+        if (!config.enabled) return "Нужно подключение к Google Таблице"
+        return try {
+            SheetClient(config).setSetting(name, value)
+            refresh()
+            null
+        } catch (e: Exception) {
+            e.message ?: "Нет связи с таблицей"
+        }
+    }
+
     // ---------- Калькулятор себестоимости (директор) ----------
 
     /** Затраты изделия из листа «Себестоимость» (по коду изделия). */

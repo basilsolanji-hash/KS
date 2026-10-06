@@ -103,7 +103,7 @@ class QuoteUiTest {
         compose.onNodeWithContentDescription("Назад").performClick()
 
         // Главный экран → отчёт и каталог на сайте.
-        compose.onNodeWithText("Отчёт").performScrollTo().performClick()
+        compose.openMenu("Отчёт")
         compose.onNodeWithText("Отчёт за месяц").assertExists()
         compose.waitUntil(10_000) { compose.onAllNodes(hasText(money(106_800))).fetchSemanticsNodes().isNotEmpty() }
         Shots.take("36_report", compose)

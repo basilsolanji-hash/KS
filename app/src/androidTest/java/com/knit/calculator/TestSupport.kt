@@ -6,6 +6,8 @@ import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import androidx.compose.ui.test.junit4.ComposeTestRule
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.rules.TestWatcher
 import org.junit.runner.Description
@@ -58,4 +60,12 @@ object Shots {
             }
         }
     }
+}
+
+/** Раздел из меню ☰ главного экрана. */
+fun androidx.compose.ui.test.junit4.ComposeTestRule.openMenu(item: String) {
+    onNode(androidx.compose.ui.test.hasContentDescription("Меню")).performClick()
+    waitForIdle()
+    onNode(androidx.compose.ui.test.hasText(item)).performScrollTo().performClick()
+    waitForIdle()
 }

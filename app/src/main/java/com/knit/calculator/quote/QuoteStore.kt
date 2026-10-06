@@ -220,6 +220,11 @@ class QuoteStore(context: Context) {
         get() = com.knit.calculator.core.PinLock.Attempts(prefs.getInt("pin_fails", 0), prefs.getLong("pin_blocked", 0L))
         set(v) { prefs.edit().putInt("pin_fails", v.fails).putLong("pin_blocked", v.blockedUntil).apply() }
 
+    /** Кнопки наверху главного экрана (названия разделов); `null` — как по умолчанию. */
+    var homeShortcuts: List<String>?
+        get() = prefs.getString("home_shortcuts", null)?.split(',')?.filter { it.isNotBlank() }
+        set(v) { prefs.edit().putString("home_shortcuts", v?.joinToString(",")).apply() }
+
     /** Ежедневная сводка в 9:00 (долги, отгрузки, КП без ответа). */
     var digestEnabled: Boolean
         get() = prefs.getBoolean("digest", true)

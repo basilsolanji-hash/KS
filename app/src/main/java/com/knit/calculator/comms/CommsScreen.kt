@@ -174,7 +174,7 @@ fun CommsScreen(onBack: () -> Unit) {
 }
 
 @SuppressLint("SetJavaScriptEnabled")
-private fun createWebView(
+internal fun createWebView(
     ctx: Context,
     c: Channel,
     onProgress: (Int) -> Unit,

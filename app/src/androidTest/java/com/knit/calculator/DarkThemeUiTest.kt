@@ -28,7 +28,7 @@ class DarkThemeUiTest {
         compose.onNodeWithContentDescription("Результат: 84").assertExists()
         Shots.take("11_calculator_dark_result", compose)
         compose.onNodeWithContentDescription("Назад").performClick()
-        compose.onNodeWithText("Расход пряжи").performScrollTo().performClick()
+        compose.openMenu("Расход пряжи")
         Shots.take("12_yarn_dark", compose)
     }
 }

@@ -5,6 +5,13 @@ import androidx.annotation.StringRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.semantics.contentDescription
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -61,14 +68,60 @@ data class HomeCharts(
 )
 
 /** Разделы, доступные с главного экрана. */
-enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, FINANCE, COST, COMMS, WAREHOUSE }
+enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI }
 
-/** Группа кнопок главного экрана. */
-private data class HomeGroup(val title: Int, val tiles: List<Triple<HomeAction, Int, Int>>)
+/** Пункт меню: раздел, подпись, значок. */
+data class MenuItem(val action: HomeAction, val label: Int, val icon: Int)
+
+/** Все разделы для меню ☰ по группам (с учётом роли и МойСклад). */
+fun menuGroups(director: Boolean, msEnabled: Boolean): List<Pair<Int, List<MenuItem>>> = listOf(
+    R.string.home_group_sales to listOf(
+        MenuItem(HomeAction.QUOTE, R.string.menu_quote, R.drawable.ic_add),
+        MenuItem(HomeAction.HISTORY, R.string.home_history, R.drawable.ic_history),
+        MenuItem(HomeAction.PRODUCTS, R.string.home_products, R.drawable.ic_inventory),
+        MenuItem(HomeAction.REPORT, R.string.home_report, R.drawable.ic_report),
+        MenuItem(HomeAction.COMMS, R.string.home_comms, R.drawable.ic_chat),
+        MenuItem(HomeAction.AI, R.string.home_ai, R.drawable.ic_ai),
+        MenuItem(HomeAction.SHOP, R.string.home_shop, R.drawable.ic_web),
+    ),
+    R.string.home_group_money to listOfNotNull(
+        MenuItem(HomeAction.PAYMENTS, R.string.home_payments, R.drawable.ic_payments),
+        if (director) MenuItem(HomeAction.FINANCE, R.string.home_finance, R.drawable.ic_report) else null,
+        if (director) MenuItem(HomeAction.COST, R.string.home_cost, R.drawable.ic_calculator) else null,
+    ),
+    R.string.home_group_production to listOfNotNull(
+        MenuItem(HomeAction.PRODUCTION, R.string.home_production, R.drawable.ic_factory),
+        MenuItem(HomeAction.YARN, R.string.home_yarn, R.drawable.ic_yarn),
+        // С МойСклад склад пряжи ведётся там.
+        if (!msEnabled) MenuItem(HomeAction.STOCK, R.string.home_stock, R.drawable.ic_inventory) else null,
+        if (msEnabled) MenuItem(HomeAction.WAREHOUSE, R.string.home_warehouse, R.drawable.ic_scan) else null,
+        MenuItem(HomeAction.LABELS, R.string.home_labels, R.drawable.ic_label),
+        MenuItem(HomeAction.CALCULATOR, R.string.home_calculator, R.drawable.ic_calculator),
+    ),
+    R.string.menu_group_service to listOf(
+        MenuItem(HomeAction.WORKTIME, R.string.home_worktime, R.drawable.ic_history),
+        MenuItem(HomeAction.SETTINGS, R.string.home_settings, R.drawable.ic_settings),
+        MenuItem(HomeAction.ABOUT, R.string.menu_about, R.drawable.ic_doc),
+    ),
+)
+
+/** Кнопки наверху по умолчанию. */
+val DEFAULT_SHORTCUTS = listOf(HomeAction.CALCULATOR, HomeAction.LABELS, HomeAction.SHOP, HomeAction.SETTINGS)
+const val MAX_SHORTCUTS = 4
+
+/** Нижняя панель: сотрудник, фото, смена. */
+data class WorkBar(
+    val person: String,
+    val photoPath: String?,
+    val photoVersion: Int = 0,
+    /** Начало открытой смены сегодня; `null` — смена не идёт. */
+    val shiftStart: Long?,
+    val workedMinutes: Long,
+)
 
 /**
- * Главный экран: шапка (логотип и название слева, служебные значки справа), «Новое КП»,
- * «Сегодня», динамика (директору), затем кнопки по группам: Продажи · Деньги · Производство.
+ * Главный экран: ☰ меню со всеми разделами, логотип и «ФАБРИКА», свои кнопки наверху; «Новое КП»,
+ * «Сегодня», динамика (директору); внизу — фото сотрудника, дата и часы, рабочее время смены.
  * Потяните вниз — данные обновятся.
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
@@ -85,13 +138,95 @@ fun HomeScreen(
     charts: HomeCharts? = null,
     refreshing: Boolean = false,
     onRefresh: () -> Unit = {},
+    shortcuts: List<HomeAction> = DEFAULT_SHORTCUTS,
+    onShortcuts: (List<HomeAction>) -> Unit = {},
+    work: WorkBar? = null,
+    onShift: (start: Boolean) -> Unit = {},
+    onPhoto: (android.net.Uri) -> Unit = {},
     onAction: (HomeAction) -> Unit,
 ) {
     val colors = LocalKnitColors.current
+    val drawer = androidx.compose.material3.rememberDrawerState(androidx.compose.material3.DrawerValue.Closed)
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var editShortcuts by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    val groups = menuGroups(director, sync.msEnabled)
+    val all = groups.flatMap { it.second }
+    fun go(a: HomeAction) {
+        scope.launch { drawer.close() }
+        onAction(a)
+    }
+
+    androidx.compose.material3.ModalNavigationDrawer(
+        drawerState = drawer,
+        drawerContent = {
+            androidx.compose.material3.ModalDrawerSheet(drawerContainerColor = colors.background) {
+                Column(Modifier.fillMaxHeight().verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
+                    Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Image(painterResource(R.drawable.ic_ks_logo), null, colorFilter = ColorFilter.tint(colors.textPrimary), modifier = Modifier.height(26.dp))
+                        Text(stringResource(R.string.app_name), color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
+                    }
+                    groups.forEach { (title, items) ->
+                        if (items.isEmpty()) return@forEach
+                        Text(stringResource(title), color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(start = 28.dp, top = 14.dp, bottom = 4.dp))
+                        items.forEach { item ->
+                            androidx.compose.material3.NavigationDrawerItem(
+                                label = { Text(stringResource(item.label), fontSize = 16.sp) },
+                                icon = { Icon(painterResource(item.icon), null, Modifier.size(22.dp)) },
+                                selected = false,
+                                onClick = { go(item.action) },
+                                colors = androidx.compose.material3.NavigationDrawerItemDefaults.colors(
+                                    unselectedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                                    unselectedTextColor = colors.textPrimary,
+                                    unselectedIconColor = if (colors.isDark) colors.accent else colors.textPrimary,
+                                ),
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                            )
+                        }
+                    }
+                    Text(stringResource(R.string.menu_group_view), color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(start = 28.dp, top = 14.dp, bottom = 4.dp))
+                    androidx.compose.material3.NavigationDrawerItem(
+                        label = { Text(stringResource(R.string.menu_shortcuts), fontSize = 16.sp) },
+                        icon = { Icon(painterResource(R.drawable.ic_edit), null, Modifier.size(22.dp)) },
+                        selected = false,
+                        onClick = { scope.launch { drawer.close() }; editShortcuts = true },
+                        colors = androidx.compose.material3.NavigationDrawerItemDefaults.colors(
+                            unselectedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                            unselectedTextColor = colors.textPrimary, unselectedIconColor = colors.textSecondary,
+                        ),
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
+                    androidx.compose.material3.NavigationDrawerItem(
+                        label = { Text(stringResource(R.string.menu_theme), fontSize = 16.sp) },
+                        icon = {
+                            Icon(painterResource(when (themeMode) {
+                                ThemeMode.SYSTEM -> R.drawable.ic_theme_auto
+                                ThemeMode.LIGHT -> R.drawable.ic_theme_light
+                                ThemeMode.DARK -> R.drawable.ic_theme_dark
+                            }), null, Modifier.size(22.dp))
+                        },
+                        selected = false,
+                        onClick = onTheme,
+                        colors = androidx.compose.material3.NavigationDrawerItemDefaults.colors(
+                            unselectedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                            unselectedTextColor = colors.textPrimary, unselectedIconColor = colors.textSecondary,
+                        ),
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
+                    Text(
+                        stringResource(if (director) R.string.role_director else R.string.role_manager) + " · " + stringResource(R.string.about_link, version),
+                        color = colors.textSecondary, fontSize = 12.sp, modifier = Modifier.padding(start = 28.dp, top = 16.dp),
+                    )
+                }
+            }
+        },
+    ) {
+    Column(Modifier.fillMaxSize().background(colors.background).safeDrawingPadding()) {
     androidx.compose.material3.pulltorefresh.PullToRefreshBox(
         isRefreshing = refreshing,
         onRefresh = onRefresh,
-        modifier = Modifier.fillMaxSize().background(colors.background).safeDrawingPadding(),
+        modifier = Modifier.fillMaxWidth().weight(1f),
     ) {
     Column(
         Modifier
@@ -100,24 +235,24 @@ fun HomeScreen(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // Шапка: логотип и название слева, редкие разделы — значками справа.
+        // Шапка: ☰, логотип и «ФАБРИКА», свои кнопки (настраиваются в меню).
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            HeaderButton(R.drawable.ic_list, stringResource(R.string.menu_open)) { scope.launch { drawer.open() } }
             Image(
                 painter = painterResource(R.drawable.ic_ks_logo),
                 contentDescription = null,
                 colorFilter = ColorFilter.tint(colors.textPrimary),
-                modifier = Modifier.height(26.dp),
+                modifier = Modifier.padding(start = 4.dp).height(24.dp),
             )
             Text(
                 stringResource(R.string.app_name),
-                color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(start = 8.dp).weight(1f).semantics { heading() },
+                color = colors.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(start = 6.dp).weight(1f).semantics { heading() },
                 maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
-            KnitIconButton(R.drawable.ic_calculator, stringResource(R.string.home_calculator), { onAction(HomeAction.CALCULATOR) })
-            KnitIconButton(R.drawable.ic_label, stringResource(R.string.home_labels), { onAction(HomeAction.LABELS) })
-            KnitIconButton(R.drawable.ic_web, stringResource(R.string.home_shop), { onAction(HomeAction.SHOP) })
-            KnitIconButton(R.drawable.ic_settings, stringResource(R.string.home_settings), { onAction(HomeAction.SETTINGS) })
+            shortcuts.mapNotNull { a -> all.firstOrNull { it.action == a } }.take(MAX_SHORTCUTS).forEach { item ->
+                HeaderButton(item.icon, stringResource(item.label)) { onAction(item.action) }
+            }
         }
         SyncLine(sync)
 
@@ -182,67 +317,125 @@ fun HomeScreen(
             if (charts.outflow == null) Text(stringResource(R.string.chart_no_out), color = colors.textSecondary, fontSize = 12.sp)
         }
 
-        val groups = listOf(
-            HomeGroup(
-                R.string.home_group_sales,
-                listOf(
-                    Triple(HomeAction.HISTORY, R.string.home_history, R.drawable.ic_history),
-                    Triple(HomeAction.PRODUCTS, R.string.home_products, R.drawable.ic_inventory),
-                    Triple(HomeAction.REPORT, R.string.home_report, R.drawable.ic_report),
-                    Triple(HomeAction.COMMS, R.string.home_comms, R.drawable.ic_chat),
-                ),
-            ),
-            HomeGroup(
-                R.string.home_group_money,
-                listOfNotNull(
-                    Triple(HomeAction.PAYMENTS, R.string.home_payments, R.drawable.ic_payments),
-                    if (director) Triple(HomeAction.FINANCE, R.string.home_finance, R.drawable.ic_report) else null,
-                    if (director) Triple(HomeAction.COST, R.string.home_cost, R.drawable.ic_calculator) else null,
-                ),
-            ),
-            HomeGroup(
-                R.string.home_group_production,
-                listOfNotNull(
-                    Triple(HomeAction.PRODUCTION, R.string.home_production, R.drawable.ic_factory),
-                    Triple(HomeAction.YARN, R.string.home_yarn, R.drawable.ic_yarn),
-                    // С МойСклад склад пряжи ведётся там.
-                    if (!sync.msEnabled) Triple(HomeAction.STOCK, R.string.home_stock, R.drawable.ic_inventory) else null,
-                    if (sync.msEnabled) Triple(HomeAction.WAREHOUSE, R.string.home_warehouse, R.drawable.ic_scan) else null,
-                ),
-            ),
-        )
-        groups.forEach { g ->
-            GroupTitle(g.title)
-            g.tiles.chunked(2).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    row.forEach { (action, label, icon) ->
-                        Tile(label, icon, Modifier.weight(1f)) { onAction(action) }
-                    }
-                    if (row.size == 1) Spacer(Modifier.weight(1f))
+    }
+    }
+    if (work != null) WorkBarView(work, onShift, onPhoto)
+    }
+    }
+    if (editShortcuts) {
+        ShortcutsDialog(all, shortcuts, onDismiss = { editShortcuts = false }) { onShortcuts(it); editShortcuts = false }
+    }
+}
+
+/** Компактная кнопка шапки (40 dp — помещается больше кнопок). */
+@Composable
+private fun HeaderButton(icon: Int, description: String, onClick: () -> Unit) {
+    val colors = LocalKnitColors.current
+    androidx.compose.material3.IconButton(onClick = onClick, modifier = Modifier.size(40.dp)) {
+        Icon(painterResource(icon), description, Modifier.size(22.dp), tint = colors.textSecondary)
+    }
+}
+
+/** Нижняя панель: фото (нажмите, чтобы сменить), имя, смена; справа — время и дата. */
+@Composable
+private fun WorkBarView(work: WorkBar, onShift: (Boolean) -> Unit, onPhoto: (android.net.Uri) -> Unit) {
+    val colors = LocalKnitColors.current
+    var now by androidx.compose.runtime.remember { androidx.compose.runtime.mutableLongStateOf(System.currentTimeMillis()) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        while (true) {
+            now = System.currentTimeMillis()
+            kotlinx.coroutines.delay(60_000 - now % 60_000)
+        }
+    }
+    val pick = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia(),
+    ) { uri -> uri?.let(onPhoto) }
+    val photo = androidx.compose.runtime.remember(work.photoPath, work.photoVersion) { com.knit.calculator.quote.PhotoStore.load(work.photoPath)?.asImageBitmap() }
+    var confirm by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    Surface(color = colors.panel, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(44.dp).clip(androidx.compose.foundation.shape.CircleShape).background(colors.equalsKey)
+                    .clickable { pick.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+                    .semantics { contentDescription = "Фото профиля" },
+                contentAlignment = Alignment.Center,
+            ) {
+                if (photo != null) {
+                    Image(photo, null, contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                } else {
+                    Text(work.person.take(1).uppercase(), color = colors.equalsKeyText, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 }
             }
-        }
-        Text(
-            stringResource(if (director) R.string.role_director else R.string.role_manager),
-            color = colors.textSecondary, fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
-        )
-        // Низ: версия и тема (тема по умолчанию — тёмная).
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { onAction(HomeAction.ABOUT) }) {
-                Text(stringResource(R.string.about_link, version), color = colors.textSecondary, fontSize = 13.sp)
+            Column(Modifier.padding(start = 10.dp).weight(1f)) {
+                Text(work.person, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                val started = work.shiftStart
+                Text(
+                    if (started != null) stringResource(R.string.shift_line, SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(started)), com.knit.calculator.core.WorkTime.format(work.workedMinutes))
+                    else stringResource(R.string.shift_off, com.knit.calculator.core.WorkTime.format(work.workedMinutes)),
+                    color = colors.textSecondary, fontSize = 12.sp, maxLines = 1,
+                )
             }
-            KnitIconButton(
-                when (themeMode) {
-                    ThemeMode.SYSTEM -> R.drawable.ic_theme_auto
-                    ThemeMode.LIGHT -> R.drawable.ic_theme_light
-                    ThemeMode.DARK -> R.drawable.ic_theme_dark
-                },
-                stringResource(R.string.theme_toggle, ""),
-                onTheme,
-            )
+            TextButton(onClick = { if (work.shiftStart != null) confirm = true else onShift(true) }) {
+                Text(
+                    stringResource(if (work.shiftStart != null) R.string.shift_close else R.string.shift_start),
+                    color = if (work.shiftStart != null) androidx.compose.ui.graphics.Color(0xFFD9534F) else colors.textPrimary,
+                    fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(now)), color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(SimpleDateFormat("EE, d MMM", Locale("ru")).format(Date(now)), color = colors.textSecondary, fontSize = 12.sp)
+            }
         }
     }
+    if (confirm) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirm = false },
+            title = { Text(stringResource(R.string.shift_close)) },
+            text = { Text(stringResource(R.string.shift_close_confirm, com.knit.calculator.core.WorkTime.format(work.workedMinutes)), color = colors.textPrimary) },
+            confirmButton = { TextButton(onClick = { confirm = false; onShift(false) }) { Text(stringResource(R.string.shift_close), color = colors.textPrimary, fontWeight = FontWeight.SemiBold) } },
+            dismissButton = { TextButton(onClick = { confirm = false }) { Text(stringResource(R.string.cancel), color = colors.textSecondary) } },
+            containerColor = colors.panel,
+        )
     }
+}
+
+/** Выбор кнопок наверху: до 4, порядок — стрелкой «выше». */
+@Composable
+private fun ShortcutsDialog(all: List<MenuItem>, current: List<HomeAction>, onDismiss: () -> Unit, onSave: (List<HomeAction>) -> Unit) {
+    val colors = LocalKnitColors.current
+    var chosen by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(current.filter { a -> all.any { it.action == a } }) }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.menu_shortcuts)) },
+        text = {
+            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
+                Text(stringResource(R.string.shortcuts_hint, MAX_SHORTCUTS), color = colors.textSecondary, fontSize = 13.sp)
+                // Сначала выбранные (в их порядке), затем остальные.
+                (chosen.mapNotNull { a -> all.firstOrNull { it.action == a } } + all.filter { it.action !in chosen }).forEach { item ->
+                    val on = item.action in chosen
+                    val index = chosen.indexOf(item.action)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.Checkbox(
+                            checked = on,
+                            enabled = on || chosen.size < MAX_SHORTCUTS,
+                            onCheckedChange = { v -> chosen = if (v) chosen + item.action else chosen - item.action },
+                        )
+                        Icon(painterResource(item.icon), null, Modifier.size(20.dp), tint = colors.textSecondary)
+                        Text(stringResource(item.label), color = colors.textPrimary, fontSize = 15.sp, modifier = Modifier.padding(start = 8.dp).weight(1f))
+                        if (index > 0) {
+                            KnitIconButton(R.drawable.ic_arrow_up, stringResource(R.string.comms_up), {
+                                chosen = chosen.toMutableList().apply { add(index - 1, removeAt(index)) }
+                            })
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(chosen) }) { Text(stringResource(R.string.shortcuts_save), color = colors.textPrimary, fontWeight = FontWeight.SemiBold) } },
+        dismissButton = { TextButton(onClick = { onSave(DEFAULT_SHORTCUTS) }) { Text(stringResource(R.string.shortcuts_default), color = colors.textSecondary) } },
+        containerColor = colors.panel,
+    )
 }
 
 @Composable
@@ -278,17 +471,6 @@ private fun DayRow(text: String, color: androidx.compose.ui.graphics.Color, onCl
         text, color = color, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 6.dp),
     )
-}
-
-@Composable
-private fun Tile(@StringRes label: Int, @DrawableRes icon: Int, modifier: Modifier, onClick: () -> Unit) {
-    val colors = LocalKnitColors.current
-    Surface(onClick = onClick, shape = RoundedCornerShape(20.dp), color = colors.panel, modifier = modifier.height(104.dp)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Icon(painterResource(icon), null, Modifier.size(30.dp), tint = if (colors.isDark) colors.accent else colors.textPrimary)
-            Text(stringResource(label), color = colors.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-        }
-    }
 }
 
 @Composable

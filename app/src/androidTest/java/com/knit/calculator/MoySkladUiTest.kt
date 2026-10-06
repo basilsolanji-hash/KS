@@ -121,7 +121,7 @@ class MoySkladUiTest {
     }
 
     @Test fun inventoryByScanner() {
-        compose.onNodeWithText("Склад: сканер").performScrollTo().performClick()
+        compose.openMenu("Склад: сканер")
         compose.onNodeWithText("Инвентаризация").performClick()
         val field = compose.onNode(hasSetTextAction() and hasText("Код со сканера"))
         // Ручной сканер: код и Enter.
@@ -174,7 +174,7 @@ class MoySkladUiTest {
     }
 
     @Test fun productsCatalogCard() {
-        compose.onNodeWithText("Товары").performScrollTo().performClick()
+        compose.openMenu("Товары")
         compose.onNodeWithText("Товары МойСклад (3)").assertExists()
         compose.onNodeWithText("Подвяз трикотажный 1×1 (ПЭ) Белый, 14х100 см").performClick()
         // Карточка: цены по тиражам, остаток, штрихкод.

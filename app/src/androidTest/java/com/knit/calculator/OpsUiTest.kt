@@ -104,7 +104,7 @@ class OpsUiTest {
         Shots.take("47_home_top", compose)
         compose.onNodeWithText("Приход и расход денег").performScrollTo()
         Shots.take("48_home_charts", compose)
-        compose.onNodeWithText("Оплаты и долги").performScrollTo().performClick()
+        compose.openMenu("Оплаты и долги")
         waitText(money(44_800))
         compose.onNodeWithText("Подробнее").performClick()
         compose.onAllNodes(hasText(money(50_000), substring = true)).onFirst().assertExists()
@@ -112,7 +112,7 @@ class OpsUiTest {
 
         // Склад: приход 25 кг полиэстера.
         compose.onNodeWithContentDescription("Назад").performClick()
-        compose.onNodeWithText("Склад пряжи").performScrollTo().performClick()
+        compose.openMenu("Склад пряжи")
         compose.onNodeWithText("Приход").performClick()
         compose.onNode(hasSetTextAction() and hasText("Пряжа")).performTextInput("Полиэстер")
         compose.onNode(hasSetTextAction() and hasText("Количество")).performTextInput("25")

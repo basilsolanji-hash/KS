@@ -370,3 +370,35 @@ class WarehouseTest {
         assertEquals(listOf("p1"), s.over.map { it.id })
     }
 }
+
+class WorkTimeTest {
+    private val tz = java.util.TimeZone.getTimeZone("Europe/Moscow")
+    private fun t(d: Int, h: Int, m: Int = 0) = java.util.Calendar.getInstance(tz).apply { clear(); set(2026, 9, d, h, m) }.timeInMillis
+
+    @Test fun autoStartOnlyOncePerDay() {
+        val now = t(6, 9)
+        assertTrue(WorkTime.shouldAutoStart(emptyList(), now))
+        // Вчера смену не закрыли — сегодня всё равно начинаем новую.
+        assertTrue(WorkTime.shouldAutoStart(listOf(WorkShift("a", "Иван", t(5, 9))), now))
+        val closedToday = listOf(WorkShift("b", "Иван", t(6, 8), t(6, 8, 30)))
+        assertFalse(WorkTime.shouldAutoStart(closedToday, t(6, 19)))
+    }
+
+    @Test fun workedTodayAndTotals() {
+        val now = t(6, 13, 15)
+        val shifts = listOf(
+            WorkShift("y", "Иван", t(5, 9), null),            // вчера не закрыта — 0 и «незакрытая»
+            WorkShift("a", "Иван", t(6, 9), t(6, 12)),        // 3 ч
+            WorkShift("b", "Иван", t(6, 13), null),           // открыта: 15 мин
+            WorkShift("c", "Пётр", t(2, 9), t(2, 18, 30)),    // 9 ч 30
+        )
+        assertEquals(195L, WorkTime.workedToday(shifts, now))
+        assertEquals("b", WorkTime.current(shifts, now)?.id)
+        val totals = WorkTime.totals(shifts, "2026-10", now)
+        assertEquals(listOf("Иван", "Пётр"), totals.map { it.person })
+        assertEquals(2, totals[0].days)
+        assertEquals(195L, totals[0].minutes)
+        assertEquals(1, totals[0].unclosed)
+        assertEquals("9 ч 30 мин", WorkTime.format(totals[1].minutes))
+    }
+}

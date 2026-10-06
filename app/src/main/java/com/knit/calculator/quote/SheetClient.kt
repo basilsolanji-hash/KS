@@ -129,6 +129,18 @@ class SheetClient(private val config: SyncConfig) {
         return request(URL(config.url.trim()), body.toString())
     }
 
+    /** Директор меняет разрешённую строку «Настроек» (например, «ИИ для менеджеров»). */
+    suspend fun setSetting(name: String, value: String): String = get("setSetting", "name" to name, "value" to value).optString("value")
+
+    // ---------- Рабочее время ----------
+
+    suspend fun shiftSave(shift: JSONObject): JSONObject {
+        val body = JSONObject().put("action", "shiftSave").put("key", config.key).put("shift", shift)
+        return request(URL(config.url.trim()), body.toString()).optJSONObject("shift") ?: JSONObject()
+    }
+
+    suspend fun shifts(month: String): JSONArray = get("shifts", "month" to month).optJSONArray("shifts") ?: JSONArray()
+
     // ---------- Склад: отгрузка и инвентаризация по сканеру ----------
 
     suspend fun msShipList(): JSONArray = get("msShipList").optJSONArray("orders") ?: JSONArray()

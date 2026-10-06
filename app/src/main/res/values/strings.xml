@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Фабрика \"KS\"</string>
+    <string name="app_name">ФАБРИКА</string>
 
     <string name="history">История</string>
     <string name="history_open">Открыть историю вычислений</string>
@@ -808,6 +808,35 @@
     <string name="wh_save_count">Сохранить инвентаризацию</string>
     <string name="wh_count_confirm">Товаров: %d. Документ «Инвентаризация» создастся в МойСклад; оприходование и списание по нему оформляются в МойСклад.</string>
     <string name="wh_clear">Начать заново</string>
+    <string name="menu_open">Меню</string>
+    <string name="menu_quote">Новое КП</string>
+    <string name="menu_about">О версии</string>
+    <string name="menu_group_service">Сервис</string>
+    <string name="menu_group_view">Вид</string>
+    <string name="menu_shortcuts">Кнопки наверху</string>
+    <string name="menu_theme">Тема: светлая / тёмная / как в телефоне</string>
+    <string name="shortcuts_hint">Выберите до %d кнопок для верхней строки главного экрана.</string>
+    <string name="shortcuts_save">Сохранить</string>
+    <string name="shortcuts_default">Как было</string>
+    <string name="home_worktime">Рабочее время</string>
+    <string name="home_ai">ИИ-помощник</string>
+    <string name="shift_line">Смена с %1$s · %2$s</string>
+    <string name="shift_off">Смена закрыта · сегодня %s</string>
+    <string name="shift_close">Закрыть смену</string>
+    <string name="shift_start">Начать смену</string>
+    <string name="shift_close_confirm">Закрыть смену? Сегодня отработано %s.</string>
+    <string name="work_empty">За этот месяц смен нет.</string>
+    <string name="work_days">Дней: %d</string>
+    <string name="work_unclosed">не закрыто смен: %d</string>
+    <string name="work_fix">Закрыть</string>
+    <string name="work_fix_title">%1$s, %2$s</string>
+    <string name="work_fix_hint">Смена началась в %s и не закрыта. Укажите время конца.</string>
+    <string name="work_fix_end">Конец смены (ЧЧ:ММ)</string>
+    <string name="work_hint">Смена начинается сама при первом входе за день; в конце дня — «Закрыть смену» внизу главного экрана. Незакрытые смены не считаются, пока их не закроет директор.</string>
+    <string name="ai_title">ИИ-помощник</string>
+    <string name="ai_manage">Доступ менеджерам</string>
+    <string name="ai_manage_hint">Отметьте, какие ИИ видят менеджеры. Директор видит все. Вход в ИИ — своим аккаунтом в самом сервисе.</string>
+    <string name="ai_none">Директор пока не открыл доступ к ИИ.</string>
     <string name="scan_barcode">Сканировать штрихкод</string>
     <string name="scan_not_found">Штрихкод %s не найден среди товаров — проверьте или обновите каталог.</string>
     <string name="chart_ship">Отгрузки (МойСклад)</string>

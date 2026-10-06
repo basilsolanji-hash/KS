@@ -32,6 +32,7 @@ var SHEETS = {
   orders: 'Заказы',
   yarnMoves: 'Движение пряжи',
   contract: 'Договор',
+  shifts: 'Рабочее время',
 };
 // Листы учёта создаются сами при первой записи.
 var HEADERS = {
@@ -40,6 +41,7 @@ var HEADERS = {
   orders: ['№ КП', 'ID КП', 'Клиент', 'Создан', 'Срок отгрузки', 'Этап', 'Дата этапа', 'Изделия', 'Комментарий',
     'Пряжа (не изменять)', 'Пряжа списана'],
   yarnMoves: ['Дата', 'Пряжа', 'Кг (+ приход, − расход)', 'Основание', 'Менеджер', 'ID'],
+  shifts: ['ID', 'Сотрудник', 'Начало', 'Конец', 'Часов', 'Исправил'],
 };
 var START_INVOICE_SETTING = 'Начальный номер счёта';
 var KEY_SETTING = 'Ключ доступа';
@@ -55,7 +57,10 @@ var BRAND_SETTING = 'Название для КП';
 var EMAIL_SETTING = 'E-mail';
 var MANAGERS_SHEET = 'Менеджеры'; // Ключ | Имя | Роль (менеджер / директор) | Активен (да / нет)
 var MAIL_LIMIT_SETTING = 'Писем в день с одного ключа';
-var DIRECTOR_ONLY = ['deletePayment', 'finance', 'msUpdateProduct'];
+var DIRECTOR_ONLY = ['deletePayment', 'finance', 'msUpdateProduct', 'setSetting'];
+// Настройки, которые директор меняет из приложения.
+var AI_SETTING = 'ИИ для менеджеров';
+var APP_SETTINGS = [AI_SETTING];
 // Строки «Настроек», которые менеджеру не нужны и не должны попадать на его телефон.
 var PRIVATE_SETTINGS = ['Ключ доступа', 'PIN директора', 'Постоянные расходы в месяц, ₽', 'План выпуска, шт/мес',
   'Комиссия, %', 'Целевая рентабельность, %', 'Папка: логотип (ID)', 'Папка: фото (ID)', 'Папка: КП (ID)',
@@ -184,6 +189,12 @@ function route_(req) {
         }
         return json_({ ok: true, finance: cached_(finKey, 300, function () { return finance_(ss); }) });
       }
+      case 'setSetting':
+        return json_({ ok: true, value: setSetting_(ss, String(req.name || ''), String(req.value == null ? '' : req.value)) });
+      case 'shiftSave':
+        return json_({ ok: true, shift: shiftSave_(ss, who, req.shift || {}) });
+      case 'shifts':
+        return json_({ ok: true, shifts: shifts_(ss, who, String(req.month || '')) });
       case 'innLookup':
         return json_({ ok: true, party: dadataParty_(String(req.inn || '')) });
       case 'msUpdateProduct': {
@@ -833,6 +844,72 @@ function sheet_(ss, kind) {
     sheet.setFrozenRows(1);
   }
   return sheet;
+}
+
+/** Строка «Настроек» из приложения (только разрешённые [APP_SETTINGS]). */
+function setSetting_(ss, name, value) {
+  if (APP_SETTINGS.indexOf(name) < 0) throw new Error('Эту настройку меняют в таблице');
+  value = value.substring(0, 500);
+  var sheet = ss.getSheetByName(SHEETS.settings);
+  var rows = sheet.getDataRange().getValues();
+  var done = false;
+  for (var i = 1; i < rows.length && !done; i++) {
+    if (String(rows[i][0]).trim() === name) {
+      sheet.getRange(i + 1, 2).setValue(value);
+      done = true;
+    }
+  }
+  if (!done) sheet.appendRow([name, value]);
+  cacheBump_();
+  return value;
+}
+
+// ---------------------------------------------------------------- Рабочее время
+
+function person_(who) {
+  return String((who && who.name) || '').split(' / ')[0].trim() || 'Директор';
+}
+
+/**
+ * Смена: начало при входе в приложение, конец — «Закрыть смену». Сотрудник пишет только свои смены;
+ * директор может исправить любую (например, незакрытую) — это видно в колонке «Исправил».
+ */
+function shiftSave_(ss, who, s) {
+  var id = String(s.id || '').trim();
+  if (!/^[\w-]{6,64}$/.test(id)) throw new Error('Неверная смена');
+  var start = Number(s.start) || 0;
+  var end = s.end ? Number(s.end) : null;
+  if (!start || (end && end < start)) throw new Error('Неверное время смены');
+  var director = who.role === 'director';
+  var sheet = sheet_(ss, 'shifts');
+  var rows = sheet.getDataRange().getValues();
+  var me = person_(who);
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]) !== id) continue;
+    var owner = String(rows[i][1]);
+    if (owner !== me && !director) throw new Error('Это смена другого сотрудника');
+    var fixedBy = owner !== me ? me : String(rows[i][5] || '');
+    sheet.getRange(i + 1, 3, 1, 4).setValues([[new Date(start), end ? new Date(end) : '', end ? Math.round((end - start) / 36000) / 100 : '', fixedBy]]);
+    return { id: id, person: owner, start: start, end: end };
+  }
+  var person = director && s.person ? String(s.person) : me;
+  sheet.appendRow([id, person, new Date(start), end ? new Date(end) : '', end ? Math.round((end - start) / 36000) / 100 : '', '']);
+  return { id: id, person: person, start: start, end: end };
+}
+
+/** Смены месяца «2026-10»: директору — все, сотруднику — свои. */
+function shifts_(ss, who, month) {
+  var tz = ss.getSpreadsheetTimeZone();
+  if (!/^\d{4}-\d{2}$/.test(month)) month = Utilities.formatDate(new Date(), tz, 'yyyy-MM');
+  var sheet = ss.getSheetByName(SHEETS.shifts);
+  if (!sheet) return [];
+  var me = person_(who);
+  return sheet.getDataRange().getValues().slice(1).filter(function (r) {
+    return r[0] && r[2] instanceof Date && Utilities.formatDate(r[2], tz, 'yyyy-MM') === month &&
+      (who.role === 'director' || String(r[1]) === me);
+  }).map(function (r) {
+    return { id: String(r[0]), person: String(r[1]), start: r[2].getTime(), end: r[3] instanceof Date ? r[3].getTime() : null, fixedBy: String(r[5] || '') };
+  });
 }
 
 function millis_(v) {

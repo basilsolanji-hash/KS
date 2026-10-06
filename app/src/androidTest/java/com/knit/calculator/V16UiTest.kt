@@ -124,7 +124,7 @@ class V16UiTest {
 
     @Test fun costCalculatorMakesQuote() {
         // Без PIN директора все — директор: «Себестоимость» на главном.
-        compose.onNodeWithText("Себестоимость").performScrollTo().performClick()
+        compose.openMenu("Себестоимость")
         compose.onNodeWithText("Выберите изделие (или считайте вручную)").performClick()
         compose.waitUntil(15_000) { compose.onAllNodes(hasText("Подвяз трикотажный")).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Подвяз трикотажный").performClick()
@@ -138,7 +138,7 @@ class V16UiTest {
     }
 
     @Test fun commsTabsAndMailbox() {
-        compose.onNodeWithText("Связь").performScrollTo().performClick()
+        compose.openMenu("Связь")
         compose.onNodeWithText("Макс").assertExists()
         compose.onNodeWithText("Telegram").assertExists()
         compose.onNodeWithText("+ Почтовый ящик").performClick()
@@ -155,7 +155,7 @@ class V16UiTest {
 
     @Test fun financeNeedsSheet() {
         // Без PIN директора все — директор: плитка «Финансы» видна.
-        compose.onNodeWithText("Финансы").performScrollTo().performClick()
+        compose.openMenu("Финансы")
         compose.onNodeWithText("Платёжный календарь").assertExists()
         compose.onNodeWithText("Финансы работают с подключённой Google Таблицей.").assertExists()
     }

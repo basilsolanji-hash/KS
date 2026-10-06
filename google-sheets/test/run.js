@@ -597,6 +597,29 @@ const inv = call({ action: 'msInventory', items: [{ id: 'p1', type: 'product', q
 assert.strictEqual(inv.positions, 1);
 assert.strictEqual(msDb.inventory[0].positions[0].quantity, 118);
 
+// ИИ для менеджеров: директор выбирает в приложении, менеджер получает в настройках.
+assert.ok(/директора/.test(asManager({ action: 'setSetting', name: 'ИИ для менеджеров', value: 'ChatGPT' }).error));
+assert.ok(call({ action: 'setSetting', name: 'Ключ доступа', value: 'x' }).error);
+assert.strictEqual(call({ action: 'setSetting', name: 'ИИ для менеджеров', value: 'ChatGPT, DeepSeek' }).value, 'ChatGPT, DeepSeek');
+assert.ok(asManager({ action: 'catalog' }).sheets.settings.some((r) => r[0] === 'ИИ для менеджеров' && r[1] === 'ChatGPT, DeepSeek'));
+call({ action: 'setSetting', name: 'ИИ для менеджеров', value: 'Claude' });
+assert.strictEqual(sheets['Настройки'].data.filter((r) => r[0] === 'ИИ для менеджеров').length, 1);
+
+// Рабочее время: смена при входе и «Закрыть смену»; чужую смену правит только директор.
+const d0 = Date.UTC(2026, 9, 6, 6, 0);
+assert.strictEqual(asManager({ action: 'shiftSave', shift: { id: 'sh-ivan-1', start: d0 } }).shift.person, 'Иван');
+assert.strictEqual(asManager({ action: 'shiftSave', shift: { id: 'sh-ivan-1', start: d0, end: d0 + 8.5 * 3600000 } }).shift.end, d0 + 8.5 * 3600000);
+assert.strictEqual(sheets['Рабочее время'].data[1][4], 8.5);
+call({ action: 'shiftSave', shift: { id: 'sh-dir-1', start: d0 + 3600000 } });
+assert.ok(/другого сотрудника/.test(asManager({ action: 'shiftSave', shift: { id: 'sh-dir-1', start: d0, end: d0 + 1 } }).error));
+assert.ok(asManager({ action: 'shiftSave', shift: { id: 'x', start: d0 } }).error);
+assert.ok(asManager({ action: 'shiftSave', shift: { id: 'sh-ivan-2', start: d0, end: d0 - 1 } }).error);
+// Директор закрыл смену Ивана — видно, кто исправил.
+call({ action: 'shiftSave', shift: { id: 'sh-ivan-1', start: d0, end: d0 + 9 * 3600000 } });
+assert.strictEqual(sheets['Рабочее время'].data[1][5], 'Директор');
+assert.deepStrictEqual(asManager({ action: 'shifts', month: '2026-10' }).shifts.map((x) => x.id), ['sh-ivan-1']);
+assert.deepStrictEqual(call({ action: 'shifts', month: '2026-10' }).shifts.map((x) => x.person), ['Иван', 'Директор']);
+
 // ---- Зарплата менеджеров: оклад 60 000 + 3 % от оплат месяца по КП менеджера.
 const ym = new Date().toISOString().slice(0, 7);
 const qRow = new Array(23).fill('');

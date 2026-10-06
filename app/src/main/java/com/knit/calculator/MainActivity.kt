@@ -37,7 +37,7 @@ import com.knit.calculator.yarn.YarnScreen
 import com.knit.calculator.yarn.YarnViewModel
 
 /** Экраны приложения; переход «назад» описан у каждого экрана. */
-private enum class Screen { HOME, CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY, REPORT, ORDER_YARN, SHOP, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, CLIENT, FINANCE, COST, COMMS, WAREHOUSE }
+private enum class Screen { HOME, CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY, REPORT, ORDER_YARN, SHOP, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, CLIENT, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI }
 
 class MainActivity : FragmentActivity() {
 
@@ -77,6 +77,7 @@ class MainActivity : FragmentActivity() {
     private val labelViewModel: com.knit.calculator.label.LabelViewModel by viewModels()
     private val financeViewModel: com.knit.calculator.quote.FinanceViewModel by viewModels()
     private val warehouseViewModel: com.knit.calculator.quote.WarehouseViewModel by viewModels()
+    private val workViewModel: com.knit.calculator.quote.WorkViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -172,8 +173,51 @@ class MainActivity : FragmentActivity() {
                     )
                     return@KnitTheme
                 }
+                // Рабочее время: смена начинается сама при первом входе за день.
+                androidx.compose.runtime.LaunchedEffect(Unit) { workViewModel.autoStart() }
+                val shifts by workViewModel.shifts.collectAsStateWithLifecycle()
+                var tick by androidx.compose.runtime.remember { androidx.compose.runtime.mutableLongStateOf(System.currentTimeMillis()) }
+                androidx.compose.runtime.LaunchedEffect(Unit) {
+                    while (true) { kotlinx.coroutines.delay(60_000); tick = System.currentTimeMillis() }
+                }
+                val store = androidx.compose.runtime.remember { com.knit.calculator.quote.QuoteStore(this@MainActivity) }
+                var shortcuts by androidx.compose.runtime.remember {
+                    androidx.compose.runtime.mutableStateOf(
+                        store.homeShortcuts?.mapNotNull { n -> HomeAction.entries.firstOrNull { it.name == n } } ?: com.knit.calculator.ui.DEFAULT_SHORTCUTS,
+                    )
+                }
+                val avatar = java.io.File(filesDir, "avatar.jpg")
+                var avatarVersion by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+                val work = androidx.compose.runtime.remember(shifts, tick, avatarVersion, sync) {
+                    val cur = com.knit.calculator.core.WorkTime.current(shifts, tick)
+                    com.knit.calculator.ui.WorkBar(
+                        person = workViewModel.person(),
+                        photoPath = avatar.takeIf { it.exists() }?.absolutePath,
+                        photoVersion = avatarVersion,
+                        shiftStart = cur?.start,
+                        workedMinutes = com.knit.calculator.core.WorkTime.workedToday(shifts, tick),
+                    )
+                }
                 when (screen) {
                     Screen.HOME -> HomeScreen(sync, themeMode, director, onTheme = viewModel::cycleTheme, day = day, version = version, myPay = myPay, charts = charts,
+                        shortcuts = shortcuts,
+                        onShortcuts = { list -> shortcuts = list; store.homeShortcuts = list.map { it.name } },
+                        work = work,
+                        onShift = { start -> if (start) workViewModel.start() else workViewModel.close(); tick = System.currentTimeMillis() },
+                        onPhoto = { uri ->
+                            // Фото профиля — уменьшенной копией (до 320 px), только на этом телефоне.
+                            runCatching {
+                                val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                                contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, bounds) }
+                                var sample = 1
+                                while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 320) sample *= 2
+                                val bmp = contentResolver.openInputStream(uri)?.use {
+                                    android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
+                                }
+                                bmp?.let { b -> avatar.outputStream().use { b.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, it) } }
+                            }
+                            avatarVersion++
+                        },
                         refreshing = refreshing,
                         onRefresh = {
                             // Свайп вниз: заново всё — каталог, КП, учёт, финансы.
@@ -202,6 +246,8 @@ class MainActivity : FragmentActivity() {
                                 HomeAction.COST -> Screen.COST
                                 HomeAction.COMMS -> Screen.COMMS
                                 HomeAction.WAREHOUSE -> Screen.WAREHOUSE
+                                HomeAction.WORKTIME -> Screen.WORKTIME
+                                HomeAction.AI -> Screen.AI
                             },
                         )
                     }
@@ -256,6 +302,8 @@ class MainActivity : FragmentActivity() {
                     Screen.STOCK -> StockScreen(quoteViewModel, opsViewModel, onBack = ::back)
                     Screen.LABELS -> com.knit.calculator.label.LabelScreen(quoteViewModel, labelViewModel, onBack = ::back)
                     Screen.FINANCE -> com.knit.calculator.quote.FinanceScreen(quoteViewModel, opsViewModel, financeViewModel, onBack = ::back)
+                    Screen.WORKTIME -> com.knit.calculator.quote.WorkTimeScreen(workViewModel, director, onBack = ::back)
+                    Screen.AI -> com.knit.calculator.comms.AiScreen(quoteViewModel, director, onBack = ::back)
                     Screen.WAREHOUSE -> com.knit.calculator.quote.WarehouseScreen(quoteViewModel, warehouseViewModel, onBack = ::back)
                     Screen.COMMS -> com.knit.calculator.comms.CommsScreen(onBack = ::back)
                     Screen.COST -> com.knit.calculator.quote.CostScreen(quoteViewModel, onBack = ::back, onOpenQuote = { open(Screen.QUOTE) })
