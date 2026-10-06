@@ -246,6 +246,16 @@ jobs:
             "ms_token" => getenv("MS_TOKEN"),
           ], true) . ";\n");'
           printf 'Require all denied\n' > deploy/ks/.htaccess
+          # Диагностика: Api.php по частям — какая часть не проходит на beget (временный шаг).
+          split -n 8 -d server/src/Api.php probe-part-
+          for f in probe-part-*; do
+            if lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "set ftp:ssl-allow yes; set net:max-retries 1; set net:timeout 20; put $f -o ks/probe-$f; rm -f ks/probe-$f; bye" >/dev/null 2>&1; then
+              echo "probe $f ($(wc -c < $f) байт): OK"
+            else
+              echo "probe $f ($(wc -c < $f) байт): НЕ ПРОШЛА"
+            fi
+          done
+          rm -f probe-part-*
           lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "
             set ftp:ssl-allow yes; set net:max-retries 4; set net:timeout 30;
             mkdir -p $SITE_DIR/ks; mirror -R --no-perms deploy/ks $SITE_DIR/ks;
@@ -258,6 +268,12 @@ jobs:
           echo "GET:  $(curl -sS --max-time 20 "$URL" | head -c 300)"
           R=$(curl -sS --max-time 20 -X POST -H 'Content-Type: application/json' -d '{"action":"me"}' "$URL")
           echo "POST: $(echo "$R" | head -c 300)"
-          echo "$R" | grep -q '"ok"' || { echo "::error::Сервер не ответил JSON — проверьте папку сайта и версию PHP"; exit 1; }
+          if ! echo "$R" | grep -q '"ok"'; then
+            # Аварийно: прежний рабочий Api.php, чтобы сервер не стоял.
+            git fetch -q --depth=30 origin "$GITHUB_REF" && git show fca10b7^:server/src/Api.php > Api.fallback.php \
+              && lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "set ftp:ssl-allow yes; set net:max-retries 4; put Api.fallback.php -o $SITE_DIR/ks/src/Api.php; bye" \
+              && echo "Выложен прежний Api.php: $(curl -sS --max-time 20 -X POST -H 'Content-Type: application/json' -d '{"action":"me"}' "$URL" | head -c 200)"
+            echo "::error::Сервер не ответил JSON — проверьте папку сайта и версию PHP"; exit 1
+          fi
           echo "$R" | grep -q 'Сервер недоступен' && { echo "::error::Нет подключения к базе — проверьте DB_* секреты"; exit 1; }
           echo "Сервер выложен: $URL"
