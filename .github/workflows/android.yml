@@ -185,7 +185,7 @@ jobs:
 
       # Пароли — только из секретов GitHub; config.php собирается здесь и уходит на сервер выше папки сайта.
       - name: Deploy to beget
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         env:
           FTP_HOST: ${{ secrets.BEGET_FTP_HOST }}
           FTP_USER: ${{ secrets.BEGET_FTP_USER }}
@@ -218,4 +218,11 @@ jobs:
             mkdir -p $SITE_DIR/ks; mirror -R --no-perms deploy/ks $SITE_DIR/ks;
             mirror -R --no-perms deploy/public_html $SITE_DIR/public_html; bye"
           rm -rf deploy
-          echo "Сервер выложен: https://$SITE_DIR"
+          # Проверка: сайт отвечает, база подключается (запрос без входа должен дойти до проверки ключа).
+          URL="${KS_URL:-https://staff.fabrika-ks.ru/}"
+          echo "GET:  $(curl -sS --max-time 20 "$URL")"
+          R=$(curl -sS --max-time 20 -X POST -H 'Content-Type: application/json' -d '{"action":"me"}' "$URL")
+          echo "POST: $R"
+          echo "$R" | grep -q '"ok"' || { echo "::error::Сервер не ответил JSON — проверьте папку сайта и версию PHP"; exit 1; }
+          echo "$R" | grep -q 'Сервер недоступен' && { echo "::error::Нет подключения к базе — проверьте DB_* секреты"; exit 1; }
+          echo "Сервер выложен: $URL"
