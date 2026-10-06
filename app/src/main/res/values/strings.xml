@@ -816,6 +816,9 @@
     <string name="menu_group_service">Сервис</string>
     <string name="menu_group_view">Вид</string>
     <string name="home_empty_hint">Нажмите ＋ внизу — новое коммерческое предложение.\n☰ слева вверху — все разделы.\nДинамика и анализы появятся, когда будут КП и оплаты.</string>
+    <string name="crash_title">Приложение закрылось с ошибкой</string>
+    <string name="crash_text">Прошлый раз приложение закрылось из-за ошибки. Отправьте отчёт разработчику (в нём нет данных клиентов — только место ошибки) — так её быстрее исправят.</string>
+    <string name="crash_send">Отправить</string>
     <string name="menu_widgets">Блоки главного экрана</string>
     <string name="widgets_hint">Отметьте, что показывать на главном экране, и расставьте стрелкой «выше». Период (сегодня … по годам) — над динамикой.</string>
     <string name="widget_expenses">Расходы по статьям</string>

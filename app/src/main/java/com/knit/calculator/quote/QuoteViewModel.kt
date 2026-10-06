@@ -381,11 +381,10 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         return try {
             val bytes = SheetClient(config).msImage(product.externalType, product.externalId)
                 ?: return "У товара в МойСклад нет фото"
-            val dir = java.io.File(getApplication<Application>().filesDir, "photos").apply { mkdirs() }
-            val file = java.io.File(dir, "${line.id}-ms-${System.currentTimeMillis()}.jpg")
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { file.writeBytes(bytes) }
+            val path = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { PhotoStore.saveBytes(getApplication(), bytes, line.id) }
+                ?: return "Фото из МойСклад не открывается"
             line.photoPath?.let { PhotoStore.delete(it) }
-            updateLine(line.id) { it.copy(photoPath = file.absolutePath, photoFileId = null) }
+            updateLine(line.id) { it.copy(photoPath = path, photoFileId = null) }
             null
         } catch (e: Exception) {
             e.message ?: "МойСклад недоступен"

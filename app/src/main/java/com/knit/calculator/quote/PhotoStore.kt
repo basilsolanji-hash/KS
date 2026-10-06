@@ -42,11 +42,39 @@ object PhotoStore {
         val file = File(dir(context), "$lineId-${System.currentTimeMillis()}.jpg")
         file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 85, it) }
         file.absolutePath
-    } catch (e: Exception) {
+    } catch (e: Throwable) {
         null
     }
 
-    fun load(path: String?): Bitmap? = path?.takeIf { File(it).exists() }?.let { BitmapFactory.decodeFile(it) }
+    fun load(path: String?): Bitmap? = loadScaled(path, MAX_SIDE)
+
+    /** Уменьшенная копия для PDF и списков: фото с телефона могут быть 4000 px — целиком не помещаются в память. */
+    fun loadScaled(path: String?, maxSide: Int): Bitmap? = try {
+        path?.takeIf { File(it).exists() }?.let { p ->
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(p, bounds)
+            var sample = 1
+            while (bounds.outWidth / (sample * 2) >= maxSide || bounds.outHeight / (sample * 2) >= maxSide) sample *= 2
+            BitmapFactory.decodeFile(p, BitmapFactory.Options().apply { inSampleSize = sample })
+        }
+    } catch (e: Throwable) {
+        null
+    }
+
+    /** Сохраняет фото из байтов (МойСклад) уменьшенным до 1280 px; `null` — не картинка. */
+    fun saveBytes(context: Context, bytes: ByteArray, lineId: Long): String? = try {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= MAX_SIDE || bounds.outHeight / (sample * 2) >= MAX_SIDE) sample *= 2
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })?.let(::scale)
+            ?: error("decode")
+        val file = File(dir(context), "$lineId-ms-${System.currentTimeMillis()}.jpg")
+        file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 85, it) }
+        file.absolutePath
+    } catch (e: Throwable) {
+        null
+    }
 
     fun delete(path: String?) {
         path?.let { File(it).delete() }

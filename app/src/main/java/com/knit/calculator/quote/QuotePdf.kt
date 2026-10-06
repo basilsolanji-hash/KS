@@ -134,7 +134,8 @@ object QuotePdf {
 
         // № | Наименование | Кол-во | Ед. | Цена | Сумма — всего 515 pt.
         private val cols = floatArrayOf(24f, 226f, 62f, 38f, 75f, 90f)
-        private val photos = doc.photoPaths.map { PhotoStore.load(it) }
+        // В PDF фото 54 pt — хватает копии до 320 px (целые фото с камеры переполняют память).
+        private val photos = doc.photoPaths.map { PhotoStore.loadScaled(it, 320) }
 
         fun draw() {
             newPage()

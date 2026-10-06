@@ -81,6 +81,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.knit.calculator.ui.CrashLog.install(this)
         applySecureScreen(this)
         if (savedInstanceState == null && lockOn()) locked = true
         // Ежедневная сводка (9:00): долги, отгрузки, просрочки, КП без ответа.
@@ -172,6 +173,7 @@ class MainActivity : FragmentActivity() {
                     )
                     return@KnitTheme
                 }
+                com.knit.calculator.ui.CrashReportDialog()
                 // Рабочее время: смена начинается сама при первом входе за день.
                 androidx.compose.runtime.LaunchedEffect(Unit) { workViewModel.autoStart() }
                 val shifts by workViewModel.shifts.collectAsStateWithLifecycle()

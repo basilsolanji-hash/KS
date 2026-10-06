@@ -165,9 +165,10 @@ fun QuoteScreen(
     fun makePdf(action: QuoteAction) {
         val doc = QuoteDocument(settings, viewModel.draft.value, totals, photoPaths = views.filter { it.line != null }.map { it.draft.photoPath })
         scope.launch(Dispatchers.Main) { // тосты и письма — только с главного потока
+            // Любой сбой PDF (в т. ч. нехватка памяти) — сообщение, а не закрытие приложения.
             val file: File? = try {
                 withContext(Dispatchers.IO) { QuotePdf.create(context, doc) }
-            } catch (e: IOException) {
+            } catch (e: Throwable) {
                 null
             }
             if (file == null) {
