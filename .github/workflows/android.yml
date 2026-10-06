@@ -258,11 +258,11 @@ jobs:
             done
             echo "::warning::Не загружен $2"; return 1
           }
-          for f in deploy/ks/src/*.php; do up "$f" "${P}ks/src/$(basename $f)"; done
-          up deploy/ks/config.php "${P}ks/config.php"
-          up deploy/ks/.htaccess "${P}ks/.htaccess"
-          up deploy/public_html/index.php "${P}public_html/index.php"
-          up deploy/public_html/.htaccess "${P}public_html/.htaccess"
+          for f in deploy/ks/src/*.php; do up "$f" "${P}ks/src/$(basename $f)" || true; done
+          up deploy/ks/config.php "${P}ks/config.php" || true
+          up deploy/ks/.htaccess "${P}ks/.htaccess" || true
+          up deploy/public_html/index.php "${P}public_html/index.php" || true
+          up deploy/public_html/.htaccess "${P}public_html/.htaccess" || true
           lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "set ftp:ssl-allow yes; rm -f ${P}public_html/index.html; cls -la ${P}ks/src; bye" || true
           rm -rf deploy
           # Проверка: сайт отвечает, база подключается (запрос без входа должен дойти до проверки ключа).
@@ -274,7 +274,7 @@ jobs:
           if ! echo "$R" | grep -q '"ok"'; then
             # Аварийно: прежний рабочий Api.php, чтобы сервер не стоял.
             git fetch -q --depth=30 origin "$GITHUB_REF" && git show fca10b7^:server/src/Api.php > Api.fallback.php \
-              && lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "set ftp:ssl-allow yes; set net:max-retries 4; put Api.fallback.php -o $SITE_DIR/ks/src/Api.php; bye" \
+              && lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "set ftp:ssl-allow yes; set net:max-retries 4; put Api.fallback.php -o $SITE_DIR/ks/src/ApiServer.php; bye" \
               && echo "Выложен прежний Api.php: $(curl -sS --max-time 20 -X POST -H 'Content-Type: application/json' -d '{"action":"me"}' "$URL" | head -c 200)"
             echo "::error::Сервер не ответил JSON — проверьте папку сайта и версию PHP"; exit 1
           fi
