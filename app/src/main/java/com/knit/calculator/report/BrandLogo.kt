@@ -25,7 +25,8 @@ object BrandLogo {
     }
 
     private fun bitmap(context: Context): Bitmap? =
-        file(context).takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.absolutePath) }
+        // Логотип из Диска может быть огромным — в PDF хватает 400 px.
+        com.knit.calculator.quote.PhotoStore.loadScaled(file(context).takeIf { it.exists() }?.absolutePath, 400)
 
     /** Рисует логотип высотой [height]; возвращает занятую ширину. */
     fun draw(context: Context, canvas: Canvas, left: Float, top: Float, height: Float): Float {

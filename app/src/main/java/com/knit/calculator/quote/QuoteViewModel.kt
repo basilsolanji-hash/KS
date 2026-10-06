@@ -168,7 +168,7 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
     private fun applyMs(o: JSONObject?) {
         fun strings(a: JSONArray?) = if (a == null) emptyList() else (0 until a.length()).map { a.optString(it) }.filter { it.isNotBlank() }
         val clientChars = strings(o?.optJSONArray("clientChars"))
-        _msFilters.value = strings(o?.optJSONArray("filters"))
+        _msFilters.value = strings(o?.optJSONArray("filters")).distinct()
         val products = o?.optJSONArray("products")
         val items = if (products == null) emptyList() else (0 until products.length()).mapNotNull { products.optJSONObject(it) }.mapNotNull { p ->
             fun money(key: String) = p.optString(key).takeIf { it.isNotBlank() && it != "null" }?.toBigDecimalOrNull()
@@ -532,6 +532,8 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
                 number = saved
                 ms?.error?.let { _notices.tryEmit("КП № $saved сохранено, но в МойСклад не записано: $it") }
                 SaveResult.Saved(number)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 return SaveResult.Failed(e.message ?: "Нет связи с таблицей")
             }
@@ -746,6 +748,22 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Повтор заказа: копия КП как новое КП (номер выдаётся заново, цены — по текущему прайсу). */
+    private fun copyPhoto(path: String): String? = runCatching {
+        val src = java.io.File(path)
+        if (!src.exists()) return null
+        val dst = java.io.File(src.parentFile, "copy-${System.currentTimeMillis()}-${src.name}")
+        src.copyTo(dst)
+        dst.absolutePath
+    }.getOrNull()
+
+    /** Сохранение в области ViewModel: «Назад» или блокировка во время сохранения его не прерывают. */
+    fun saveInBackground(views: List<DraftLineView>, totals: QuoteTotals, done: (SaveResult) -> Unit) {
+        viewModelScope.launch { done(saveQuote(views, totals)) }
+    }
+
+    /** В черновике есть несохранённые позиции — перед заменой нужно спросить. */
+    fun hasUnsavedDraft(): Boolean = _draft.value.let { !it.saved && it.lines.isNotEmpty() }
+
     fun repeatQuote(item: HistoryItem): Boolean {
         val draft = QuoteStore.draftFromJson(item.data) ?: return false
         val local = !_syncConfig.value.enabled
@@ -754,7 +772,8 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
                 id = UUID.randomUUID().toString(),
                 number = if (local) (store.loadArchive().maxOfOrNull { a -> a.number } ?: it.number) + 1 else 0,
                 saved = false,
-                lines = draft.lines.map { l -> l.copy(id = newId()) },
+                // Своя копия фото: удаление фото в новом КП не трогает старое.
+                lines = draft.lines.map { l -> l.copy(id = newId(), photoPath = l.photoPath?.let(::copyPhoto)) },
                 snapshot = emptyList(),
             )
         }

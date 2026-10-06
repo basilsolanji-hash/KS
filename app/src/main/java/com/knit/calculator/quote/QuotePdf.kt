@@ -97,7 +97,8 @@ object QuotePdf {
 
     fun create(context: Context, doc: QuoteDocument): File {
         val dir = File(context.cacheDir, "reports").apply { mkdirs() }
-        dir.listFiles()?.forEach { it.delete() }
+        // Старше часа: только что отправленный PDF мессенджер ещё читает.
+        dir.listFiles()?.filter { System.currentTimeMillis() - it.lastModified() > 3_600_000L }?.forEach { it.delete() }
         val file = File(dir, fileName(doc))
         val pdf = PdfDocument()
         try {
@@ -412,20 +413,30 @@ object QuotePdf {
             }
         }
 
+        /** Перенос по словам с учётом «\n»; слово длиннее строки (ссылка) режется по символам. */
         private fun wrap(text: String, maxWidth: Float, p: Paint): List<String> {
             val result = mutableListOf<String>()
-            var current = ""
-            text.split(' ').forEach { word ->
-                val candidate = if (current.isEmpty()) word else "$current $word"
-                if (p.measureText(candidate) <= maxWidth) {
-                    current = candidate
-                } else {
-                    if (current.isNotEmpty()) result += current
-                    current = word
+            text.split('\n').forEach { paragraph ->
+                var current = ""
+                paragraph.split(' ').forEach { raw ->
+                    var word = raw
+                    while (p.measureText(word) > maxWidth && word.length > 1) {
+                        if (current.isNotEmpty()) { result += current; current = "" }
+                        val n = p.breakText(word, true, maxWidth, null).coerceAtLeast(1)
+                        result += word.take(n)
+                        word = word.drop(n)
+                    }
+                    val candidate = if (current.isEmpty()) word else "$current $word"
+                    if (p.measureText(candidate) <= maxWidth) {
+                        current = candidate
+                    } else {
+                        if (current.isNotEmpty()) result += current
+                        current = word
+                    }
                 }
+                result += current
             }
-            if (current.isNotEmpty()) result += current
-            return result.ifEmpty { listOf("") }
+            return result.dropLastWhile { it.isEmpty() }.ifEmpty { listOf("") }
         }
 
         private fun fit(text: String, maxWidth: Float, p: Paint): String {

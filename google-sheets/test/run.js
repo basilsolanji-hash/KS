@@ -646,6 +646,20 @@ assert.deepStrictEqual(mine.rows.map((r) => r.name), ['Иван']);
 delete context.PropertiesService.props.MS_TOKEN;
 sheets['Оплаты'].data.push([new Date(), 900, 'qS', 'ООО', '50 000', '', '', 'pS', '']);
 const salSheet = call({ action: 'salary', month: ym }).salary;
+// Пересохранение менеджером: автор и себестоимость прежние.
+{
+  const before = sheets['КП'].data.find((r) => r[11] === 'qS');
+  assert.ok(before, 'строка КП qS есть');
+  {
+    before[15] = 1000; before[16] = 500;
+    asManager({ action: 'saveQuote', quote: { id: 'qS', client: 'ООО', total: 10, lines: [], author: 'Пётр / X', cost: '', profit: '' } });
+    const after = sheets['КП'].data.find((r) => r[11] === 'qS');
+    assert.strictEqual(after[10], 'Иван / Pixel 8');
+    assert.strictEqual(after[15], 1000);
+    assert.strictEqual(after[16], 500);
+  }
+}
+
 assert.strictEqual(salSheet.source, 'sheet');
 assert.strictEqual(salSheet.rows.find((r) => r.name === 'Иван').bonus, 1500);
 context.PropertiesService.props.MS_TOKEN = 'tok';

@@ -188,7 +188,12 @@ object CatalogParser {
         val settings = sheets.settings.drop(1)
             .filter { cell(it, 0).isNotEmpty() }
             .associate { cell(it, 0) to cell(it, 1) }
-        return ParsedCatalog(products, settings, warnings, costs, yarnPrices, clients)
+        // Одинаковый код в двух строках — одно изделие (иначе список изделий в приложении не откроется).
+        val unique = products.distinctBy { it.id }
+        if (unique.size < products.size) {
+            products.groupBy { it.id }.filterValues { it.size > 1 }.values.forEach { warnings += "$SHEET_PRODUCTS: код «${it.first().code}» повторяется — оставлена первая строка" }
+        }
+        return ParsedCatalog(unique, settings, warnings, costs, yarnPrices, clients)
     }
 }
 

@@ -43,7 +43,8 @@ object YarnReport {
     fun createPdf(context: Context, data: YarnReportData): File {
         val dir = File(context.cacheDir, "reports").apply { mkdirs() }
         // Старые отчёты больше не нужны: держим в кэше только последний.
-        dir.listFiles()?.forEach { it.delete() }
+        // Старше часа: только что отправленный PDF мессенджер ещё читает.
+        dir.listFiles()?.filter { System.currentTimeMillis() - it.lastModified() > 3_600_000L }?.forEach { it.delete() }
         val file = File(dir, fileName(data))
         val document = PdfDocument()
         try {

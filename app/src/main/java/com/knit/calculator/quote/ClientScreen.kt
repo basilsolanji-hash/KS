@@ -83,10 +83,13 @@ fun ClientScreen(quoteVm: QuoteViewModel, opsVm: OpsViewModel, clientName: Strin
                 )
             }
         }
+        val replaceGuard = rememberReplaceGuard()
         ActionButton(R.string.client_new_quote, R.drawable.ic_add, primary = true, Modifier.fillMaxWidth()) {
-            quoteVm.newQuote()
-            quoteVm.applyClient(client ?: com.knit.calculator.core.Client(clientName, "", "", "", ""))
-            onNewQuote()
+            replaceGuard.ask(quoteVm) {
+                quoteVm.newQuote()
+                quoteVm.applyClient(client ?: com.knit.calculator.core.Client(clientName, "", "", "", ""))
+                onNewQuote()
+            }
         }
         SectionTitle(R.string.client_history)
         if (items.isEmpty()) Text(stringResource(R.string.client_no_quotes), color = colors.textSecondary, fontSize = 14.sp)

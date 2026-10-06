@@ -667,8 +667,9 @@ function saveQuote_(ss, q) {
     var date = new Date();
     var status = STATUSES[0];
     var statusDate = date;
+    var old = null;
     if (rowIndex > 0) {
-      var old = data[rowIndex - 1];
+      old = data[rowIndex - 1];
       number = Number(old[0]);
       date = old[Q.date - 1] || date;
       status = old[Q.status - 1] || status;
@@ -685,6 +686,13 @@ function saveQuote_(ss, q) {
       text_(q.delivery), lines.length, text_(q.author), text_(q.id), text_(q.data),
       status, statusDate, num_(q.cost), num_(q.profit), validUntil, text_(q.phone), text_(q.inn),
     ];
+    // Пересохранение: автор остаётся первым (зарплата менеджера), себестоимость не стирается,
+    // если её прислал телефон без доступа к затратам.
+    if (old) {
+      if (String(old[Q.author - 1] || '').trim()) row[Q.author - 1] = old[Q.author - 1];
+      if (String(q.cost == null ? '' : q.cost).trim() === '') row[Q.cost - 1] = old[Q.cost - 1];
+      if (String(q.profit == null ? '' : q.profit).trim() === '') row[Q.profit - 1] = old[Q.profit - 1];
+    }
     if (rowIndex > 0) {
       sheet.getRange(rowIndex, 1, 1, row.length).setValues([row]);
     } else {

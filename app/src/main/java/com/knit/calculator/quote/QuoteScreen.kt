@@ -242,8 +242,7 @@ fun QuoteScreen(
         ) {
             notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
-        scope.launch {
-            val result = viewModel.saveQuote(views, totals)
+        viewModel.saveInBackground(views, totals) { result ->
             saving = false
             when (result) {
                 is SaveResult.Failed -> saveError = action to result.message
@@ -407,7 +406,12 @@ fun QuoteScreen(
                     },
                     onCamera = {
                         photoLineId = view.draft.id
-                        cameraLauncher.launch(PhotoStore.cameraTarget(context).second)
+                        // Нет приложения камеры (рабочие телефоны) — сообщение, а не закрытие.
+                        try {
+                            cameraLauncher.launch(PhotoStore.cameraTarget(context).second)
+                        } catch (e: Exception) {
+                            Toast.makeText(context, R.string.yarn_no_app, Toast.LENGTH_LONG).show()
+                        }
                     },
                     onRemovePhoto = {
                         PhotoStore.delete(view.draft.photoPath)
@@ -719,11 +723,15 @@ private fun ClientPicker(clients: List<Client>, onDismiss: () -> Unit, onPick: (
 private fun PhotoButton(path: String?, onGallery: () -> Unit, onCamera: () -> Unit, onRemove: () -> Unit, onMs: (() -> Unit)? = null) {
     val colors = LocalKnitColors.current
     var menu by remember { mutableStateOf(false) }
-    val bitmap = remember(path) { PhotoStore.load(path)?.asImageBitmap() }
+    // Миниатюра 56 dp: маленькая копия и не на главном потоке.
+    val bitmap by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, path) {
+        value = kotlinx.coroutines.withContext(Dispatchers.IO) { PhotoStore.loadScaled(path, 200)?.asImageBitmap() }
+    }
     Box {
-        if (bitmap != null) {
+        val thumb = bitmap
+        if (thumb != null) {
             Image(
-                bitmap = bitmap,
+                bitmap = thumb,
                 contentDescription = stringResource(R.string.quote_photo_add),
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.size(56.dp).clip(RoundedCornerShape(12.dp)).clickable { menu = true },

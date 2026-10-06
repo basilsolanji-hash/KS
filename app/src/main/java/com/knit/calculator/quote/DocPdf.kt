@@ -176,7 +176,8 @@ object DocPdf {
 
     private fun write(context: Context, name: String, footer: (Int) -> String, draw: (PageWriter) -> Unit): File {
         val dir = File(context.cacheDir, "reports").apply { mkdirs() }
-        dir.listFiles()?.forEach { it.delete() }
+        // Старше часа: только что отправленный PDF мессенджер ещё читает.
+        dir.listFiles()?.filter { System.currentTimeMillis() - it.lastModified() > 3_600_000L }?.forEach { it.delete() }
         val file = File(dir, name)
         val pdf = PdfDocument()
         try {

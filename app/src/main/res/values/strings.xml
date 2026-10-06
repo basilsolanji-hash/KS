@@ -819,6 +819,9 @@
     <string name="crash_title">Приложение закрылось с ошибкой</string>
     <string name="crash_text">Прошлый раз приложение закрылось из-за ошибки. Отправьте отчёт разработчику (в нём нет данных клиентов — только место ошибки) — так её быстрее исправят.</string>
     <string name="crash_send">Отправить</string>
+    <string name="replace_draft_title">Заменить текущее КП?</string>
+    <string name="replace_draft_text">В открытом КП есть несохранённые позиции — они пропадут.</string>
+    <string name="replace_draft_ok">Заменить</string>
     <string name="menu_widgets">Блоки главного экрана</string>
     <string name="widgets_hint">Отметьте, что показывать на главном экране, и расставьте стрелкой «выше». Период (сегодня … по годам) — над динамикой.</string>
     <string name="widget_expenses">Расходы по статьям</string>

@@ -118,6 +118,7 @@ fun QuoteHistoryScreen(
             (statusFilter == null || q.status.name == statusFilter) &&
                 "${q.number} ${q.client} ${q.author} ${q.date}".lowercase().let { text -> words.all { it in text } }
         }
+        val replaceGuard = rememberReplaceGuard()
         when {
             list == null -> Message(stringResource(R.string.sync_loading))
             list.isEmpty() && !history.isNullOrEmpty() -> Message(stringResource(R.string.history_nothing_found))
@@ -129,13 +130,19 @@ fun QuoteHistoryScreen(
                 items(list, key = { it.id.ifBlank { it.number.toString() } }) { q ->
                     HistoryCard(
                         item = q,
-                        onOpen = { if (viewModel.openQuote(q)) onOpened() else Toast.makeText(context, openError, Toast.LENGTH_LONG).show() },
+                        onOpen = {
+                            replaceGuard.ask(viewModel) {
+                                if (viewModel.openQuote(q)) onOpened() else Toast.makeText(context, openError, Toast.LENGTH_LONG).show()
+                            }
+                        },
                         onRepeat = {
-                            if (viewModel.repeatQuote(q)) {
-                                Toast.makeText(context, repeated, Toast.LENGTH_SHORT).show()
-                                onOpened()
-                            } else {
-                                Toast.makeText(context, openError, Toast.LENGTH_LONG).show()
+                            replaceGuard.ask(viewModel) {
+                                if (viewModel.repeatQuote(q)) {
+                                    Toast.makeText(context, repeated, Toast.LENGTH_SHORT).show()
+                                    onOpened()
+                                } else {
+                                    Toast.makeText(context, openError, Toast.LENGTH_LONG).show()
+                                }
                             }
                         },
                         onDeal = { action -> if (action == DealAction.LABELS) onOpenLabels(q) else request = q to action },
@@ -243,4 +250,34 @@ private fun HistoryCard(
 @Composable
 private fun Message(text: String) {
     Text(text, color = LocalKnitColors.current.textSecondary, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+}
+
+/** Подтверждение перед заменой несохранённого КП (открыть, повторить, новое КП для клиента). */
+class ReplaceGuard(private val pending: androidx.compose.runtime.MutableState<(() -> Unit)?>) {
+    fun ask(vm: QuoteViewModel, action: () -> Unit) {
+        if (vm.hasUnsavedDraft()) pending.value = action else action()
+    }
+}
+
+@Composable
+fun rememberReplaceGuard(): ReplaceGuard {
+    val pending = remember { mutableStateOf<(() -> Unit)?>(null) }
+    val colors = com.knit.calculator.ui.theme.LocalKnitColors.current
+    pending.value?.let { action ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { pending.value = null },
+            title = { Text(stringResource(R.string.replace_draft_title)) },
+            text = { Text(stringResource(R.string.replace_draft_text), color = colors.textPrimary) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { pending.value = null; action() }) {
+                    Text(stringResource(R.string.replace_draft_ok), color = colors.textPrimary)
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { pending.value = null }) { Text(stringResource(R.string.cancel), color = colors.textSecondary) }
+            },
+            containerColor = colors.panel,
+        )
+    }
+    return remember { ReplaceGuard(pending) }
 }
