@@ -272,6 +272,20 @@ trait ApiWork
             $minutes[(int)$a['employee_id']] = (int)$a['m'];
         }
         $rows = Rules::rating($people, $shifts, $stages, $from, $to, $this->now(), (int)$this->db->setting('late_minutes', '10'), $tz, $minutes);
+        // Задачи в срок: 10 % рейтинга у тех, у кого были задачи со сроком в этом месяце.
+        $tasks = [];
+        foreach ($this->db->all("SELECT assignee_id, due_ms, done_at, status FROM tasks WHERE due_ms >= ? AND due_ms < ? AND status <> 'cancelled'", [$from, min($to, $this->now())]) as $t) {
+            $k = (int)$t['assignee_id'];
+            $tasks[$k]['all'] = ($tasks[$k]['all'] ?? 0) + 1;
+            if ($t['done_at'] !== null && (int)$t['done_at'] <= (int)$t['due_ms']) $tasks[$k]['ok'] = ($tasks[$k]['ok'] ?? 0) + 1;
+        }
+        foreach ($rows as &$r) {
+            $t = $tasks[$r['id']] ?? null;
+            $r['tasksOnTime'] = $t ? (int)round(100 * ($t['ok'] ?? 0) / $t['all']) : null;
+            if ($t) $r['score'] = (int)round(0.9 * $r['score'] + 0.1 * $r['tasksOnTime']);
+        }
+        unset($r);
+        usort($rows, fn($a, $b) => $b['score'] <=> $a['score'] ?: strcmp($a['name'], $b['name']));
         // Сотрудник видит рейтинг всех (мотивация), но подробности — только свои.
         if (!Rules::full($this->me['role'])) {
             $rows = array_map(fn($r) => $r['id'] === (int)$this->me['id'] ? $r : ['id' => $r['id'], 'name' => $r['name'], 'role' => $r['role'], 'score' => $r['score']], $rows);

@@ -69,7 +69,7 @@ final class Db
     }
 
     /** Версия схемы: при совпадении миграция не выполняется (быстрый ответ на каждый запрос). */
-    public const SCHEMA = 3;
+    public const SCHEMA = 4;
 
     public function migrate(): void
     {
@@ -102,6 +102,22 @@ final class Db
             sessions INTEGER NOT NULL DEFAULT 0, first_ms BIGINT, last_ms BIGINT, max_gap_ms BIGINT NOT NULL DEFAULT 0, PRIMARY KEY (employee_id, day)");
         // Действия в приложении: КП, клиент, товар, заказ, отгрузка, приёмка…
         $this->table('events', "id $id, employee_id BIGINT NOT NULL, kind VARCHAR(24) NOT NULL, detail VARCHAR(200) DEFAULT '', created_at BIGINT NOT NULL");
+        // Задачи: кто поставил, кому, срок, статус, повтор, чек-лист; комментарии; файлы (зашифрованы на диске).
+        $this->table('tasks', "id $id, title VARCHAR(200) NOT NULL, body TEXT, author_id BIGINT NOT NULL, assignee_id BIGINT NOT NULL,
+            status VARCHAR(12) NOT NULL DEFAULT 'new', priority INTEGER NOT NULL DEFAULT 0, due_ms BIGINT DEFAULT NULL, remind_ms BIGINT DEFAULT NULL,
+            link_type VARCHAR(24) DEFAULT '', link_id VARCHAR(64) DEFAULT '', link_title VARCHAR(200) DEFAULT '', repeat_rule VARCHAR(8) DEFAULT '',
+            checklist TEXT, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL, done_at BIGINT DEFAULT NULL, accepted_at BIGINT DEFAULT NULL,
+            notified INTEGER NOT NULL DEFAULT 0");
+        $this->table('task_comments', "id $id, task_id BIGINT NOT NULL, employee_id BIGINT NOT NULL, text TEXT NOT NULL, created_at BIGINT NOT NULL");
+        $this->table('files', "id $id, task_id BIGINT DEFAULT NULL, owner_id BIGINT NOT NULL, name VARCHAR(200) NOT NULL, mime VARCHAR(80) NOT NULL,
+            size INTEGER NOT NULL, path VARCHAR(80) NOT NULL, created_at BIGINT NOT NULL");
+        // Уведомления сотруднику (телефон забирает их сам, раз в 15 минут и при открытии).
+        $this->table('notifications', "id $id, employee_id BIGINT NOT NULL, kind VARCHAR(24) NOT NULL, title VARCHAR(200) NOT NULL,
+            body VARCHAR(500) DEFAULT '', ref VARCHAR(64) DEFAULT '', created_at BIGINT NOT NULL, read_at BIGINT DEFAULT NULL");
+        $this->index('tasks_assignee', 'tasks', 'assignee_id, status');
+        $this->index('tasks_author', 'tasks', 'author_id, status');
+        $this->index('comments_task', 'task_comments', 'task_id');
+        $this->index('notif_emp', 'notifications', 'employee_id, read_at');
         $this->index('stages_job', 'stages', 'job_id');
         $this->index('shifts_emp', 'shifts', 'employee_id, start_ms');
         $this->index('audit_time', 'audit', 'created_at');

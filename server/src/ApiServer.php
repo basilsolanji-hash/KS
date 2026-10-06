@@ -13,6 +13,7 @@ final class Api
     use ApiPeople;
     use ApiWork;
     use ApiOrders;
+    use ApiTasks;
 
     /** Действия после входа (имя → метод); всё остальное — «Неизвестное действие». */
     private const ACTIONS = [
@@ -21,6 +22,7 @@ final class Api
         'shiftSave', 'shifts', 'jobs', 'jobSave', 'stageStart', 'stageFinish',
         'rating', 'audit', 'ping', 'event', 'activity',
         'msOrders', 'msOrder', 'msOrderSave', 'msDoc', 'msDocSave', 'msTemplates', 'msPrint', 'msAssortment',
+        'tasks', 'task', 'taskSave', 'taskStatus', 'taskCheck', 'taskComment', 'fileUpload', 'fileGet', 'notifications', 'notificationsRead',
     ];
     /** Виды действий для учёта активности. */
     private const EVENT_KINDS = ['quote', 'quoteSend', 'client', 'product', 'order', 'payment', 'ship', 'receive', 'inventory', 'label', 'call', 'other'];

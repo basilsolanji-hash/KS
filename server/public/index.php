@@ -4,7 +4,7 @@ declare(strict_types=1);
 // Точка входа API «ФАБРИКА» (staff.fabrika-ks.ru). Код и config.php лежат выше папки сайта — снаружи их не открыть.
 ini_set('display_errors', '0');
 $base = is_dir(__DIR__ . '/../ks') ? __DIR__ . '/../ks' : __DIR__ . '/..';
-foreach (['Db', 'Crypto', 'Rules', 'ApiPeople', 'ApiWork', 'ApiOrders', 'ApiServer'] as $f) require_once "$base/src/$f.php";
+foreach (['Db', 'Crypto', 'Rules', 'ApiPeople', 'ApiWork', 'ApiOrders', 'ApiTasks', 'ApiServer'] as $f) require_once "$base/src/$f.php";
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -28,6 +28,7 @@ if (!is_array($req)) $reply(['ok' => false, 'error' => 'Нужен JSON'], 400);
 
 if (!is_file("$base/config.php")) $reply(['ok' => false, 'error' => 'Сервер не настроен'], 500);
 $config = require "$base/config.php";
+$config['files_dir'] = "$base/files"; // файлы задач — выше папки сайта, зашифрованы
 // Ключ шифрования базы: из секрета или создаётся один раз и хранится выше папки сайта (только владельцу).
 // Создание — атомарное (x): два первых запроса одновременно не получат разные ключи.
 if (empty($config['app_key'])) {

@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 // Тесты сервера: SQLite в памяти (в CI ещё и MySQL — DB_DSN), МойСклад — имитация.
-foreach (['Db', 'Crypto', 'Rules', 'ApiPeople', 'ApiWork', 'ApiOrders', 'ApiServer'] as $f) require_once __DIR__ . "/../src/$f.php";
+foreach (['Db', 'Crypto', 'Rules', 'ApiPeople', 'ApiWork', 'ApiOrders', 'ApiTasks', 'ApiServer'] as $f) require_once __DIR__ . "/../src/$f.php";
 
 $checks = 0;
 function ok(bool $cond, string $what): void
@@ -18,7 +18,7 @@ function ok(bool $cond, string $what): void
 $dsn = getenv('DB_DSN') ?: 'sqlite::memory:';
 $pdo = new PDO($dsn, getenv('DB_USER') ?: null, getenv('DB_PASSWORD') ?: null);
 if (str_starts_with($dsn, 'mysql')) {
-    foreach (['settings', 'employees', 'sessions', 'shifts', 'jobs', 'stages', 'audit', 'login_fails', 'activity', 'events'] as $t) $pdo->exec("DROP TABLE IF EXISTS $t");
+    foreach (['settings', 'employees', 'sessions', 'shifts', 'jobs', 'stages', 'audit', 'login_fails', 'activity', 'events', 'tasks', 'task_comments', 'files', 'notifications'] as $t) $pdo->exec("DROP TABLE IF EXISTS $t");
 }
 $db = new Ks\Db($pdo);
 $db->migrate();
@@ -202,6 +202,43 @@ ok($D(['action' => 'msTemplates', 'type' => 'customerorder'])['templates'][0]['n
 $pdf = $D(['action' => 'msPrint', 'type' => 'customerorder', 'id' => $ordId, 'template' => 'tp000001-aaaa', 'fileName' => 'Заказ 00042']);
 ok(base64_decode($pdf['pdf']) === '%PDF-1.4 test' && str_ends_with($pdf['name'], '.pdf'), 'PDF заказа');
 ok($call(['action' => 'msOrders', 'token' => $hwLogin['token']])['error'] === 'Нет доступа', 'ручная работа заказы не видит');
+
+// Задачи: ставит любой, исполнитель — «в работе»/«сделано», автор — «принято»; повтор; комментарии с @; файлы; уведомления.
+$igorTok = $call(['action' => 'login', 'key' => $op2['key']])['token'];
+$G = fn(array $r) => $call($r + ['token' => $igorTok]);
+$hwTok = $hwLogin['token'];
+$H = fn(array $r) => $call($r + ['token' => $hwTok]);
+$tk = $G(['action' => 'taskSave', 'task' => ['title' => 'Упаковать 40 шт', 'assigneeId' => $hw['employee']['id'], 'due' => $now + 2 * 3600000,
+    'repeat' => 'week', 'checklist' => [['text' => 'Коробки'], ['text' => 'Этикетки']]]]);
+ok($tk['task']['assignee'] === 'Мария' && $tk['task']['status'] === 'new' && count($tk['task']['checklist']) === 2, 'задача коллеге');
+$tid = $tk['task']['id'];
+$n = $H(['action' => 'notifications'])['notifications'];
+ok($n[0]['title'] === 'Новая задача: Упаковать 40 шт' && $n[0]['ref'] === (string)$tid, 'уведомление исполнителю');
+$H(['action' => 'notificationsRead', 'ids' => [$n[0]['id']]]);
+ok($H(['action' => 'notifications'])['notifications'] === [], 'прочитанное не повторяется');
+ok(str_contains($G(['action' => 'taskStatus', 'id' => $tid, 'status' => 'done'])['error'], 'исполнитель'), 'сделано — только исполнитель');
+ok($H(['action' => 'taskStatus', 'id' => $tid, 'status' => 'work'])['task']['status'] === 'work', 'в работе');
+ok($H(['action' => 'taskCheck', 'id' => $tid, 'index' => 0, 'done' => true])['task']['checklist'][0]['done'] === true, 'пункт чек-листа');
+$cm = $H(['action' => 'taskComment', 'id' => $tid, 'text' => '@Игорь коробок нет, @Басил закажите']);
+ok(count($cm['comments']) === 1 && $D(['action' => 'notifications'])['notifications'][0]['kind'] === 'comment', 'упоминание @ — уведомление');
+$up = $H(['action' => 'fileUpload', 'taskId' => $tid, 'name' => 'фото.jpg', 'mime' => 'image/jpeg', 'data' => base64_encode('JPEGDATA')]);
+ok($up['files'][0]['name'] === 'фото.jpg' && base64_decode($G(['action' => 'fileGet', 'id' => $up['id']])['data']) === 'JPEGDATA', 'файл к задаче');
+ok($call(['action' => 'fileGet', 'id' => $up['id'], 'token' => $D(['action' => 'me'])['ok'] ? $dir['token'] : ''])['name'] === 'фото.jpg', 'руководство открывает файл');
+ok($H(['action' => 'taskStatus', 'id' => $tid, 'status' => 'done'])['task']['status'] === 'done', 'сделано');
+$acc = $G(['action' => 'taskStatus', 'id' => $tid, 'status' => 'accepted']);
+ok($acc['task']['status'] === 'accepted', 'принято автором');
+$next = $H(['action' => 'tasks'])['tasks'];
+ok(count($next) === 1 && $next[0]['id'] !== $tid && $next[0]['due'] === $now + 2 * 3600000 + 7 * 86400000 && $next[0]['checklist'][0]['done'] === false, 'повтор через неделю');
+ok($G(['action' => 'tasks', 'scope' => 'all'])['error'] === 'Нет доступа', 'все задачи — только руководство');
+ok(count($D(['action' => 'tasks', 'scope' => 'all'])['tasks']) === 1, 'руководство видит все');
+// Просрочка: напоминание и уведомление автору.
+$late = $G(['action' => 'taskSave', 'task' => ['title' => 'Отчёт', 'assigneeId' => $hw['employee']['id'], 'due' => $now + 600000]]);
+$now += 3600000;
+$hn = $H(['action' => 'notifications'])['notifications'];
+ok(in_array('Просрочено: Отчёт', array_column($hn, 'title'), true), 'просрочка исполнителю');
+ok(in_array('Просрочена задача: Отчёт', array_column($G(['action' => 'notifications'])['notifications'], 'title'), true), 'просрочка автору');
+$stranger = $D(['action' => 'employeeSave', 'employee' => ['name' => 'Пётр', 'role' => 'operator']]);
+ok($call(['action' => 'task', 'id' => $late['task']['id'], 'token' => $call(['action' => 'login', 'key' => $stranger['key']])['token']])['error'] === 'Нет доступа', 'чужую задачу не открыть');
 
 // Изменение сотрудника — только переданные поля (телефон не стирается).
 $D(['action' => 'employeeSave', 'employee' => ['id' => $hw['employee']['id'], 'phone' => '+7 911 000-00-00']]);
