@@ -154,6 +154,7 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
                 store.me = me.toString()
                 _me.value = StaffMe.parse(me)
                 _message.value = "Подключено: ${_me.value?.name} — ${_me.value?.roleTitle}"
+                StaffNotifier.schedule(getApplication())
             } catch (e: ServerException) {
                 _message.value = e.message
             } finally {
@@ -166,6 +167,7 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
     fun disconnect() {
         val c = if (store.connected) client() else null
         c?.let { viewModelScope.launch { runCatching { it.call("logout") } } }
+        StaffNotifier.cancel(getApplication())
         store.clear()
         _me.value = null
         _jobs.value = null

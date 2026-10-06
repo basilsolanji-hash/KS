@@ -40,7 +40,7 @@ import com.knit.calculator.yarn.YarnScreen
 import com.knit.calculator.yarn.YarnViewModel
 
 /** Экраны приложения; переход «назад» описан у каждого экрана. */
-private enum class Screen { HOME, CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY, REPORT, ORDER_YARN, SHOP, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, CLIENT, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI, STAFF_SERVER, STAFF_PRODUCTION, EMPLOYEES, RATING, ACTIVITY, MS_ORDERS }
+private enum class Screen { HOME, CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY, REPORT, ORDER_YARN, SHOP, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, CLIENT, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI, STAFF_SERVER, STAFF_PRODUCTION, EMPLOYEES, RATING, ACTIVITY, MS_ORDERS, TASKS }
 
 class MainActivity : FragmentActivity() {
 
@@ -83,6 +83,16 @@ class MainActivity : FragmentActivity() {
     private val workViewModel: com.knit.calculator.quote.WorkViewModel by viewModels()
     private val staffViewModel: com.knit.calculator.staff.StaffViewModel by viewModels()
     private val ordersViewModel: com.knit.calculator.staff.OrdersViewModel by viewModels()
+    private val tasksViewModel: com.knit.calculator.staff.TasksViewModel by viewModels()
+
+    /** Задача из уведомления — открыть экран задач на ней. */
+    private var openTask by mutableStateOf<Int?>(null)
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.getIntExtra(com.knit.calculator.staff.StaffNotifier.EXTRA_TASK, 0).takeIf { it > 0 }?.let { openTask = it }
+    }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
@@ -105,10 +115,13 @@ class MainActivity : FragmentActivity() {
         com.knit.calculator.quote.DailyDigest.schedule(this, com.knit.calculator.quote.QuoteStore(this).digestEnabled)
         // Активность офиса: пока приложение на экране — отметка раз в минуту; действия — из экранов (StaffEvents).
         com.knit.calculator.staff.StaffEvents.sink = { kind, detail -> staffViewModel.event(kind, detail) }
+        intent?.getIntExtra(com.knit.calculator.staff.StaffNotifier.EXTRA_TASK, 0)?.takeIf { it > 0 }?.let { openTask = it }
+        if (com.knit.calculator.staff.ServerStore(this).connected) com.knit.calculator.staff.StaffNotifier.schedule(this)
         lifecycleScope.launch {
             repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
                 while (true) {
                     staffViewModel.ping()
+                    com.knit.calculator.staff.StaffNotifier.poll(this@MainActivity)
                     kotlinx.coroutines.delay(60_000)
                 }
             }
@@ -132,6 +145,8 @@ class MainActivity : FragmentActivity() {
             val screen = Screen.valueOf(stack.last())
             fun open(s: Screen) { stack = stack + s.name }
             var clientName by rememberSaveable { mutableStateOf("") }
+            // Нажали уведомление о задаче — сразу экран задач.
+            androidx.compose.runtime.LaunchedEffect(openTask) { if (openTask != null && screen != Screen.TASKS) open(Screen.TASKS) }
             fun back() { stack = if (stack.size > 1) stack.dropLast(1) else stack }
             val sync by quoteViewModel.sync.collectAsStateWithLifecycle()
             val settings by quoteViewModel.settings.collectAsStateWithLifecycle()
@@ -301,6 +316,7 @@ class MainActivity : FragmentActivity() {
                                 HomeAction.RATING -> Screen.RATING
                                 HomeAction.ACTIVITY -> Screen.ACTIVITY
                                 HomeAction.MS_ORDERS -> Screen.MS_ORDERS
+                                HomeAction.TASKS -> Screen.TASKS
                             },
                         )
                     }
@@ -362,6 +378,7 @@ class MainActivity : FragmentActivity() {
                     Screen.RATING -> com.knit.calculator.staff.RatingScreen(staffViewModel, onBack = ::back)
                     Screen.ACTIVITY -> com.knit.calculator.staff.ActivityScreen(staffViewModel, onBack = ::back)
                     Screen.MS_ORDERS -> com.knit.calculator.staff.MsOrdersScreen(ordersViewModel, onBack = ::back)
+                    Screen.TASKS -> com.knit.calculator.staff.TasksScreen(tasksViewModel, staffMe, openTask, onBack = { openTask = null; back() })
                     Screen.AI -> com.knit.calculator.comms.AiScreen(quoteViewModel, director, onBack = ::back)
                     Screen.WAREHOUSE -> com.knit.calculator.quote.WarehouseScreen(quoteViewModel, warehouseViewModel, onBack = ::back)
                     Screen.COMMS -> com.knit.calculator.comms.CommsScreen(onBack = ::back)

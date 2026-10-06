@@ -85,7 +85,7 @@ enum class HomeWidget(val title: Int, val directorOnly: Boolean = false, val per
 val DEFAULT_WIDGETS = HomeWidget.entries.toList()
 
 /** Разделы, доступные с главного экрана. */
-enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI, STAFF_SERVER, STAFF_PRODUCTION, EMPLOYEES, RATING, ACTIVITY, MS_ORDERS }
+enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI, STAFF_SERVER, STAFF_PRODUCTION, EMPLOYEES, RATING, ACTIVITY, MS_ORDERS, TASKS }
 
 /** Пункт меню: раздел, подпись, значок. */
 data class MenuItem(val action: HomeAction, val label: Int, val icon: Int)
@@ -93,6 +93,7 @@ data class MenuItem(val action: HomeAction, val label: Int, val icon: Int)
 /** Все разделы для меню ☰ по группам (с учётом роли и МойСклад). */
 fun menuGroups(director: Boolean, msEnabled: Boolean, staffRole: String? = null): List<Pair<Int, List<MenuItem>>> {
     val service = R.string.menu_group_service to listOf(
+        MenuItem(HomeAction.TASKS, R.string.tasks_title, R.drawable.ic_list),
         MenuItem(HomeAction.WORKTIME, R.string.home_worktime, R.drawable.ic_history),
         MenuItem(HomeAction.RATING, R.string.staff_rating, R.drawable.ic_report),
         MenuItem(HomeAction.STAFF_SERVER, R.string.staff_server, R.drawable.ic_cloud),
