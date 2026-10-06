@@ -63,7 +63,7 @@ class V16UiTest {
     }
 
     @Test fun aboutScreen() {
-        compose.onNodeWithText("О версии", substring = true).performScrollTo().performClick()
+        compose.openMenu("О версии")
         compose.onNodeWithText("Что нового").assertExists()
         compose.onNodeWithText("Google Таблица").assertExists()
         Shots.take("62_about", compose)

@@ -384,6 +384,14 @@ fun HomeScreen(
                 }
             }
         }
+        // Новый телефон, данных ещё нет — подсказка вместо пустого экрана.
+        val nothing = (day == null || day.isEmpty) && myPay == null && charts == null
+        if (nothing) {
+            Text(
+                stringResource(R.string.home_empty_hint), color = colors.textSecondary, fontSize = 15.sp,
+                textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 48.dp, start = 24.dp, end = 24.dp),
+            )
+        }
         // Место под круглую кнопку «+».
         Spacer(Modifier.height(72.dp))
 
