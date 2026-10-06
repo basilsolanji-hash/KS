@@ -74,6 +74,12 @@ object Dynamics {
         }
     }
 
+    /** Границы периода [from, to) — для анализов «за период» (топ клиентов, расходы по статьям). */
+    fun range(p: DynPeriod, now: Long): Pair<Long, Long> {
+        val (field, count, first) = shape(p, now)
+        return first to add(first, field, count)
+    }
+
     /** Суммы по столбцам периода и прошлого периода из точек (время, сумма). */
     fun series(items: List<Pair<Long, BigDecimal>>, p: DynPeriod, now: Long): DynSeries {
         val (field, count, first) = shape(p, now)

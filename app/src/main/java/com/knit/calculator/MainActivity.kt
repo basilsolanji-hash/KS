@@ -135,7 +135,11 @@ class MainActivity : FragmentActivity() {
                     com.knit.calculator.core.Grain.DAY to f.shipDay,
                     com.knit.calculator.core.Grain.HOUR to f.shipHour,
                 ) else null
-                com.knit.calculator.ui.HomeCharts(sales, f?.plan?.takeIf { it.signum() > 0 }, inflow, outflow, ship)
+                com.knit.calculator.ui.HomeCharts(
+                    sales, f?.plan?.takeIf { it.signum() > 0 }, inflow, outflow, ship,
+                    deals = deals.orEmpty().map { it.toSale() },
+                    expenses = f?.expenses.orEmpty(),
+                )
                     .takeIf { sales.isNotEmpty() || inflow.isNotEmpty() || outflow != null }
             }
             val financeLoading by financeViewModel.loading.collectAsStateWithLifecycle()
@@ -180,6 +184,11 @@ class MainActivity : FragmentActivity() {
                         store.homeShortcuts?.mapNotNull { n -> HomeAction.entries.firstOrNull { it.name == n } } ?: com.knit.calculator.ui.DEFAULT_SHORTCUTS,
                     )
                 }
+                var widgets by androidx.compose.runtime.remember {
+                    androidx.compose.runtime.mutableStateOf(
+                        store.homeWidgets?.mapNotNull { n -> com.knit.calculator.ui.HomeWidget.entries.firstOrNull { it.name == n } } ?: com.knit.calculator.ui.DEFAULT_WIDGETS,
+                    )
+                }
                 val avatar = java.io.File(filesDir, "avatar.jpg")
                 var avatarVersion by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
                 val work = androidx.compose.runtime.remember(shifts, tick, avatarVersion, sync) {
@@ -197,6 +206,8 @@ class MainActivity : FragmentActivity() {
                         shortcuts = shortcuts,
                         onShortcuts = { list -> shortcuts = list; store.homeShortcuts = list.map { it.name } },
                         work = work,
+                        widgets = widgets,
+                        onWidgets = { list -> widgets = list; store.homeWidgets = list.map { it.name } },
                         onShift = { start -> if (start) workViewModel.start() else workViewModel.close(); tick = System.currentTimeMillis() },
                         onPhoto = { uri ->
                             // Фото профиля — уменьшенной копией (до 320 px), только на этом телефоне.

@@ -64,7 +64,25 @@ data class HomeCharts(
     val outflow: List<Pair<Long, java.math.BigDecimal>>?,
     /** Отгрузки МойСклад (время, ₽, шт) по точности; `null` — нет МойСклад. */
     val ship: Map<com.knit.calculator.core.Grain, List<Triple<Long, java.math.BigDecimal, java.math.BigDecimal>>>? = null,
+    /** КП для топов клиентов и товаров за период. */
+    val deals: List<com.knit.calculator.core.Sale> = emptyList(),
+    /** Расходы со статьями МойСклад. */
+    val expenses: List<com.knit.calculator.core.Expense> = emptyList(),
 )
+
+/** Блоки главного экрана; [periodic] — зависят от периода «Сегодня … По годам». */
+enum class HomeWidget(val title: Int, val directorOnly: Boolean = false, val periodic: Boolean = false) {
+    DAY(R.string.day_title),
+    MYPAY(R.string.salary_mine),
+    SALES(R.string.chart_sales, directorOnly = true, periodic = true),
+    SHIP(R.string.chart_ship, directorOnly = true, periodic = true),
+    FLOWS(R.string.chart_flows, directorOnly = true, periodic = true),
+    EXPENSES(R.string.widget_expenses, directorOnly = true, periodic = true),
+    CLIENTS(R.string.widget_clients, directorOnly = true, periodic = true),
+    PRODUCTS(R.string.widget_products, directorOnly = true, periodic = true),
+}
+
+val DEFAULT_WIDGETS = HomeWidget.entries.toList()
 
 /** Разделы, доступные с главного экрана. */
 enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI }
@@ -142,12 +160,15 @@ fun HomeScreen(
     work: WorkBar? = null,
     onShift: (start: Boolean) -> Unit = {},
     onPhoto: (android.net.Uri) -> Unit = {},
+    widgets: List<HomeWidget> = DEFAULT_WIDGETS,
+    onWidgets: (List<HomeWidget>) -> Unit = {},
     onAction: (HomeAction) -> Unit,
 ) {
     val colors = LocalKnitColors.current
     val drawer = androidx.compose.material3.rememberDrawerState(androidx.compose.material3.DrawerValue.Closed)
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var editShortcuts by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    var editWidgets by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     val groups = menuGroups(director, sync.msEnabled)
     val all = groups.flatMap { it.second }
     fun go(a: HomeAction) {
@@ -197,6 +218,17 @@ fun HomeScreen(
                         modifier = Modifier.padding(horizontal = 12.dp),
                     )
                     androidx.compose.material3.NavigationDrawerItem(
+                        label = { Text(stringResource(R.string.menu_widgets), fontSize = 16.sp) },
+                        icon = { Icon(painterResource(R.drawable.ic_report), null, Modifier.size(22.dp)) },
+                        selected = false,
+                        onClick = { scope.launch { drawer.close() }; editWidgets = true },
+                        colors = androidx.compose.material3.NavigationDrawerItemDefaults.colors(
+                            unselectedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                            unselectedTextColor = colors.textPrimary, unselectedIconColor = colors.textSecondary,
+                        ),
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
+                    androidx.compose.material3.NavigationDrawerItem(
                         label = { Text(stringResource(R.string.menu_theme), fontSize = 16.sp) },
                         icon = {
                             Icon(painterResource(when (themeMode) {
@@ -222,10 +254,11 @@ fun HomeScreen(
         },
     ) {
     Column(Modifier.fillMaxSize().background(colors.background).safeDrawingPadding()) {
+    Box(Modifier.fillMaxWidth().weight(1f)) {
     androidx.compose.material3.pulltorefresh.PullToRefreshBox(
         isRefreshing = refreshing,
         onRefresh = onRefresh,
-        modifier = Modifier.fillMaxWidth().weight(1f),
+        modifier = Modifier.fillMaxSize(),
     ) {
     Column(
         Modifier
@@ -255,41 +288,15 @@ fun HomeScreen(
         }
         SyncLine(sync)
 
-        // Главное действие — компактно, на всю ширину.
-        Surface(
-            onClick = { onAction(HomeAction.QUOTE) },
-            shape = RoundedCornerShape(20.dp),
-            color = colors.equalsKey,
-            contentColor = colors.equalsKeyText,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Row(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(painterResource(R.drawable.ic_add), null, Modifier.size(30.dp))
-                Column(Modifier.padding(start = 14.dp).weight(1f)) {
-                    Text(stringResource(R.string.home_quote), fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                    Text(stringResource(R.string.home_quote_hint), fontSize = 13.sp)
-                }
-                Icon(painterResource(R.drawable.ic_chevron_right), null, Modifier.size(24.dp))
-            }
-        }
-        if (day != null && !day.isEmpty) DayPanel(day, onAction)
-        if (myPay != null) {
-            Surface(shape = RoundedCornerShape(20.dp), color = colors.panel, modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                    Text(stringResource(R.string.salary_mine), color = colors.textSecondary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    Text(QuoteCalculator.formatMoney(myPay.first) + " ₽", color = colors.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                    Text(
-                        stringResource(R.string.salary_mine_line, QuoteCalculator.formatMoney(myPay.second), QuoteCalculator.formatMoney(myPay.third)),
-                        color = colors.textSecondary, fontSize = 13.sp,
-                    )
-                }
-            }
-        }
-        // Динамика (директор): период сверху (по умолчанию 30 дней), прошлый период — пунктиром на фоне.
-        if (charts != null) {
+        // Блоки главного экрана — в выбранном порядке (меню → «Блоки главного экрана»).
+        val visible = widgets.filter { w -> (!w.directorOnly || director) && !(w == HomeWidget.MYPAY && director) }
+        val periodic = visible.any { it.periodic } && charts != null
+        var periodName by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(com.knit.calculator.core.DynPeriod.MONTH.name) }
+        val period = com.knit.calculator.core.DynPeriod.valueOf(periodName)
+        val now = androidx.compose.runtime.remember(period, charts) { System.currentTimeMillis() }
+        val dark = colors.isDark
+        if (periodic) {
             GroupTitle(R.string.home_group_dynamics)
-            var periodName by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(com.knit.calculator.core.DynPeriod.MONTH.name) }
-            val period = com.knit.calculator.core.DynPeriod.valueOf(periodName)
             androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(com.knit.calculator.core.DynPeriod.entries.size) { k ->
                     val p = com.knit.calculator.core.DynPeriod.entries[k]
@@ -301,50 +308,103 @@ fun HomeScreen(
                     )
                 }
             }
-            val now = androidx.compose.runtime.remember(period, charts) { System.currentTimeMillis() }
-            val sales = androidx.compose.runtime.remember(period, charts) { com.knit.calculator.core.Dynamics.series(charts.sales, period, now) }
-            val inflow = androidx.compose.runtime.remember(period, charts) { com.knit.calculator.core.Dynamics.series(charts.inflow, period, now) }
-            val outflow = androidx.compose.runtime.remember(period, charts) { charts.outflow?.let { com.knit.calculator.core.Dynamics.series(it, period, now) } }
-            val dark = colors.isDark
-            TrendChart(
-                stringResource(R.string.chart_sales), sales.labels,
-                listOf(stringResource(R.string.chart_sales_series) to sales.current), listOf(ChartColors.inflow(dark)),
-                previous = listOf(sales.previous),
-                plan = if (period == com.knit.calculator.core.DynPeriod.MONTHS) charts.plan else null, planLabel = stringResource(R.string.chart_plan),
-            )
-            val ship = charts.ship
-            if (ship != null) {
-                var pieces by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
-                val points = (ship[com.knit.calculator.core.Dynamics.grain(period)].orEmpty().ifEmpty { ship[com.knit.calculator.core.Grain.MONTH].orEmpty() })
-                val shipSeries = androidx.compose.runtime.remember(period, charts, pieces) {
-                    com.knit.calculator.core.Dynamics.series(points.map { it.first to (if (pieces) it.third else it.second) }, period, now)
-                }
-                TrendChart(
-                    stringResource(R.string.chart_ship), shipSeries.labels,
-                    listOf(stringResource(R.string.chart_ship_series) to shipSeries.current),
-                    listOf(ChartColors.outflow(dark)),
-                    previous = listOf(shipSeries.previous),
-                    unit = if (pieces) "шт" else "₽",
-                    toggle = listOf("₽", "шт") to (if (pieces) 1 else 0),
-                    onToggle = { pieces = it == 1 },
-                )
-            }
-            TrendChart(
-                stringResource(R.string.chart_flows), inflow.labels,
-                listOfNotNull(
-                    stringResource(R.string.chart_in) to inflow.current,
-                    outflow?.let { stringResource(R.string.chart_out) to it.current },
-                ),
-                listOf(ChartColors.inflow(dark), ChartColors.outflow(dark)),
-                previous = listOf(inflow.previous, outflow?.previous),
-            )
-            if (charts.outflow == null) Text(stringResource(R.string.chart_no_out), color = colors.textSecondary, fontSize = 12.sp)
         }
+        visible.forEach { w ->
+            when (w) {
+                HomeWidget.DAY -> if (day != null && !day.isEmpty) DayPanel(day, onAction)
+                HomeWidget.MYPAY -> if (myPay != null) {
+                    Surface(shape = RoundedCornerShape(20.dp), color = colors.panel, modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                            Text(stringResource(R.string.salary_mine), color = colors.textSecondary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            Text(QuoteCalculator.formatMoney(myPay.first) + " ₽", color = colors.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                stringResource(R.string.salary_mine_line, QuoteCalculator.formatMoney(myPay.second), QuoteCalculator.formatMoney(myPay.third)),
+                                color = colors.textSecondary, fontSize = 13.sp,
+                            )
+                        }
+                    }
+                }
+                HomeWidget.SALES -> if (charts != null) {
+                    val sales = androidx.compose.runtime.remember(period, charts) { com.knit.calculator.core.Dynamics.series(charts.sales, period, now) }
+                    TrendChart(
+                        stringResource(R.string.chart_sales), sales.labels,
+                        listOf(stringResource(R.string.chart_sales_series) to sales.current), listOf(ChartColors.inflow(dark)),
+                        previous = listOf(sales.previous),
+                        plan = if (period == com.knit.calculator.core.DynPeriod.MONTHS) charts.plan else null, planLabel = stringResource(R.string.chart_plan),
+                    )
+                }
+                HomeWidget.SHIP -> charts?.ship?.let { ship ->
+                    var pieces by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+                    val points = ship[com.knit.calculator.core.Dynamics.grain(period)].orEmpty().ifEmpty { ship[com.knit.calculator.core.Grain.MONTH].orEmpty() }
+                    val shipSeries = androidx.compose.runtime.remember(period, charts, pieces) {
+                        com.knit.calculator.core.Dynamics.series(points.map { it.first to (if (pieces) it.third else it.second) }, period, now)
+                    }
+                    TrendChart(
+                        stringResource(R.string.chart_ship), shipSeries.labels,
+                        listOf(stringResource(R.string.chart_ship_series) to shipSeries.current),
+                        listOf(ChartColors.outflow(dark)),
+                        previous = listOf(shipSeries.previous),
+                        unit = if (pieces) "шт" else "₽",
+                        toggle = listOf("₽", "шт") to (if (pieces) 1 else 0),
+                        onToggle = { pieces = it == 1 },
+                    )
+                }
+                HomeWidget.FLOWS -> if (charts != null) {
+                    val inflow = androidx.compose.runtime.remember(period, charts) { com.knit.calculator.core.Dynamics.series(charts.inflow, period, now) }
+                    val outflow = androidx.compose.runtime.remember(period, charts) { charts.outflow?.let { com.knit.calculator.core.Dynamics.series(it, period, now) } }
+                    TrendChart(
+                        stringResource(R.string.chart_flows), inflow.labels,
+                        listOfNotNull(
+                            stringResource(R.string.chart_in) to inflow.current,
+                            outflow?.let { stringResource(R.string.chart_out) to it.current },
+                        ),
+                        listOf(ChartColors.inflow(dark), ChartColors.outflow(dark)),
+                        previous = listOf(inflow.previous, outflow?.previous),
+                    )
+                    if (charts.outflow == null) Text(stringResource(R.string.chart_no_out), color = colors.textSecondary, fontSize = 12.sp)
+                }
+                HomeWidget.EXPENSES -> if (charts != null && charts.expenses.isNotEmpty()) {
+                    val (from, to) = com.knit.calculator.core.Dynamics.range(period, now)
+                    val rows = androidx.compose.runtime.remember(period, charts) {
+                        charts.expenses.filter { it.date in from until to }.groupBy { it.category.ifBlank { "Без статьи" } }
+                            .map { (k, xs) -> k to xs.fold(java.math.BigDecimal.ZERO) { acc, x -> acc + x.amount } }.sortedByDescending { it.second }
+                    }
+                    TopList(stringResource(R.string.widget_expenses), rows, ChartColors.outflow(dark)) { onAction(HomeAction.FINANCE) }
+                }
+                HomeWidget.CLIENTS, HomeWidget.PRODUCTS -> if (charts != null && charts.deals.isNotEmpty()) {
+                    val (from, to) = com.knit.calculator.core.Dynamics.range(period, now)
+                    val rows = androidx.compose.runtime.remember(period, charts, w) {
+                        val inPeriod = charts.deals.filter { it.date in from until to }
+                        (if (w == HomeWidget.CLIENTS) com.knit.calculator.core.DirectorReport.clients(inPeriod) else com.knit.calculator.core.DirectorReport.products(inPeriod))
+                            .map { it.name to it.value }
+                    }
+                    TopList(stringResource(if (w == HomeWidget.CLIENTS) R.string.widget_clients else R.string.widget_products), rows, ChartColors.inflow(dark)) {
+                        onAction(HomeAction.FINANCE)
+                    }
+                }
+            }
+        }
+        // Место под круглую кнопку «+».
+        Spacer(Modifier.height(72.dp))
 
+    }
+    }
+    // Главное действие — большая круглая кнопка «+»: новое КП.
+    androidx.compose.material3.LargeFloatingActionButton(
+        onClick = { onAction(HomeAction.QUOTE) },
+        shape = androidx.compose.foundation.shape.CircleShape,
+        containerColor = colors.equalsKey,
+        contentColor = colors.equalsKeyText,
+        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
+    ) {
+        Icon(painterResource(R.drawable.ic_add), stringResource(R.string.menu_quote), Modifier.size(40.dp))
     }
     }
     if (work != null) WorkBarView(work, onShift, onPhoto)
     }
+    }
+    if (editWidgets) {
+        WidgetsDialog(director, widgets, onDismiss = { editWidgets = false }) { onWidgets(it); editWidgets = false }
     }
     if (editShortcuts) {
         ShortcutsDialog(all, shortcuts, onDismiss = { editShortcuts = false }) { onShortcuts(it); editShortcuts = false }
@@ -422,6 +482,68 @@ private fun WorkBarView(work: WorkBar, onShift: (Boolean) -> Unit, onPhoto: (and
             containerColor = colors.panel,
         )
     }
+}
+
+/** Топ-5 за период: название, сумма и полоса доли; нажатие — подробный отчёт. */
+@Composable
+private fun TopList(title: String, rows: List<Pair<String, java.math.BigDecimal>>, color: androidx.compose.ui.graphics.Color, onOpen: () -> Unit) {
+    val colors = LocalKnitColors.current
+    val total = rows.fold(java.math.BigDecimal.ZERO) { a, r -> a + r.second }
+    Surface(onClick = onOpen, shape = RoundedCornerShape(20.dp), color = colors.panel, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(title, color = colors.textSecondary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Text(QuoteCalculator.formatMoney(total) + " ₽", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            }
+            if (rows.isEmpty()) Text(stringResource(R.string.widget_empty), color = colors.textSecondary, fontSize = 13.sp)
+            rows.take(5).forEach { (name, v) ->
+                val share = if (total.signum() == 0) 0f else (v.toFloat() / total.toFloat())
+                Column {
+                    Row {
+                        Text(name, color = colors.textPrimary, fontSize = 14.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Text(QuoteCalculator.formatMoney(v) + " ₽ · " + (share * 100).toInt() + "%", color = colors.textSecondary, fontSize = 13.sp)
+                    }
+                    androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().padding(top = 3.dp).height(6.dp)) {
+                        val r = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx())
+                        drawRoundRect(color.copy(alpha = 0.18f), cornerRadius = r)
+                        drawRoundRect(color, size = size.copy(width = size.width * share.coerceIn(0.01f, 1f)), cornerRadius = r)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Блоки главного экрана: какие показывать и в каком порядке. */
+@Composable
+private fun WidgetsDialog(director: Boolean, current: List<HomeWidget>, onDismiss: () -> Unit, onSave: (List<HomeWidget>) -> Unit) {
+    val colors = LocalKnitColors.current
+    val available = HomeWidget.entries.filter { (!it.directorOnly || director) && !(it == HomeWidget.MYPAY && director) }
+    var chosen by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(current.filter { it in available }) }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.menu_widgets)) },
+        text = {
+            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
+                Text(stringResource(R.string.widgets_hint), color = colors.textSecondary, fontSize = 13.sp)
+                (chosen + available.filter { it !in chosen }).forEach { w ->
+                    val index = chosen.indexOf(w)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.Checkbox(checked = w in chosen, onCheckedChange = { v -> chosen = if (v) chosen + w else chosen - w })
+                        Text(stringResource(w.title), color = colors.textPrimary, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                        if (index > 0) {
+                            KnitIconButton(R.drawable.ic_arrow_up, stringResource(R.string.comms_up), {
+                                chosen = chosen.toMutableList().apply { add(index - 1, removeAt(index)) }
+                            })
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(chosen) }) { Text(stringResource(R.string.shortcuts_save), color = colors.textPrimary, fontWeight = FontWeight.SemiBold) } },
+        dismissButton = { TextButton(onClick = { onSave(DEFAULT_WIDGETS) }) { Text(stringResource(R.string.shortcuts_default), color = colors.textSecondary) } },
+        containerColor = colors.panel,
+    )
 }
 
 /** Выбор кнопок наверху: до 4, порядок — стрелкой «выше». */

@@ -63,7 +63,7 @@ class OpsUiTest {
 
     @Test fun paymentProductionAndStock() {
         // КП на 600 подвязов: 94 800 ₽.
-        compose.onNodeWithText("Коммерческое предложение").performClick()
+        compose.onNodeWithContentDescription("Новое КП").performClick()
         compose.onNodeWithText("Добавить позицию").performScrollTo().performClick()
         // Пункт меню появляется во всплывающем окне — ждём его.
         compose.waitUntil(15_000) { compose.onAllNodes(hasText("Подвяз трикотажный")).fetchSemanticsNodes().isNotEmpty() }
@@ -126,7 +126,7 @@ class OpsUiTest {
 
         // Прайс-лист и QR-код в ассортименте.
         compose.onNodeWithContentDescription("Назад").performClick()
-        compose.onNodeWithText("Коммерческое предложение").performClick()
+        compose.onNodeWithContentDescription("Новое КП").performClick()
         compose.onNodeWithContentDescription("Ассортимент и цены").performClick()
         compose.onNodeWithText("QR-код").performClick()
         compose.onNodeWithText("https://fabrika-ks.ru/shop").assertExists()

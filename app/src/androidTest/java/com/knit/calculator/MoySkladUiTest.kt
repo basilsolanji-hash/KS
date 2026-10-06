@@ -75,7 +75,7 @@ class MoySkladUiTest {
     private fun money(v: String) = QuoteCalculator.formatMoney(BigDecimal(v)) + " ₽"
 
     @Test fun pickMoySkladProductWithTierPrice() {
-        compose.onNodeWithText("Коммерческое предложение").performClick()
+        compose.onNodeWithContentDescription("Новое КП").performClick()
         compose.onNodeWithText("Добавить позицию").performScrollTo().performClick()
         compose.onNodeWithText("Товары МойСклад (3)").assertExists()
         compose.onNode(hasSetTextAction() and hasText("Поиск: название или артикул")).performTextInput("подвяз")
@@ -106,7 +106,7 @@ class MoySkladUiTest {
     }
 
     @Test fun saleBadgeFilterAndBarcodeSearch() {
-        compose.onNodeWithText("Коммерческое предложение").performClick()
+        compose.onNodeWithContentDescription("Новое КП").performClick()
         compose.onNodeWithText("Добавить позицию").performScrollTo().performClick()
         // Метка «Распродажа» — красная, фильтр одним нажатием.
         compose.onNodeWithText("Распродажа").performClick()

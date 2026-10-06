@@ -40,7 +40,7 @@ class QuoteUiTest {
 
     @Test fun podvyazPricesLikeFactoryPriceList() {
         Shots.take("00_home", compose)
-        compose.onNodeWithText("Коммерческое предложение").performClick()
+        compose.onNodeWithContentDescription("Новое КП").performClick()
         compose.onNodeWithText("Добавить позицию").performScrollTo().performClick()
         // Пункт меню появляется во всплывающем окне — ждём его.
         compose.waitUntil(15_000) { compose.onAllNodes(hasText("Подвяз трикотажный")).fetchSemanticsNodes().isNotEmpty() }

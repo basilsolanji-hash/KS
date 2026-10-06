@@ -813,6 +813,12 @@
     <string name="menu_about">О версии</string>
     <string name="menu_group_service">Сервис</string>
     <string name="menu_group_view">Вид</string>
+    <string name="menu_widgets">Блоки главного экрана</string>
+    <string name="widgets_hint">Отметьте, что показывать на главном экране, и расставьте стрелкой «выше». Период (сегодня … по годам) — над динамикой.</string>
+    <string name="widget_expenses">Расходы по статьям</string>
+    <string name="widget_clients">Топ клиентов</string>
+    <string name="widget_products">Топ товаров</string>
+    <string name="widget_empty">За этот период данных нет.</string>
     <string name="menu_shortcuts">Кнопки наверху</string>
     <string name="menu_theme">Тема: светлая / тёмная / как в телефоне</string>
     <string name="shortcuts_hint">Выберите до %d кнопок для верхней строки главного экрана.</string>

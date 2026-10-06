@@ -225,6 +225,11 @@ class QuoteStore(context: Context) {
         get() = prefs.getString("home_shortcuts", null)?.split(',')?.filter { it.isNotBlank() }
         set(v) { prefs.edit().putString("home_shortcuts", v?.joinToString(",")).apply() }
 
+    /** Блоки главного экрана по порядку; `null` — все. */
+    var homeWidgets: List<String>?
+        get() = prefs.getString("home_widgets", null)?.split(',')?.filter { it.isNotBlank() }
+        set(v) { prefs.edit().putString("home_widgets", v?.joinToString(",")).apply() }
+
     /** Ежедневная сводка в 9:00 (долги, отгрузки, КП без ответа). */
     var digestEnabled: Boolean
         get() = prefs.getBoolean("digest", true)

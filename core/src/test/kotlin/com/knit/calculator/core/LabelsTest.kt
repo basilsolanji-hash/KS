@@ -441,5 +441,8 @@ class DynamicsTest {
         assertEquals(null, y.previous)
         assertEquals(BigDecimal(700), y.current[3])
         assertEquals("вт", Dynamics.series(items, DynPeriod.WEEK, now).labels[6]) // 6 октября 2026 — вторник
+        val (from, to) = Dynamics.range(DynPeriod.MONTH, now)
+        assertEquals(t(2026, 9, 7, 0), from)
+        assertEquals(t(2026, 10, 7, 0), to)
     }
 }

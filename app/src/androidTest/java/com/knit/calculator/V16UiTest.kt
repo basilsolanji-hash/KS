@@ -25,7 +25,7 @@ class V16UiTest {
     val rules: RuleChain = RuleChain.outerRule(ResetAppRule()).around(compose)
 
     @Test fun innCheckAndUndoRemove() {
-        compose.onNodeWithText("Коммерческое предложение").performClick()
+        compose.onNodeWithContentDescription("Новое КП").performClick()
         val inn = compose.onNode(hasSetTextAction() and hasText("ИНН клиента"))
         inn.performTextInput("7701234567")
         compose.onNodeWithText("Неверный ИНН").assertExists()
@@ -70,7 +70,7 @@ class V16UiTest {
     }
 
     @Test fun settingsTabsAndQuoteSteps() {
-        compose.onNodeWithText("Коммерческое предложение").performClick()
+        compose.onNodeWithContentDescription("Новое КП").performClick()
         compose.onNodeWithText("3 · Итог").assertExists()
         compose.onNodeWithText("Добавить позицию").performScrollTo().performClick()
         compose.waitUntil(15_000) { compose.onAllNodes(hasText("Подвяз трикотажный")).fetchSemanticsNodes().isNotEmpty() }
@@ -90,7 +90,7 @@ class V16UiTest {
     }
 
     @Test fun templatesAndClientCard() {
-        compose.onNodeWithText("Коммерческое предложение").performClick()
+        compose.onNodeWithContentDescription("Новое КП").performClick()
         compose.onNodeWithText("Добавить позицию").performScrollTo().performClick()
         compose.waitUntil(15_000) { compose.onAllNodes(hasText("Подвяз трикотажный")).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Подвяз трикотажный").performClick()
