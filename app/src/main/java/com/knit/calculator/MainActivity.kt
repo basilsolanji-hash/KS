@@ -37,7 +37,7 @@ import com.knit.calculator.yarn.YarnScreen
 import com.knit.calculator.yarn.YarnViewModel
 
 /** Экраны приложения; переход «назад» описан у каждого экрана. */
-private enum class Screen { HOME, CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY, REPORT, ORDER_YARN, SHOP, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, CLIENT, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI }
+private enum class Screen { HOME, CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY, REPORT, ORDER_YARN, SHOP, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, CLIENT, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI, STAFF_SERVER, STAFF_PRODUCTION, EMPLOYEES, RATING }
 
 class MainActivity : FragmentActivity() {
 
@@ -78,6 +78,7 @@ class MainActivity : FragmentActivity() {
     private val financeViewModel: com.knit.calculator.quote.FinanceViewModel by viewModels()
     private val warehouseViewModel: com.knit.calculator.quote.WarehouseViewModel by viewModels()
     private val workViewModel: com.knit.calculator.quote.WorkViewModel by viewModels()
+    private val staffViewModel: com.knit.calculator.staff.StaffViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -204,12 +205,22 @@ class MainActivity : FragmentActivity() {
                         workedMinutes = com.knit.calculator.core.WorkTime.workedToday(shifts, tick),
                     )
                 }
+                val staffMe by staffViewModel.me.collectAsStateWithLifecycle()
+                val staffRating by staffViewModel.rating.collectAsStateWithLifecycle()
+                androidx.compose.runtime.LaunchedEffect(screen == Screen.HOME, staffMe?.full) {
+                    if (screen == Screen.HOME && staffMe?.full == true) {
+                        val c = java.util.Calendar.getInstance()
+                        staffViewModel.loadRating("%04d-%02d".format(c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH) + 1))
+                    }
+                }
                 when (screen) {
                     Screen.HOME -> HomeScreen(sync, themeMode, director, onTheme = viewModel::cycleTheme, day = day, version = version, myPay = myPay, charts = charts,
                         shortcuts = shortcuts,
                         onShortcuts = { list -> shortcuts = list; store.homeShortcuts = list.map { it.name } },
                         work = work,
                         widgets = widgets,
+                        staffRole = staffMe?.role,
+                        team = if (staffMe?.full == true) staffRating else null,
                         onWidgets = { list -> widgets = list; store.homeWidgets = list.map { it.name } },
                         onShift = { start -> if (start) workViewModel.start() else workViewModel.close(); tick = System.currentTimeMillis() },
                         onPhoto = { uri ->
@@ -256,6 +267,10 @@ class MainActivity : FragmentActivity() {
                                 HomeAction.WAREHOUSE -> Screen.WAREHOUSE
                                 HomeAction.WORKTIME -> Screen.WORKTIME
                                 HomeAction.AI -> Screen.AI
+                                HomeAction.STAFF_SERVER -> Screen.STAFF_SERVER
+                                HomeAction.STAFF_PRODUCTION -> Screen.STAFF_PRODUCTION
+                                HomeAction.EMPLOYEES -> Screen.EMPLOYEES
+                                HomeAction.RATING -> Screen.RATING
                             },
                         )
                     }
@@ -311,6 +326,10 @@ class MainActivity : FragmentActivity() {
                     Screen.LABELS -> com.knit.calculator.label.LabelScreen(quoteViewModel, labelViewModel, onBack = ::back)
                     Screen.FINANCE -> com.knit.calculator.quote.FinanceScreen(quoteViewModel, opsViewModel, financeViewModel, onBack = ::back)
                     Screen.WORKTIME -> com.knit.calculator.quote.WorkTimeScreen(workViewModel, director, onBack = ::back)
+                    Screen.STAFF_SERVER -> com.knit.calculator.staff.StaffConnectScreen(staffViewModel, onBack = ::back)
+                    Screen.STAFF_PRODUCTION -> com.knit.calculator.staff.StaffProductionScreen(staffViewModel, onBack = ::back)
+                    Screen.EMPLOYEES -> com.knit.calculator.staff.EmployeesScreen(staffViewModel, onBack = ::back)
+                    Screen.RATING -> com.knit.calculator.staff.RatingScreen(staffViewModel, onBack = ::back)
                     Screen.AI -> com.knit.calculator.comms.AiScreen(quoteViewModel, director, onBack = ::back)
                     Screen.WAREHOUSE -> com.knit.calculator.quote.WarehouseScreen(quoteViewModel, warehouseViewModel, onBack = ::back)
                     Screen.COMMS -> com.knit.calculator.comms.CommsScreen(onBack = ::back)

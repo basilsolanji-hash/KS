@@ -153,6 +153,15 @@ class V16UiTest {
         compose.onNodeWithText("✉ Яндекс Почта").assertDoesNotExist()
     }
 
+    @Test fun factoryServerScreens() {
+        compose.openMenu("Сервер фабрики")
+        compose.onNodeWithText("Первый вход директора").assertExists()
+        Shots.take("71_staff_server", compose)
+        compose.onNodeWithContentDescription("Назад").performClick()
+        compose.openMenu("Этапы производства")
+        compose.onNodeWithText("Подключитесь к серверу фабрики: меню ☰ → «Сервер фабрики».").assertExists()
+    }
+
     @Test fun financeNeedsSheet() {
         // Без PIN директора все — директор: плитка «Финансы» видна.
         compose.openMenu("Финансы")

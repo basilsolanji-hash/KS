@@ -79,18 +79,42 @@ enum class HomeWidget(val title: Int, val directorOnly: Boolean = false, val per
     EXPENSES(R.string.widget_expenses, directorOnly = true, periodic = true),
     CLIENTS(R.string.widget_clients, directorOnly = true, periodic = true),
     PRODUCTS(R.string.widget_products, directorOnly = true, periodic = true),
+    TEAM(R.string.widget_team, directorOnly = true),
 }
 
 val DEFAULT_WIDGETS = HomeWidget.entries.toList()
 
 /** Разделы, доступные с главного экрана. */
-enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI }
+enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI, STAFF_SERVER, STAFF_PRODUCTION, EMPLOYEES, RATING }
 
 /** Пункт меню: раздел, подпись, значок. */
 data class MenuItem(val action: HomeAction, val label: Int, val icon: Int)
 
 /** Все разделы для меню ☰ по группам (с учётом роли и МойСклад). */
-fun menuGroups(director: Boolean, msEnabled: Boolean): List<Pair<Int, List<MenuItem>>> = listOf(
+fun menuGroups(director: Boolean, msEnabled: Boolean, staffRole: String? = null): List<Pair<Int, List<MenuItem>>> {
+    val service = R.string.menu_group_service to listOf(
+        MenuItem(HomeAction.WORKTIME, R.string.home_worktime, R.drawable.ic_history),
+        MenuItem(HomeAction.RATING, R.string.staff_rating, R.drawable.ic_report),
+        MenuItem(HomeAction.STAFF_SERVER, R.string.staff_server, R.drawable.ic_cloud),
+        MenuItem(HomeAction.ABOUT, R.string.menu_about, R.drawable.ic_doc),
+    )
+    // Производство и бухгалтер — только свои разделы; директор и помощник — всё.
+    when (staffRole) {
+        "designer", "operator", "handwork" -> return listOf(
+            R.string.home_group_production to listOf(MenuItem(HomeAction.STAFF_PRODUCTION, R.string.staff_production, R.drawable.ic_factory)),
+            service,
+        )
+        "accountant" -> return listOf(
+            R.string.home_group_money to listOf(
+                MenuItem(HomeAction.PAYMENTS, R.string.home_payments, R.drawable.ic_payments),
+                MenuItem(HomeAction.FINANCE, R.string.home_finance, R.drawable.ic_report),
+            ),
+            R.string.menu_group_staff to listOf(MenuItem(HomeAction.EMPLOYEES, R.string.staff_employees, R.drawable.ic_list)),
+            service,
+        )
+    }
+    val full = director || staffRole == "assistant"
+    return listOf(
     R.string.home_group_sales to listOf(
         MenuItem(HomeAction.QUOTE, R.string.menu_quote, R.drawable.ic_add),
         MenuItem(HomeAction.HISTORY, R.string.home_history, R.drawable.ic_history),
@@ -111,15 +135,16 @@ fun menuGroups(director: Boolean, msEnabled: Boolean): List<Pair<Int, List<MenuI
         // С МойСклад склад пряжи ведётся там.
         if (!msEnabled) MenuItem(HomeAction.STOCK, R.string.home_stock, R.drawable.ic_inventory) else null,
         if (msEnabled) MenuItem(HomeAction.WAREHOUSE, R.string.home_warehouse, R.drawable.ic_scan) else null,
+        MenuItem(HomeAction.STAFF_PRODUCTION, R.string.staff_production, R.drawable.ic_factory),
         MenuItem(HomeAction.LABELS, R.string.home_labels, R.drawable.ic_label),
         MenuItem(HomeAction.CALCULATOR, R.string.home_calculator, R.drawable.ic_calculator),
     ),
-    R.string.menu_group_service to listOf(
-        MenuItem(HomeAction.WORKTIME, R.string.home_worktime, R.drawable.ic_history),
-        MenuItem(HomeAction.SETTINGS, R.string.home_settings, R.drawable.ic_settings),
-        MenuItem(HomeAction.ABOUT, R.string.menu_about, R.drawable.ic_doc),
+    R.string.menu_group_staff to listOfNotNull(
+        if (full) MenuItem(HomeAction.EMPLOYEES, R.string.staff_employees, R.drawable.ic_list) else null,
     ),
-)
+    service.first to (listOf(MenuItem(HomeAction.SETTINGS, R.string.home_settings, R.drawable.ic_settings)) + service.second),
+    )
+}
 
 /** Кнопки наверху по умолчанию. */
 val DEFAULT_SHORTCUTS = listOf(HomeAction.CALCULATOR, HomeAction.LABELS, HomeAction.SHOP, HomeAction.SETTINGS)
@@ -161,6 +186,10 @@ fun HomeScreen(
     onPhoto: (android.net.Uri) -> Unit = {},
     widgets: List<HomeWidget> = DEFAULT_WIDGETS,
     onWidgets: (List<HomeWidget>) -> Unit = {},
+    /** Роль на сервере фабрики (меню по роли); `null` — сервер не подключён. */
+    staffRole: String? = null,
+    /** Лучшие сотрудники месяца (рейтинг сервера). */
+    team: List<com.knit.calculator.staff.RatingRow>? = null,
     onAction: (HomeAction) -> Unit,
 ) {
     val colors = LocalKnitColors.current
@@ -168,7 +197,8 @@ fun HomeScreen(
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var editShortcuts by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     var editWidgets by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-    val groups = menuGroups(director, sync.msEnabled)
+    val groups = menuGroups(director, sync.msEnabled, staffRole)
+    val canQuote = staffRole == null || staffRole in setOf("director", "assistant", "manager")
     val all = groups.flatMap { it.second }
     fun go(a: HomeAction) {
         scope.launch { drawer.close() }
@@ -375,6 +405,11 @@ fun HomeScreen(
                     }
                     TopList(stringResource(R.string.widget_expenses), rows, ChartColors.outflow(dark)) { onAction(HomeAction.FINANCE) }
                 }
+                HomeWidget.TEAM -> if (!team.isNullOrEmpty()) {
+                    TopList(stringResource(R.string.widget_team), team.take(3).map { it.name to java.math.BigDecimal(it.score) }, ChartColors.inflow(dark), unit = "баллов") {
+                        onAction(HomeAction.RATING)
+                    }
+                }
                 HomeWidget.CLIENTS, HomeWidget.PRODUCTS -> if (charts != null && charts.deals.isNotEmpty()) {
                     val (from, to) = com.knit.calculator.core.Dynamics.range(period, now)
                     val rows = androidx.compose.runtime.remember(period, charts, w) {
@@ -401,8 +436,8 @@ fun HomeScreen(
 
     }
     }
-    // Главное действие — большая круглая кнопка «+»: новое КП.
-    androidx.compose.material3.LargeFloatingActionButton(
+    // Главное действие — большая круглая кнопка «+»: новое КП (у производства — нет).
+    if (canQuote) androidx.compose.material3.LargeFloatingActionButton(
         onClick = { onAction(HomeAction.QUOTE) },
         shape = androidx.compose.foundation.shape.CircleShape,
         containerColor = colors.equalsKey,
@@ -498,22 +533,32 @@ private fun WorkBarView(work: WorkBar, onShift: (Boolean) -> Unit, onPhoto: (and
 
 /** Топ-5 за период: название, сумма и полоса доли; нажатие — подробный отчёт. */
 @Composable
-private fun TopList(title: String, rows: List<Pair<String, java.math.BigDecimal>>, color: androidx.compose.ui.graphics.Color, onOpen: () -> Unit) {
+private fun TopList(
+    title: String,
+    rows: List<Pair<String, java.math.BigDecimal>>,
+    color: androidx.compose.ui.graphics.Color,
+    /** `null` — суммы в рублях; иначе — подпись значения (например, «баллов»). */
+    unit: String? = null,
+    onOpen: () -> Unit,
+) {
     val colors = LocalKnitColors.current
     val total = rows.fold(java.math.BigDecimal.ZERO) { a, r -> a + r.second }
     Surface(onClick = onOpen, shape = RoundedCornerShape(20.dp), color = colors.panel, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(title, color = colors.textSecondary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                Text(QuoteCalculator.formatMoney(total) + " ₽", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                if (unit == null) Text(QuoteCalculator.formatMoney(total) + " ₽", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             }
             if (rows.isEmpty()) Text(stringResource(R.string.widget_empty), color = colors.textSecondary, fontSize = 13.sp)
             rows.take(5).forEach { (name, v) ->
-                val share = if (total.signum() == 0) 0f else (v.toFloat() / total.toFloat())
+                val share = if (unit != null) (v.toFloat() / 100f) else if (total.signum() == 0) 0f else (v.toFloat() / total.toFloat())
                 Column {
                     Row {
                         Text(name, color = colors.textPrimary, fontSize = 14.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                        Text(QuoteCalculator.formatMoney(v) + " ₽ · " + (share * 100).toInt() + "%", color = colors.textSecondary, fontSize = 13.sp)
+                        Text(
+                            if (unit != null) "${v.toInt()} $unit" else QuoteCalculator.formatMoney(v) + " ₽ · " + (share * 100).toInt() + "%",
+                            color = colors.textSecondary, fontSize = 13.sp,
+                        )
                     }
                     androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().padding(top = 3.dp).height(6.dp)) {
                         val r = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx())

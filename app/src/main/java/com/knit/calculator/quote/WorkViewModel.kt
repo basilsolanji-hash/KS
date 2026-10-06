@@ -33,7 +33,12 @@ class WorkViewModel(application: Application) : AndroidViewModel(application) {
     val error: StateFlow<String?> = _error.asStateFlow()
 
     /** Имя сотрудника на этом телефоне (из подключения к таблице). */
-    fun person(): String = store.loadSyncConfig().manager.split(" / ").first().trim().ifBlank { "Директор" }
+    fun person(): String {
+        // Подключён сервер фабрики — имя оттуда.
+        val server = com.knit.calculator.staff.ServerStore(getApplication()).me
+            ?.let { runCatching { JSONObject(it).getJSONObject("me").optString("name") }.getOrNull() }
+        return server?.takeIf { it.isNotBlank() } ?: store.loadSyncConfig().manager.split(" / ").first().trim().ifBlank { "Директор" }
+    }
 
     /** Вход в приложение: смена начинается сама, если сегодня её ещё не было. */
     fun autoStart() {
@@ -58,6 +63,21 @@ class WorkViewModel(application: Application) : AndroidViewModel(application) {
     /** Директор: смены сотрудников за месяц. */
     fun loadTeam(month: String) {
         val config = store.loadSyncConfig()
+        val server = com.knit.calculator.staff.ServerStore(getApplication())
+        if (server.connected) {
+            viewModelScope.launch {
+                try {
+                    val a = com.knit.calculator.staff.ServerClient(server.url, server.token).call("shifts", JSONObject().put("month", month)).optJSONArray("shifts") ?: JSONArray()
+                    _team.value = (0 until a.length()).mapNotNull { a.optJSONObject(it) }.map {
+                        WorkShift(it.optString("id"), it.optString("person"), it.optLong("start"), if (it.isNull("end")) null else it.optLong("end"), suspicious = it.optBoolean("suspicious"))
+                    }
+                    _error.value = null
+                } catch (e: Exception) {
+                    _error.value = e.message ?: "Нет связи с сервером фабрики"
+                }
+            }
+            return
+        }
         if (!config.enabled) {
             _team.value = _shifts.value.filter { WorkTime.monthKey(it.start) == month }
             return
@@ -106,17 +126,19 @@ class WorkViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun pendingIds(): Set<String> = prefs.getStringSet("pending", emptySet()).orEmpty()
 
-    /** Неотправленные смены — в таблицу. */
+    /** Неотправленные смены — на сервер фабрики (если подключён), иначе в таблицу. */
     fun sync() {
         val config = store.loadSyncConfig()
+        val server = com.knit.calculator.staff.ServerStore(getApplication())
         val ids = pendingIds()
-        if (!config.enabled || ids.isEmpty()) return
+        if ((!config.enabled && !server.connected) || ids.isEmpty()) return
         viewModelScope.launch {
-            val client = SheetClient(config)
             val sent = mutableSetOf<String>()
             _shifts.value.filter { it.id in ids }.forEach { s ->
+                val shift = JSONObject().put("id", s.id).put("start", s.start).put("end", s.end ?: JSONObject.NULL)
                 runCatching {
-                    client.shiftSave(JSONObject().put("id", s.id).put("start", s.start).put("end", s.end ?: JSONObject.NULL))
+                    if (server.connected) com.knit.calculator.staff.ServerClient(server.url, server.token).call("shiftSave", JSONObject().put("shift", shift))
+                    else SheetClient(config).shiftSave(shift)
                 }.onSuccess { sent += s.id }
             }
             if (sent.isNotEmpty()) prefs.edit().putStringSet("pending", pendingIds() - sent).apply()
