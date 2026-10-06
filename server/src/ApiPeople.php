@@ -107,7 +107,8 @@ trait ApiPeople
 
     private function msHttp(string $method, string $path, ?array $body): array
     {
-        $token = (string)($this->config['ms_token'] ?? '');
+        // Токен из секрета: пробелы, переносы строк и приставка «Bearer» при вставке не мешают.
+        $token = trim((string)preg_replace('/^\s*Bearer\s+/i', '', (string)($this->config['ms_token'] ?? '')));
         if ($token === '') throw new ApiError('МойСклад не подключён на сервере');
         // Готовый файл печатной формы: временная ссылка МойСклад, только https на их домене.
         if ($method === 'DOWNLOAD') {
@@ -136,6 +137,7 @@ trait ApiPeople
         $code = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         curl_close($ch);
         $data = json_decode($text, true) ?: [];
+        if ($code === 401) throw new ApiError('МойСклад не принял токен сервера — проверьте секрет MS_TOKEN в GitHub (тот же токен, что в Google-скрипте)');
         if ($code >= 400 || $code === 0) throw new ApiError('МойСклад: ' . ($data['errors'][0]['error'] ?? "ошибка $code"));
         if ($location !== '' && $code >= 300 && $code < 400) $data['_location'] = $location;
         return $data;

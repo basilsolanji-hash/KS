@@ -240,6 +240,7 @@ jobs:
           fi
           sudo apt-get install -y -qq lftp > /dev/null
           # Сверка ключа установки без раскрытия: длина и начало хэша (sha256).
+          echo "MS_TOKEN: длина $(printf '%s' "$MS_TOKEN" | tr -d '[:space:]' | wc -c) (у МойСклад — 40 символов)"
           echo "KS_SETUP_KEY: длина $(printf '%s' "$KS_SETUP_KEY" | wc -c), sha256 $(printf '%s' "$KS_SETUP_KEY" | tr -d '[:space:]' | sha256sum | cut -c1-12)"
           SITE_DIR="${SITE_DIR:-.}"
           mkdir -p deploy/ks/src deploy/public_html
