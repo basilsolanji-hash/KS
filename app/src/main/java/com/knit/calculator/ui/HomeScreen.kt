@@ -212,7 +212,7 @@ fun HomeScreen(
                 Column(Modifier.fillMaxHeight().verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
                     Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Image(painterResource(R.drawable.ic_ks_logo), null, colorFilter = ColorFilter.tint(colors.textPrimary), modifier = Modifier.height(26.dp))
-                        Text(stringResource(R.string.app_name), color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
+                        BrandTitle(26.dp, colors.textPrimary, Modifier.padding(start = 8.dp))
                     }
                     groups.forEach { (title, items) ->
                         if (items.isEmpty()) return@forEach
@@ -305,12 +305,7 @@ fun HomeScreen(
                 colorFilter = ColorFilter.tint(colors.textPrimary),
                 modifier = Modifier.padding(start = 4.dp).height(24.dp),
             )
-            Text(
-                stringResource(R.string.app_name),
-                color = colors.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(start = 6.dp).weight(1f).semantics { heading() },
-                maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-            )
+            BrandTitle(24.dp, colors.textPrimary, Modifier.padding(start = 6.dp).weight(1f).semantics { heading() })
             shortcuts.mapNotNull { a -> all.firstOrNull { it.action == a } }.take(MAX_SHORTCUTS).forEach { item ->
                 HeaderButton(item.icon, stringResource(item.label)) { onAction(item.action) }
             }
@@ -686,4 +681,19 @@ private fun SyncLine(sync: SyncStatus) {
         else -> stringResource(R.string.home_sync_on, time)
     }
     Text(text, color = colors.textSecondary, fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+}
+
+/** «ФАБРИКА» рядом с логотипом: заглавные буквы той же высоты, что и логотип; на узком экране буквы уменьшаются, чтобы слово влезло целиком. */
+@Composable
+private fun BrandTitle(height: androidx.compose.ui.unit.Dp, color: androidx.compose.ui.graphics.Color, modifier: Modifier = Modifier) {
+    // Высота заглавной буквы — около 0.72 размера шрифта; размер в dp, чтобы не зависел от «крупного шрифта» в настройках телефона.
+    val full = with(androidx.compose.ui.platform.LocalDensity.current) { (height / 0.72f).toSp() }
+    var size by androidx.compose.runtime.remember(full) { androidx.compose.runtime.mutableStateOf(full) }
+    Text(
+        stringResource(R.string.app_name),
+        color = color, fontSize = size, lineHeight = size, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp,
+        maxLines = 1, softWrap = false,
+        onTextLayout = { if (it.hasVisualOverflow && size.value > 12f) size = (size.value * 0.92f).sp },
+        modifier = modifier,
+    )
 }
