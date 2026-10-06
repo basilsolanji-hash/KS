@@ -85,7 +85,7 @@ enum class HomeWidget(val title: Int, val directorOnly: Boolean = false, val per
 val DEFAULT_WIDGETS = HomeWidget.entries.toList()
 
 /** Разделы, доступные с главного экрана. */
-enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI, STAFF_SERVER, STAFF_PRODUCTION, EMPLOYEES, RATING, ACTIVITY, MS_ORDERS, TASKS, PROFILE, PAYROLL }
+enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI, STAFF_SERVER, STAFF_PRODUCTION, EMPLOYEES, RATING, ACTIVITY, MS_ORDERS, TASKS, PROFILE, PAYROLL, TRAINING }
 
 /** Пункт меню: раздел, подпись, значок. */
 data class MenuItem(val action: HomeAction, val label: Int, val icon: Int)
@@ -99,6 +99,7 @@ fun menuGroups(director: Boolean, msEnabled: Boolean, staffRole: String? = null)
         MenuItem(HomeAction.WORKTIME, R.string.home_worktime, R.drawable.ic_history),
         MenuItem(HomeAction.RATING, R.string.staff_rating, R.drawable.ic_report),
         MenuItem(HomeAction.STAFF_SERVER, R.string.staff_server, R.drawable.ic_cloud),
+        MenuItem(HomeAction.TRAINING, R.string.training_title, R.drawable.ic_doc),
         MenuItem(HomeAction.ABOUT, R.string.menu_about, R.drawable.ic_doc),
     )
     // Производство и бухгалтер — только свои разделы; директор и помощник — всё.
