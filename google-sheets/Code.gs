@@ -69,7 +69,7 @@ var PRIVATE_SETTINGS = ['Ключ доступа', 'PIN директора', 'П
 
 /**
  * Кто обращается: ключ из «Настроек» — владелец (директор); ключи из листа «Менеджеры» — свои у каждого,
- * с ролью и отметкой «Активен». Ни одного ключа не задано — доступ открыт (как в первой версии).
+ * с ролью и отметкой «Активен». Ни одного ключа не задано — доступ закрыт.
  */
 function auth_(ss, key) {
   var main = String(settings_(ss)[KEY_SETTING] || '').trim();
@@ -81,7 +81,10 @@ function auth_(ss, key) {
       return { role: /директор/i.test(String(rows[i][2])) ? 'director' : 'manager', name: String(rows[i][1] || ''), key: key };
     }
   }
-  if (!main && !rows.some(function (r) { return String(r[0]).trim() !== ''; })) return { role: 'director', name: '', key: key };
+  if (!main && !rows.some(function (r) { return String(r[0]).trim() !== ''; })) {
+    // Без ключей таблица закрыта: иначе любой, кто знает адрес скрипта, получил бы права директора.
+    throw new Error('Задайте «Ключ доступа» в листе «Настройки»');
+  }
   throw new Error('Неверный ключ доступа');
 }
 
@@ -168,7 +171,7 @@ function route_(req) {
       case 'quotes':
         return json_({ ok: true, quotes: listQuotes_(ss, Number(req.limit) || 50, String(req.month || ''), !!req.light, director) });
       case 'saveQuote': {
-        var saved = saveQuote_(ss, req.quote || {});
+        var saved = saveQuote_(ss, req.quote || {}, who);
         return json_({ ok: true, number: saved, ms: msTry_(function () { return msSaveOrder_(ss, req.quote || {}, saved); }) });
       }
       case 'msCatalog': {
@@ -207,15 +210,15 @@ function route_(req) {
       case 'msShipOrder':
         return json_({ ok: true, positions: msShipOrder_(String(req.orderId || '')) });
       case 'msShip':
-        return json_({ ok: true, demand: msShip_(ss, String(req.orderId || ''), req.items || []) });
+        return json_({ ok: true, demand: once_(req.opId, function () { return msShip_(ss, String(req.orderId || ''), req.items || []); }) });
       case 'msReceiveList':
         return json_({ ok: true, docs: msReceiveList_() });
       case 'msReceiveDoc':
         return json_({ ok: true, positions: msReceiveDoc_(String(req.docType || ''), String(req.docId || '')) });
       case 'msReceive':
-        return json_({ ok: true, supply: msReceive_(ss, String(req.docType || ''), String(req.docId || ''), req.items || []) });
+        return json_({ ok: true, supply: once_(req.opId, function () { return msReceive_(ss, String(req.docType || ''), String(req.docId || ''), req.items || []); }) });
       case 'msInventory':
-        return json_({ ok: true, inventory: msInventory_(ss, req.items || []) });
+        return json_({ ok: true, inventory: once_(req.opId, function () { return msInventory_(ss, req.items || []); }) });
       case 'msImage':
         return json_({ ok: true, image: msImage_(String(req.msType || ''), String(req.msId || '')) });
       case 'msBarcode':
@@ -239,14 +242,27 @@ function route_(req) {
         return json_({ ok: true, number: addInvoice_(ss, inv, forced), ms: msInv });
       }
       case 'addPayment': {
+        // Проверки и защита от повтора — до записи в МойСклад (повтор запроса не создаёт второй платёж).
         var pay = req.payment || {};
-        var msPay = msTry_(function () { return msPayment_(ss, pay); });
-        addPayment_(ss, pay, msPay && msPay.id);
-        return json_({ ok: true, ms: msPay });
+        if (!(Number(pay.amount) > 0)) throw new Error('Сумма оплаты должна быть больше нуля');
+        if (!/^[\w-]{2,64}$/.test(String(pay.id || ''))) throw new Error('Оплата без ID — обновите приложение');
+        ownQuote_(ss, who, pay.quoteId);
+        var payLock = LockService.getScriptLock();
+        payLock.waitLock(25000);
+        try {
+          if (paymentRow_(ss, String(pay.id))) return json_({ ok: true, duplicate: true });
+          var msPay = msTry_(function () { return msPayment_(ss, pay); });
+          addPayment_(ss, pay, msPay && msPay.id);
+          return json_({ ok: true, ms: msPay });
+        } finally {
+          payLock.releaseLock();
+        }
       }
       case 'deletePayment': {
         var msId = paymentMsId_(ss, String(req.id || ''));
         var msDel = msId ? msTry_(function () { ms_('delete', '/entity/paymentin/' + msId); return { deleted: true }; }) : null;
+        // МойСклад не удалил — строку не трогаем, иначе оплата останется в МойСклад без связи.
+        if (msDel && msDel.error) return json_({ ok: false, error: 'МойСклад не удалил платёж: ' + msDel.error });
         deleteById_(ss, 'payments', 8, String(req.id || ''));
         return json_({ ok: true, ms: msDel });
       }
@@ -257,6 +273,7 @@ function route_(req) {
         addYarnMoves_(ss, req.moves || []);
         return json_({ ok: true });
       case 'setStatus':
+        ownQuote_(ss, who, req.id);
         setStatus_(ss, String(req.id || ''), String(req.status || ''));
         return json_({ ok: true, ms: msTry_(function () { return msSetState_(String(req.id || ''), String(req.status || '')); }) });
       default:
@@ -526,7 +543,7 @@ function journal_(ss, who, req) {
     sheet.appendRow(['Дата', 'Кто', 'Действие', 'Подробности']);
   }
   var person = who.name || (who.role === 'director' ? 'Директор' : 'Менеджер');
-  sheet.appendRow([new Date(), person, JOURNAL[req.action], journalDetails_(ss, req)]);
+  sheet.appendRow([new Date(), text_(person), JOURNAL[req.action], text_(journalDetails_(ss, req))]);
 }
 
 // ---------------------------------------------------------------- Резервная копия
@@ -656,7 +673,13 @@ var gzipOut_ = false;
  * даже при одновременной работе с нескольких телефонов). Повторное сохранение того же КП
  * (по ID) обновляет строку и сохраняет номер.
  */
-function saveQuote_(ss, q) {
+function saveQuote_(ss, q, who) {
+  if (!/^[\w-]{2,64}$/.test(String(q.id || ''))) throw new Error('КП без ID — обновите приложение');
+  if (String(q.data || '').length > 45000) throw new Error('КП слишком большое: уберите часть позиций или фото');
+  (q.lines || []).forEach(function (l) {
+    if (!(Number(l.qty) > 0)) throw new Error('Количество в КП должно быть больше нуля');
+  });
+  var manager = who && who.role !== 'director';
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
@@ -694,6 +717,14 @@ function saveQuote_(ss, q) {
     ];
     // Пересохранение: автор остаётся первым (зарплата менеджера), себестоимость не стирается,
     // если её прислал телефон без доступа к затратам.
+    // Менеджер: автор — он сам; чужое КП не меняет; себестоимость и прибыль задаёт только директор.
+    if (manager) {
+      var oldAuthor = old ? String(old[Q.author - 1] || '').trim() : '';
+      if (oldAuthor && who.name && !samePerson_(oldAuthor, who.name)) throw new Error('Это КП другого менеджера');
+      if (who.name) row[Q.author - 1] = text_(who.name);
+      row[Q.cost - 1] = old ? old[Q.cost - 1] : '';
+      row[Q.profit - 1] = old ? old[Q.profit - 1] : '';
+    }
     if (old) {
       if (String(old[Q.author - 1] || '').trim()) row[Q.author - 1] = old[Q.author - 1];
       if (String(q.cost == null ? '' : q.cost).trim() === '') row[Q.cost - 1] = old[Q.cost - 1];
@@ -722,6 +753,21 @@ function saveQuote_(ss, q) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/** Одно и то же лицо: «Иванов / отдел продаж» и «иванов» — совпадают. */
+function samePerson_(a, b) {
+  var norm = function (v) { return String(v || '').split(' / ')[0].trim().toLowerCase(); };
+  return norm(a) === norm(b);
+}
+
+/** Менеджер работает только со своими КП (директор — со всеми). */
+function ownQuote_(ss, who, quoteId) {
+  if (!who || who.role === 'director') return;
+  var row = quoteRow_(ss, String(quoteId || ''));
+  if (!row) throw new Error('КП не найдено в таблице');
+  var author = String(row[Q.author - 1] || '').trim();
+  if (author && who.name && !samePerson_(author, who.name)) throw new Error('Это КП другого менеджера');
 }
 
 /** Новый клиент из КП попадает в лист «Клиенты» (если такой компании там ещё нет). */
@@ -829,10 +875,16 @@ function uploadFile_(ss, req) {
   var kind = req.kind === 'pdf' || req.kind === 'doc' ? req.kind : 'photo';
   var folder = folder_(ss, kind);
   var name = String(req.name || (kind + '-' + Date.now()));
+  if (!/^[\wА-Яа-яЁё .()-]{1,120}$/.test(name)) throw new Error('Неверное имя файла');
+  if (String(req.data || '').length > 14000000) throw new Error('Файл больше 10 МБ');
+  // Сначала новый файл, потом старый — в корзину: при ошибке загрузки прежний остаётся.
   var old = folder.getFilesByName(name);
-  while (old.hasNext()) old.next().setTrashed(true);
   var blob = Utilities.newBlob(Utilities.base64Decode(String(req.data || '')), String(req.mime || 'application/octet-stream'), name);
   var file = folder.createFile(blob);
+  while (old.hasNext()) {
+    var f = old.next();
+    if (f.getId() !== file.getId()) f.setTrashed(true);
+  }
   if (kind === 'pdf' && req.quoteId) {
     var sheet = ss.getSheetByName(SHEETS.quotes);
     var data = sheet.getDataRange().getValues();
@@ -911,10 +963,16 @@ function shiftSave_(ss, who, s) {
     if (String(rows[i][0]) !== id) continue;
     var owner = String(rows[i][1]);
     if (owner !== me && !director) throw new Error('Это смена другого сотрудника');
+    // Закрытую смену и время начала меняет только директор.
+    if (!director && rows[i][3] !== '' && rows[i][3] !== null) {
+      if (end && Math.abs(new Date(rows[i][3]).getTime() - end) < 60000) return { id: id, person: owner, start: start, end: end };
+      throw new Error('Смена закрыта — исправит директор');
+    }
+    if (!director && Math.abs(new Date(rows[i][2]).getTime() - start) >= 60000) throw new Error('Начало смены уже отмечено — исправит директор');
     var fixedBy = owner !== me ? me : String(rows[i][5] || '');
     sheet.getRange(i + 1, 3, 1, 4).setValues([[new Date(start), end ? new Date(end) : '', end ? Math.round((end - start) / 36000) / 100 : '', fixedBy]]);
     // Время сервера при закрытии — для сверки с часами телефона.
-    if (end && !fixedBy) sheet.getRange(i + 1, 8).setValue(new Date());
+    if (end && !fixedBy && (rows[i][7] === '' || rows[i][7] === null)) sheet.getRange(i + 1, 8).setValue(new Date());
     return { id: id, person: owner, start: start, end: end };
   }
   var person = director && s.person ? String(s.person) : me;
@@ -1003,6 +1061,15 @@ function addPayment_(ss, p, msId) {
   for (var i = 1; i < data.length; i++) if (p.id && String(data[i][7]) === String(p.id)) return;
   sheet.appendRow([date_(p.date), Number(p.quoteNumber) || '', text_(p.quoteId), text_(p.client), Number(p.amount),
     text_(p.note), text_(p.author), text_(p.id), text_(msId || '')]);
+}
+
+/** Строка оплаты по её ID (или null). */
+function paymentRow_(ss, id) {
+  var sheet = ss.getSheetByName(SHEETS.payments);
+  if (!sheet || !id) return null;
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) if (String(data[i][7]) === id) return data[i];
+  return null;
 }
 
 /** ID входящего платежа МойСклад для оплаты из листа «Оплаты» (столбец I). */
@@ -1568,6 +1635,27 @@ function msUpdateProduct_(type, id, changes) {
 
 // ---------------------------------------------------------------- Склад: отгрузка и инвентаризация по сканеру
 
+/**
+ * Складская операция ровно один раз: телефон присылает свой номер операции (opId);
+ * повтор после обрыва связи возвращает уже созданный документ, а не создаёт второй.
+ */
+function once_(opId, fn) {
+  opId = String(opId || '');
+  if (!/^[\w-]{8,64}$/.test(opId)) return fn();
+  var lock = LockService.getScriptLock();
+  lock.waitLock(25000);
+  try {
+    var cache = CacheService.getScriptCache();
+    var hit = cache.get('op:' + opId);
+    if (hit) return JSON.parse(hit);
+    var result = fn();
+    cache.put('op:' + opId, JSON.stringify(result), 21600);
+    return result;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function msCheckId_(id) {
   if (!/^[\w-]+$/.test(String(id || ''))) throw new Error('Неверный документ');
   return id;
@@ -1589,7 +1677,7 @@ function msShipList_() {
 function msShipOrder_(orderId) {
   if (!msEnabled_()) throw new Error('МойСклад не подключён');
   msCheckId_(orderId);
-  var rows = ms_('get', '/entity/customerorder/' + orderId + '/positions?limit=100&expand=assortment').rows || [];
+  var rows = ms_('get', '/entity/customerorder/' + orderId + '/positions?limit=1000&expand=assortment').rows || [];
   return rows.filter(function (p) { return p.assortment && p.assortment.meta && p.assortment.meta.type !== 'service'; }).map(function (p) {
     var a = p.assortment;
     return {
@@ -1651,7 +1739,7 @@ function msReceiveDoc_(type, id) {
   if (!msEnabled_()) throw new Error('МойСклад не подключён');
   msReceiveType_(type);
   msCheckId_(id);
-  var rows = ms_('get', '/entity/' + type + '/' + id + '/positions?limit=100&expand=assortment').rows || [];
+  var rows = ms_('get', '/entity/' + type + '/' + id + '/positions?limit=1000&expand=assortment').rows || [];
   return rows.filter(function (p) { return p.assortment && p.assortment.meta && p.assortment.meta.type !== 'service'; }).map(function (p) {
     var a = p.assortment;
     return {
@@ -1674,21 +1762,17 @@ function msReceive_(ss, type, id, items) {
   (items || []).forEach(function (i) { if (Number(i.qty) > 0) qty[String(i.id)] = (qty[String(i.id)] || 0) + Number(i.qty); });
   if (!Object.keys(qty).length) throw new Error('Ничего не отсканировано');
   if (type === 'supply') {
+    // Сначала проверка всего набора, потом одна запись: при чужом штрихкоде черновик не портится.
     var rows = ms_('get', '/entity/supply/' + id + '/positions?limit=1000').rows || [];
-    var accepted = 0;
-    rows.forEach(function (p) {
-      var aid = msIdOf_(p.assortment);
-      if (qty[aid]) {
-        ms_('put', '/entity/supply/' + id + '/positions/' + p.id, { quantity: qty[aid] });
-        delete qty[aid];
-        accepted++;
-      } else {
-        ms_('delete', '/entity/supply/' + id + '/positions/' + p.id);
-      }
+    var inDoc = {};
+    rows.forEach(function (p) { inDoc[msIdOf_(p.assortment)] = true; });
+    var unknown = Object.keys(qty).filter(function (aid) { return !inDoc[aid]; });
+    if (unknown.length) throw new Error('В приёмке нет отсканированных товаров: ' + unknown.length);
+    var keep = rows.filter(function (p) { return qty[msIdOf_(p.assortment)]; }).map(function (p) {
+      return { meta: p.meta, id: p.id, assortment: p.assortment, quantity: qty[msIdOf_(p.assortment)], price: p.price, vat: p.vat };
     });
-    if (Object.keys(qty).length) throw new Error('В приёмке нет отсканированных товаров: ' + Object.keys(qty).length);
-    var done = ms_('put', '/entity/supply/' + id, { applicable: true });
-    return { id: id, name: done.name, positions: accepted };
+    var done = ms_('put', '/entity/supply/' + id, { positions: keep, applicable: true });
+    return { id: id, name: done.name, positions: keep.length };
   }
   var template = ms_('put', '/entity/supply/new', { purchaseOrder: msMeta_('purchaseorder', id) });
   var positions = ((template.positions && template.positions.rows) || template.positions || []).map(function (p) {
@@ -1714,10 +1798,17 @@ function msInventory_(ss, items) {
   if (!msEnabled_()) throw new Error('МойСклад не подключён');
   var store = msStore_(ss);
   if (!store) throw new Error('МойСклад: склад из «Настроек» не найден');
-  var positions = (items || []).filter(function (i) {
-    return (i.type === 'product' || i.type === 'variant') && /^[\w-]+$/.test(String(i.id)) && Number(i.qty) >= 0;
-  }).map(function (i) {
-    return { assortment: msMeta_(i.type, String(i.id)), quantity: Number(i.qty) };
+  // Пустое количество — не ноль (иначе остаток обнулится); повторы одного товара складываются.
+  var sum = {};
+  (items || []).forEach(function (i) {
+    var q = i.qty === null || i.qty === undefined || i.qty === '' ? NaN : Number(i.qty);
+    if ((i.type !== 'product' && i.type !== 'variant') || !/^[\w-]+$/.test(String(i.id)) || !isFinite(q) || q < 0) return;
+    var k = i.type + ':' + i.id;
+    sum[k] = (sum[k] || 0) + q;
+  });
+  var positions = Object.keys(sum).map(function (k) {
+    var parts = k.split(':');
+    return { assortment: msMeta_(parts[0], parts[1]), quantity: sum[k] };
   });
   if (!positions.length) throw new Error('Ничего не отсканировано');
   var doc = ms_('post', '/entity/inventory', {

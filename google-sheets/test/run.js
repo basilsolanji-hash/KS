@@ -744,4 +744,28 @@ assert.strictEqual(backupFiles.filter((f) => f.trashed).length, 2);
 assert.ok(backupFiles[0].trashed && backupFiles[1].trashed && !backupFiles[15].trashed);
 assert.ok(/^Тест — копия /.test(backupFiles[0].name));
 
+// Аудит: чужое КП менеджер не меняет; приёмка с чужим штрихкодом черновик не трогает; складская операция — ровно один раз.
+{
+  const row = sheets['КП'].data.find((r) => r[11] === 'q1');
+  const authorBefore = row[10];
+  row[10] = 'Другой менеджер';
+  assert.ok(/другого менеджера/.test(asManager({ action: 'saveQuote', quote }).error));
+  assert.ok(/другого менеджера/.test(asManager({ action: 'setStatus', id: 'q1', status: 'Отказ' }).error));
+  row[10] = authorBefore;
+  const draft = msDb.supply.find((d) => d.id === 'sup1');
+  const before = JSON.stringify(draft.positions);
+  draft.applicable = false;
+  assert.ok(/нет отсканированных/.test(call({ action: 'msReceive', docType: 'supply', docId: 'sup1', items: [{ id: 'p1', qty: 1 }, { id: 'чужой', qty: 1 }] }).error));
+  assert.strictEqual(JSON.stringify(draft.positions), before, 'черновик приёмки не изменён');
+  const demands = (msDb.demand || []).length;
+  const a = call({ action: 'msShip', opId: 'op-ship-0001', orderId: 'coShip', items: [{ id: 'p1', qty: 1 }] });
+  const b = call({ action: 'msShip', opId: 'op-ship-0001', orderId: 'coShip', items: [{ id: 'p1', qty: 1 }] });
+  assert.strictEqual(a.demand.id, b.demand.id);
+  assert.strictEqual((msDb.demand || []).length, demands + 1, 'повтор не создал вторую отгрузку');
+  const invBefore = (msDb.inventory || []).length;
+  const inv2 = call({ action: 'msInventory', items: [{ id: 'p1', type: 'product', qty: null }, { id: 'p1', type: 'product', qty: 2 }, { id: 'p1', type: 'product', qty: 3 }] }).inventory;
+  assert.strictEqual(inv2.positions, 1);
+  assert.strictEqual(msDb.inventory[invBefore].positions[0].quantity, 5, 'пустое количество не обнуляет, повторы складываются');
+}
+
 console.log('Apps Script: все проверки пройдены');
