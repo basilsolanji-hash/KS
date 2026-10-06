@@ -131,8 +131,8 @@
     <string name="quote_vat_included">в т. ч. НДС %1$s %%</string>
     <string name="quote_total">Итого к оплате</string>
     <string name="quote_money">%1$s ₽</string>
-    <string name="quote_new">Новое КП</string>
-    <string name="quote_title_new">Новое КП</string>
+    <string name="quote_new">Новый заказ — КП</string>
+    <string name="quote_title_new">Новый заказ — КП</string>
     <string name="quote_volume">коэф. объёма %1$s</string>
     <string name="quote_delivery">Доставка: %1$s</string>
     <string name="kp_delivery">Доставка: %1$s.</string>
@@ -161,7 +161,7 @@
     <string name="sync_save_failed_text">%1$s\n\nПовторить попытку или сформировать PDF без сохранения и номера из таблицы?</string>
     <string name="sync_retry">Повторить</string>
     <string name="sync_without_saving">Без сохранения</string>
-    <string name="history_quotes">История КП</string>
+    <string name="history_quotes">Заказы и КП</string>
     <string name="history_quotes_empty">В таблице пока нет сохранённых КП.</string>
     <string name="history_error">Не удалось загрузить: %1$s</string>
     <string name="history_quote_title">КП № %1$d · %2$s</string>
@@ -275,7 +275,7 @@
     <string name="home_quote_hint">Расчёт по прайсу и КП в PDF</string>
     <string name="home_yarn">Расход пряжи</string>
     <string name="home_calculator">Калькулятор</string>
-    <string name="home_history">История КП</string>
+    <string name="home_history">Заказы и КП</string>
     <string name="home_report">Отчёт</string>
     <string name="home_settings">Настройки</string>
     <string name="home_shop">Каталог на сайте</string>
@@ -520,7 +520,7 @@
     <string name="label_title">Этикетки со штрихкодом</string>
     <string name="label_need_ms">Товары и штрихкоды берутся из МойСклад: подключите Google Таблицу и МойСклад.</string>
     <string name="label_add">Добавить товар</string>
-    <string name="label_preview">Предпросмотр этикетки 120×75 мм</string>
+    <string name="label_preview">Предпросмотр этикетки 76×120 мм</string>
     <string name="label_remove">Убрать из печати</string>
     <string name="label_barcode">EAN-13: %1$s</string>
     <string name="label_no_barcode">Нет штрихкода в МойСклад</string>
@@ -536,7 +536,7 @@
     <string name="label_bt_off">Bluetooth выключен — включите его в настройках телефона.</string>
     <string name="label_no_devices">Нет сопряжённых устройств. Включите принтер и выполните сопряжение в настройках Bluetooth телефона (PIN обычно 0000 или 1234).</string>
     <string name="label_bt_permission">Без разрешения «Устройства поблизости» печать по Bluetooth невозможна.</string>
-    <string name="label_rotated">Рулон 75 мм (этикетка идёт узкой стороной)</string>
+    <string name="label_rotated">Рулон заправлен боком (поворот на 90°)</string>
     <string name="label_density">Плотность 1–15</string>
     <string name="label_gap">Зазор</string>
     <string name="label_print">Печать</string>
@@ -667,7 +667,7 @@
     <string name="client_quotes">КП: %1$d на %2$s</string>
     <string name="client_paid">Оплачено: %1$s</string>
     <string name="client_debt">Долг: %1$s</string>
-    <string name="client_new_quote">Новое КП для клиента</string>
+    <string name="client_new_quote">Новый заказ — КП для клиента</string>
     <string name="client_history">Все КП клиента</string>
     <string name="client_no_quotes">КП этому клиенту ещё нет.</string>
     <string name="client_row_debt">долг %1$s</string>
@@ -822,7 +822,7 @@
     <string name="wh_count_confirm">Товаров: %d. Документ «Инвентаризация» создастся в МойСклад; оприходование и списание по нему оформляются в МойСклад.</string>
     <string name="wh_clear">Начать заново</string>
     <string name="menu_open">Меню</string>
-    <string name="menu_quote">Новое КП</string>
+    <string name="menu_quote">Новый заказ — КП</string>
     <string name="menu_about">О версии</string>
     <string name="menu_group_service">Сервис</string>
     <string name="menu_group_view">Вид</string>
@@ -857,6 +857,15 @@
     <string name="staff_cycle_on">Рабочих дней</string>
     <string name="staff_cycle_off">Выходных</string>
     <string name="staff_cycle_anchor">Первый рабочий день цикла (ГГГГ-ММ-ДД)</string>
+    <string name="connect_title">Подключение</string>
+    <string name="connect_sheet_hint">Google Таблица не подключена — КП, клиенты и оплаты не синхронизируются.</string>
+    <string name="connect_sheet">Подключить таблицу</string>
+    <string name="connect_ms_hint">Данные МойСклад (товары, отгрузки, деньги) не загружены.</string>
+    <string name="connect_ms">Загрузить МойСклад</string>
+    <string name="connect_staff_hint">Сервер фабрики: смены, производство, задачи, рейтинг. Вход — QR-код от директора.</string>
+    <string name="connect_staff">Сервер фабрики (QR)</string>
+    <string name="web_failed">Страница не открылась — нет сети или сайт не отвечает.</string>
+    <string name="web_retry">Повторить</string>
     <string name="period_today">Сегодня</string>
     <string name="period_7d">7 дней</string>
     <string name="period_30d">30 дней</string>

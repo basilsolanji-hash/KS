@@ -35,7 +35,7 @@ class LabelStore(context: Context) {
             gapMm = prefs.getInt("gap", 2),
             density = prefs.getInt("density", 8),
             language = runCatching { PrinterLanguage.valueOf(prefs.getString("language", "").orEmpty()) }.getOrDefault(PrinterLanguage.TSPL),
-            rotated = prefs.getBoolean("rotated", true),
+            rotated = prefs.getBoolean("rotated76", false),
         ),
     )
 
@@ -43,7 +43,7 @@ class LabelStore(context: Context) {
         prefs.edit()
             .putString("address", s.address).putString("name", s.name)
             .putInt("dpi", s.spec.dpi).putInt("gap", s.spec.gapMm).putInt("density", s.spec.density)
-            .putString("language", s.spec.language.name).putBoolean("rotated", s.spec.rotated)
+            .putString("language", s.spec.language.name).putBoolean("rotated76", s.spec.rotated)
             .apply()
     }
 }

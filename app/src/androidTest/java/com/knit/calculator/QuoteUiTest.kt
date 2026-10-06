@@ -40,7 +40,7 @@ class QuoteUiTest {
 
     @Test fun podvyazPricesLikeFactoryPriceList() {
         Shots.take("00_home", compose)
-        compose.onNodeWithContentDescription("Новое КП").performClick()
+        compose.onNodeWithContentDescription("Новый заказ — КП").performClick()
         compose.onNodeWithText("Добавить позицию").performScrollTo().performClick()
         // Пункт меню появляется во всплывающем окне — ждём его.
         compose.waitUntil(15_000) { compose.onAllNodes(hasText("Подвяз трикотажный")).fetchSemanticsNodes().isNotEmpty() }
@@ -84,7 +84,7 @@ class QuoteUiTest {
         compose.onNodeWithText("Сохранить КП").performScrollTo().performClick()
         Thread.sleep(3_000) // сохранение и PDF — в фоне
         compose.waitForIdle()
-        compose.onNodeWithContentDescription("История КП").performClick()
+        compose.onNodeWithContentDescription("Заказы и КП").performClick()
         compose.waitUntil(10_000) { compose.onAllNodes(hasText("Статус: Отправлено", substring = true)).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Статус: Отправлено", substring = true).performClick()
         compose.onNodeWithText("Оплачено").performClick()

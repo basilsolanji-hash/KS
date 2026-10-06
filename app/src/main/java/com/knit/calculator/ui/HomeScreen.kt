@@ -200,6 +200,8 @@ fun HomeScreen(
     onWidgets: (List<HomeWidget>) -> Unit = {},
     /** Роль на сервере фабрики (меню по роли); `null` — сервер не подключён. */
     staffRole: String? = null,
+    /** Повторить загрузку МойСклад (кнопка в карточке подключения). */
+    onMsRetry: () -> Unit = {},
     /** Лучшие сотрудники месяца (рейтинг сервера). */
     team: List<com.knit.calculator.staff.RatingRow>? = null,
     onAction: (HomeAction) -> Unit,
@@ -323,6 +325,7 @@ fun HomeScreen(
             }
         }
         SyncLine(sync)
+        ConnectCard(sync, staffRole != null, onAction, onMsRetry)
 
         // Блоки главного экрана — в выбранном порядке (меню → «Блоки главного экрана»).
         val visible = widgets.filter { w -> (!w.directorOnly || director) && !(w == HomeWidget.MYPAY && director) }
@@ -360,7 +363,7 @@ fun HomeScreen(
                         }
                     }
                 }
-                // Продажи = отгрузки МойСклад (₽ / шт); без МойСклад — согласованные КП.
+                // Продажи = только отгрузки МойСклад (₽ / шт).
                 HomeWidget.SALES -> if (charts != null) {
                     val ship = charts.ship
                     if (ship != null) {
@@ -380,15 +383,8 @@ fun HomeScreen(
                             toggle = listOf("₽", "шт") to (if (pieces) 1 else 0),
                             onToggle = { pieces = it == 1 },
                         )
-                    } else {
-                        val sales = androidx.compose.runtime.remember(period, charts) { com.knit.calculator.core.Dynamics.series(charts.sales, period, now) }
-                        TrendChart(
-                            stringResource(R.string.chart_sales), sales.labels,
-                            listOf(stringResource(R.string.chart_sales_series) to sales.current), listOf(ChartColors.inflow(dark)),
-                            previous = listOf(sales.previous),
-                            plan = if (period == com.knit.calculator.core.DynPeriod.MONTHS) charts.plan else null, planLabel = stringResource(R.string.chart_plan),
-                        )
                     }
+                    // Без МойСклад динамики продаж нет: КП — не продажи (решение директора).
                 }
                 HomeWidget.FLOWS -> if (charts != null) {
                     val inflow = androidx.compose.runtime.remember(period, charts) { com.knit.calculator.core.Dynamics.series(charts.inflow, period, now) }
@@ -708,4 +704,34 @@ private fun BrandTitle(height: androidx.compose.ui.unit.Dp, color: androidx.comp
         onTextLayout = { if (it.hasVisualOverflow && size.value > 12f) size = (size.value * 0.92f).sp },
         modifier = modifier,
     )
+}
+
+/**
+ * Нет подключения — кнопки прямо на главной: Google Таблица (настройки), МойСклад (повторить загрузку), сервер фабрики (QR).
+ * Когда всё подключено, карточки нет.
+ */
+@Composable
+private fun ConnectCard(sync: com.knit.calculator.quote.SyncStatus, staffConnected: Boolean, onAction: (HomeAction) -> Unit, onMsRetry: () -> Unit) {
+    val colors = LocalKnitColors.current
+    val noSheet = !sync.connected
+    val noMs = sync.connected && !sync.msEnabled && !sync.msLoading
+    val noStaff = !staffConnected
+    if (!noSheet && !noMs && !noStaff) return
+    androidx.compose.material3.Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp), color = colors.panel, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.connect_title), color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            if (noSheet) {
+                Text(stringResource(R.string.connect_sheet_hint), color = colors.textSecondary, fontSize = 13.sp)
+                com.knit.calculator.ui.components.ActionButton(R.string.connect_sheet, R.drawable.ic_cloud, primary = true, Modifier.fillMaxWidth()) { onAction(HomeAction.SETTINGS) }
+            }
+            if (noMs) {
+                Text(sync.msError?.let { stringResource(R.string.ms_error, it) } ?: stringResource(R.string.connect_ms_hint), color = colors.textSecondary, fontSize = 13.sp)
+                com.knit.calculator.ui.components.ActionButton(R.string.connect_ms, R.drawable.ic_arrow_down, primary = !noSheet, Modifier.fillMaxWidth()) { onMsRetry() }
+            }
+            if (noStaff) {
+                Text(stringResource(R.string.connect_staff_hint), color = colors.textSecondary, fontSize = 13.sp)
+                com.knit.calculator.ui.components.ActionButton(R.string.connect_staff, R.drawable.ic_qr, primary = false, Modifier.fillMaxWidth()) { onAction(HomeAction.STAFF_SERVER) }
+            }
+        }
+    }
 }

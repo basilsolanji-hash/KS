@@ -30,18 +30,18 @@ enum class PrinterLanguage(val title: String) {
 }
 
 /**
- * Параметры этикетки и принтера. Этикетка 120×75 мм: на 4-дюймовом принтере (Xprinter, ширина печати до 108 мм)
- * рулон идёт узкой стороной (75 мм) — тогда [rotated] и картинка поворачивается на 90°.
+ * Параметры этикетки и принтера. Этикетка 76×120 мм (вертикальная): рулон 76 мм идёт прямо, без поворота.
+ * [rotated] — если рулон заправлен боком (картинка поворачивается на 90°).
  */
 data class LabelSpec(
-    val widthMm: Int = 120,
-    val heightMm: Int = 75,
+    val widthMm: Int = 76,
+    val heightMm: Int = 120,
     val dpi: Int = 203,
     val gapMm: Int = 2,
     /** Плотность (нагрев), 1–15. */
     val density: Int = 8,
     val language: PrinterLanguage = PrinterLanguage.TSPL,
-    val rotated: Boolean = true,
+    val rotated: Boolean = false,
 ) {
     /** Размер бумаги в принтере (ширина рулона × длина этикетки). */
     val paperWidthMm: Int get() = if (rotated) heightMm else widthMm
@@ -49,7 +49,7 @@ data class LabelSpec(
     val paperWidthDots: Int get() = dots(paperWidthMm.toDouble()).let { it - it % 8 }
     val paperHeightDots: Int get() = dots(paperHeightMm.toDouble())
 
-    /** Размер макета (всегда альбомный 120×75) в точках. */
+    /** Размер макета (всегда вертикальный 76×120) в точках. */
     val widthDots: Int get() = if (rotated) paperHeightDots else paperWidthDots
     val heightDots: Int get() = if (rotated) paperWidthDots else paperHeightDots
     fun dots(mm: Double): Int = Math.round(mm * dpi / 25.4).toInt()
@@ -143,6 +143,8 @@ data class LabelContent(
     val details: List<Pair<String, String>>,
     val barcode: String,
     val maker: List<String>,
+    /** QR-код (ссылка на магазин); пусто — без QR. */
+    val qr: String = "",
 )
 
 object Labels {
@@ -158,6 +160,7 @@ object Labels {
         makerName: String,
         makerInn: String,
         makerAddress: String,
+        qr: String = "",
     ): LabelContent {
         val attrs = product.attributes.filterValues { it.isNotBlank() && it != "-" }
         val details = buildList {
@@ -179,6 +182,7 @@ object Labels {
             details = details,
             barcode = product.barcode,
             maker = maker,
+            qr = qr,
         )
     }
 }

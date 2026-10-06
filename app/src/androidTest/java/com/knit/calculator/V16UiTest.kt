@@ -25,7 +25,7 @@ class V16UiTest {
     val rules: RuleChain = RuleChain.outerRule(ResetAppRule()).around(compose)
 
     @Test fun innCheckAndUndoRemove() {
-        compose.onNodeWithContentDescription("Новое КП").performClick()
+        compose.onNodeWithContentDescription("Новый заказ — КП").performClick()
         val inn = compose.onNode(hasSetTextAction() and hasText("ИНН клиента"))
         inn.performTextInput("7701234567")
         compose.onNodeWithText("Неверный ИНН").assertExists()
@@ -70,7 +70,7 @@ class V16UiTest {
     }
 
     @Test fun settingsTabsAndQuoteSteps() {
-        compose.onNodeWithContentDescription("Новое КП").performClick()
+        compose.onNodeWithContentDescription("Новый заказ — КП").performClick()
         compose.onNodeWithText("3 · Итог").assertExists()
         compose.onNodeWithText("Добавить позицию").performScrollTo().performClick()
         compose.waitUntil(15_000) { compose.onAllNodes(hasText("Подвяз трикотажный")).fetchSemanticsNodes().isNotEmpty() }
@@ -90,7 +90,7 @@ class V16UiTest {
     }
 
     @Test fun templatesAndClientCard() {
-        compose.onNodeWithContentDescription("Новое КП").performClick()
+        compose.onNodeWithContentDescription("Новый заказ — КП").performClick()
         compose.onNodeWithText("Добавить позицию").performScrollTo().performClick()
         compose.waitUntil(15_000) { compose.onAllNodes(hasText("Подвяз трикотажный")).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Подвяз трикотажный").performClick()
@@ -114,11 +114,11 @@ class V16UiTest {
         compose.onNodeWithText("Сохранить КП").performScrollTo().performClick()
         Thread.sleep(3_000)
         compose.waitForIdle()
-        compose.onNodeWithContentDescription("История КП").performClick()
+        compose.onNodeWithContentDescription("Заказы и КП").performClick()
         compose.waitUntil(10_000) { compose.onAllNodes(hasText("ООО Ромашка ›")).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("ООО Ромашка ›").performClick()
         compose.waitUntil(10_000) { compose.onAllNodes(hasText("КП: 1 на", substring = true)).fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Новое КП для клиента").assertExists()
+        compose.onNodeWithText("Новый заказ — КП для клиента").assertExists()
         Shots.take("66_client_card", compose)
     }
 

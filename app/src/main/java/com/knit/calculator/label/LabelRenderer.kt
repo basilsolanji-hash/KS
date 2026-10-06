@@ -11,11 +11,11 @@ import com.knit.calculator.core.LabelSpec
 import com.knit.calculator.core.MonoBitmap
 
 /**
- * Макет этикетки 120×75 мм (альбомный) в точках принтера:
- * сверху бренд и сайт, название; слева характеристики, справа EAN-13; внизу изготовитель.
+ * Макет этикетки 76×120 мм (вертикальный) в точках принтера:
+ * сверху логотип, бренд и сайт; название; характеристики; EAN-13 во всю ширину; внизу изготовитель и QR-код магазина.
  */
 object LabelRenderer {
-    fun render(content: LabelContent, spec: LabelSpec): Bitmap {
+    fun render(content: LabelContent, spec: LabelSpec, logo: Bitmap? = null): Bitmap {
         val w = spec.widthDots
         val h = spec.heightDots
         fun mm(v: Double) = (v * spec.dpi / 25.4).toFloat()
@@ -28,49 +28,76 @@ object LabelRenderer {
         val margin = mm(3.0)
         val right = w - margin
 
-        // Шапка: бренд — сайт, линия.
-        bold.textSize = mm(4.6)
-        c.drawText(fit(content.brand, bold, w / 2f), margin, mm(7.5), bold)
-        regular.textSize = mm(3.4)
-        val site = fit(content.website, regular, w / 2f - margin)
-        c.drawText(site, right - regular.measureText(site), mm(7.5), regular)
-        c.drawRect(margin, mm(9.3), right, mm(9.3) + mm(0.4), fill)
+        // Шапка: логотип слева, бренд и сайт справа от него; линия.
+        val logoH = mm(11.0)
+        var textLeft = margin
+        if (logo != null && logo.height > 0) {
+            val lw = logoH * logo.width / logo.height
+            c.drawBitmap(logo, null, android.graphics.RectF(margin, mm(3.0), margin + lw, mm(3.0) + logoH), Paint(Paint.FILTER_BITMAP_FLAG))
+            textLeft = margin + lw + mm(2.5)
+        }
+        bold.textSize = mm(5.2)
+        c.drawText(fit(content.brand, bold, right - textLeft), textLeft, mm(9.0), bold)
+        regular.textSize = mm(3.2)
+        c.drawText(fit(content.website, regular, right - textLeft), textLeft, mm(13.3), regular)
+        c.drawRect(margin, mm(15.5), right, mm(15.5) + mm(0.4), fill)
 
-        // Название — до двух строк.
+        // Название — до трёх строк.
         bold.textSize = mm(5.0)
-        var y = mm(15.3)
-        wrap(content.title, bold, right - margin, 2).forEach { line ->
+        var y = mm(22.0)
+        wrap(content.title, bold, right - margin, 3).forEach { line ->
             c.drawText(line, margin, y, bold)
             y += mm(5.8)
         }
 
-        // Характеристики слева.
-        val split = mm(66.0)
-        val bottomLine = mm(60.5)
-        regular.textSize = mm(3.5)
-        bold.textSize = mm(3.5)
-        var dy = y + mm(1.2)
+        // Характеристики.
+        val barcodeTop = mm(70.0)
+        regular.textSize = mm(3.6)
+        bold.textSize = mm(3.6)
+        var dy = y + mm(1.0)
         for ((name, value) in content.details) {
-            if (dy > bottomLine - mm(1.5)) break
+            if (dy > barcodeTop - mm(2.0)) break
             val label = "$name: "
             c.drawText(label, margin, dy, regular)
             val x = margin + regular.measureText(label)
-            c.drawText(fit(value, bold, split - mm(2.0) - x), x, dy, bold)
-            dy += mm(4.7)
+            c.drawText(fit(value, bold, right - x), x, dy, bold)
+            dy += mm(4.9)
         }
 
-        // Штрихкод справа.
-        drawBarcode(c, content.barcode, split, y - mm(3.0), right, bottomLine - mm(1.5), spec, fill, regular)
+        // Штрихкод во всю ширину.
+        drawBarcode(c, content.barcode, margin, barcodeTop, right, mm(92.0), spec, fill, regular)
 
-        // Изготовитель внизу.
+        // Низ: изготовитель слева, QR-код магазина справа.
+        val bottomLine = mm(94.5)
         c.drawRect(margin, bottomLine, right, bottomLine + mm(0.3), fill)
+        val qrSize = mm(22.0)
+        val qrLeft = right - qrSize
+        val qrTop = bottomLine + mm(1.5)
+        val textRight = if (content.qr.isNotBlank()) qrLeft - mm(2.0) else right
+        if (content.qr.isNotBlank()) drawQr(c, content.qr, qrLeft, qrTop, qrSize, fill)
         regular.textSize = mm(2.8)
-        var my = bottomLine + mm(3.9)
-        content.maker.take(3).forEach { line ->
-            c.drawText(fit(line, regular, right - margin), margin, my, regular)
-            my += mm(3.5)
+        var my = bottomLine + mm(4.5)
+        content.maker.forEach { m ->
+            wrap(m, regular, textRight - margin, 3).forEach { line ->
+                if (my > h - mm(1.5)) return@forEach
+                c.drawText(line, margin, my, regular)
+                my += mm(3.4)
+            }
         }
         return bitmap
+    }
+
+    /** QR-код: модуль — целое число точек, без размытия. */
+    private fun drawQr(c: Canvas, text: String, left: Float, top: Float, size: Float, fill: Paint) {
+        val rows = runCatching { com.knit.calculator.core.QrCode.matrix(text) }.getOrNull() ?: return
+        if (rows.isEmpty()) return
+        val n = rows.size
+        val module = maxOf(1, (size / n).toInt())
+        val x0 = left + (size - module * n) / 2
+        val y0 = top + (size - module * n) / 2
+        for (yy in 0 until n) for (xx in 0 until n) {
+            if (rows[yy][xx]) c.drawRect(x0 + xx * module, y0 + yy * module, x0 + (xx + 1) * module, y0 + (yy + 1) * module, fill)
+        }
     }
 
     /** EAN-13: модуль — целое число точек (чёткие полосы), цифры под штрихкодом. */

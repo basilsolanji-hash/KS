@@ -246,6 +246,7 @@ class MainActivity : FragmentActivity() {
                         work = work,
                         widgets = widgets,
                         staffRole = staffMe?.role,
+                        onMsRetry = { quoteViewModel.refreshMs(force = true) },
                         team = if (staffMe?.full == true) staffRating else null,
                         onWidgets = { list -> widgets = list; store.homeWidgets = list.map { it.name } },
                         onShift = { start -> if (start) workViewModel.start() else workViewModel.close(); tick = System.currentTimeMillis() },

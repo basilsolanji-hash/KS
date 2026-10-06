@@ -59,6 +59,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/** Логотип для этикетки: свой логотип фабрики (из таблицы) или знак «KS» — чёрным. */
+fun labelLogo(context: android.content.Context): android.graphics.Bitmap? = runCatching {
+    val own = com.knit.calculator.report.BrandLogo.file(context)
+    if (own.exists()) return@runCatching android.graphics.BitmapFactory.decodeFile(own.path)
+    val d = androidx.core.content.ContextCompat.getDrawable(context, com.knit.calculator.R.drawable.ic_ks_logo)?.mutate() ?: return@runCatching null
+    d.setTint(android.graphics.Color.BLACK)
+    val b = android.graphics.Bitmap.createBitmap(282, 204, android.graphics.Bitmap.Config.ARGB_8888)
+    d.setBounds(0, 0, b.width, b.height)
+    d.draw(android.graphics.Canvas(b))
+    b
+}.getOrNull()
+
 /** Текст этикетки по товару и реквизитам фабрики. */
 fun labelContent(job: LabelJob, settings: CompanySettings, madeDate: String) = Labels.content(
     product = job.product,
@@ -69,6 +81,7 @@ fun labelContent(job: LabelJob, settings: CompanySettings, madeDate: String) = L
     makerName = settings.legalName,
     makerInn = settings.inn,
     makerAddress = settings.factAddress,
+    qr = settings.shopUrl,
 )
 
 /**
@@ -114,7 +127,7 @@ fun LabelScreen(quoteVm: QuoteViewModel, labelVm: LabelViewModel, onBack: () -> 
         val shown = jobs.getOrNull(previewIndex) ?: jobs.firstOrNull()
         if (shown != null) {
             val bitmap = remember(shown, settings, madeDate, printer.spec) {
-                LabelRenderer.render(labelContent(shown, settings, madeDate), printer.spec)
+                LabelRenderer.render(labelContent(shown, settings, madeDate), printer.spec, labelLogo(context))
             }
             Surface(shape = RoundedCornerShape(8.dp), color = Color.White, modifier = Modifier.fillMaxWidth()) {
                 Image(
@@ -164,7 +177,7 @@ fun LabelScreen(quoteVm: QuoteViewModel, labelVm: LabelViewModel, onBack: () -> 
                         val result = runCatching {
                             val data = withContext(Dispatchers.Default) {
                                 jobs.fold(ByteArray(0)) { acc, job ->
-                                    val mono = LabelRenderer.toMono(LabelRenderer.render(labelContent(job, settings, madeDate), printer.spec))
+                                    val mono = LabelRenderer.toMono(LabelRenderer.render(labelContent(job, settings, madeDate), printer.spec, labelLogo(context)))
                                     acc + LabelPrinter.commands(printer.spec, mono, job.copies)
                                 }
                             }

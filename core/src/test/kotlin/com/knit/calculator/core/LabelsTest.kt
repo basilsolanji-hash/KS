@@ -25,14 +25,14 @@ class LabelsTest {
     @Test fun labelSize203dpi() {
         val spec = LabelSpec()
         assertEquals(PrinterLanguage.TSPL, spec.language)
-        // Рулон 75 мм (599 точек → кратно 8: 592), длина 120 мм (959 точек); макет — альбомный.
-        assertEquals(592, spec.paperWidthDots)
+        // Рулон 76 мм (607 точек → кратно 8: 600), длина 120 мм (959 точек); макет — вертикальный, без поворота.
+        assertEquals(600, spec.paperWidthDots)
         assertEquals(959, spec.paperHeightDots)
-        assertEquals(959, spec.widthDots)
-        assertEquals(592, spec.heightDots)
-        val flat = spec.copy(rotated = false)
-        assertEquals(952, flat.widthDots)
-        assertEquals(599, flat.heightDots)
+        assertEquals(600, spec.widthDots)
+        assertEquals(959, spec.heightDots)
+        val side = spec.copy(rotated = true)
+        assertEquals(607, side.widthDots)
+        assertEquals(952, side.heightDots)
     }
 
     @Test fun rotate90() {
@@ -51,17 +51,17 @@ class LabelsTest {
         assertTrue(b.isBlack(0, 0) && !b.isBlack(8, 0) && !b.isBlack(0, 1))
         val tspl = LabelPrinter.commands(LabelSpec(rotated = false), b, 3)
         val text = String(tspl, Charsets.ISO_8859_1)
-        assertTrue(text.startsWith("SIZE 120 mm,75 mm\r\nGAP 2 mm,0 mm\r\n"))
+        assertTrue(text.startsWith("SIZE 76 mm,120 mm\r\nGAP 2 mm,0 mm\r\n"))
         assertTrue(text.contains("BITMAP 0,0,2,2,0,"))
         assertTrue(text.endsWith("\r\nPRINT 3,1\r\n"))
         val start = text.indexOf("BITMAP 0,0,2,2,0,") + "BITMAP 0,0,2,2,0,".length
         // TSPL: 0 — чёрная точка.
         assertArrayEquals(byteArrayOf(0x00, 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte()), tspl.copyOfRange(start, start + 4))
         val zpl = String(LabelPrinter.commands(LabelSpec(language = PrinterLanguage.ZPL, rotated = false), b, 2), Charsets.US_ASCII)
-        assertTrue(zpl.startsWith("^XA^PW952^LL599") && zpl.contains("^GFA,4,4,2,FF000000^FS^PQ2^XZ"))
-        // Рулон 75 мм: размер бумаги 75×120, картинка повёрнута (2 байта в строке → 1).
-        val rotated = String(LabelPrinter.commands(LabelSpec(), b, 1), Charsets.ISO_8859_1)
-        assertTrue(rotated.startsWith("SIZE 75 mm,120 mm\r\n") && rotated.contains("BITMAP 0,0,1,16,0,"))
+        assertTrue(zpl.startsWith("^XA^PW600^LL959") && zpl.contains("^GFA,4,4,2,FF000000^FS^PQ2^XZ"))
+        // Рулон боком: размер бумаги 120×76, картинка повёрнута (2 байта в строке → 1).
+        val rotated = String(LabelPrinter.commands(LabelSpec(rotated = true), b, 1), Charsets.ISO_8859_1)
+        assertTrue(rotated.startsWith("SIZE 120 mm,76 mm\r\n") && rotated.contains("BITMAP 0,0,1,16,0,"))
     }
 
     @Test fun monoFromPixels() {

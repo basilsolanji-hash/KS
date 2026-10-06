@@ -10,7 +10,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -40,6 +42,7 @@ fun WebCatalogScreen(startUrl: String, onBack: () -> Unit) {
     var webView by remember { mutableStateOf<WebView?>(null) }
     var title by remember { mutableStateOf("") }
     var progress by remember { mutableIntStateOf(0) }
+    var failed by remember { mutableStateOf(false) }
     val shareTitle = stringResource(R.string.shop_share_title)
     var qrUrl by remember { mutableStateOf<String?>(null) }
     qrUrl?.let { com.knit.calculator.quote.QrDialog(it) { qrUrl = null } }
@@ -60,6 +63,12 @@ fun WebCatalogScreen(startUrl: String, onBack: () -> Unit) {
             KnitIconButton(R.drawable.ic_qr, stringResource(R.string.qr_title), { qrUrl = webView?.url ?: startUrl })
             KnitIconButton(R.drawable.ic_web, stringResource(R.string.shop_open_browser), { openUrl(context, webView?.url ?: startUrl) })
         }
+        if (failed) {
+            androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                androidx.compose.material3.Text(stringResource(R.string.web_failed), color = colors.textPrimary, modifier = Modifier.weight(1f))
+                androidx.compose.material3.TextButton(onClick = { failed = false; webView?.reload() }) { androidx.compose.material3.Text(stringResource(R.string.web_retry), color = colors.accent) }
+            }
+        }
         if (progress in 1..99) LinearProgressIndicator(progress = { progress / 100f }, modifier = Modifier.fillMaxWidth(), color = colors.accent)
         AndroidView(
             factory = { ctx ->
@@ -68,6 +77,14 @@ fun WebCatalogScreen(startUrl: String, onBack: () -> Unit) {
                     settings.domStorageEnabled = true
                     settings.allowFileAccess = false
                     settings.allowContentAccess = false
+                    // Как в обычном браузере: вход на сайте запоминается, страница подгоняется под экран, можно увеличить пальцами.
+                    android.webkit.CookieManager.getInstance().setAcceptCookie(true)
+                    android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                    settings.loadWithOverviewMode = true
+                    settings.useWideViewPort = true
+                    settings.builtInZoomControls = true
+                    settings.displayZoomControls = false
+                    settings.mediaPlaybackRequiresUserGesture = false
                     webViewClient = object : WebViewClient() {
                         // Ссылки сайта фабрики — внутри приложения, остальные (WhatsApp, телефон…) — в системе.
                         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -84,6 +101,12 @@ fun WebCatalogScreen(startUrl: String, onBack: () -> Unit) {
 
                         override fun onPageFinished(view: WebView, url: String?) {
                             title = view.title.orEmpty()
+                            failed = false
+                        }
+
+                        // Нет сети или сайт не ответил — понятное сообщение и «Повторить» вместо пустого экрана.
+                        override fun onReceivedError(view: WebView, request: WebResourceRequest, error: android.webkit.WebResourceError) {
+                            if (request.isForMainFrame) failed = true
                         }
                     }
                     webChromeClient = object : android.webkit.WebChromeClient() {
