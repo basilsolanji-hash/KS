@@ -157,3 +157,65 @@ jobs:
         with:
           tag_name: build-${{ github.run_number }}
           files: ui-screenshots.zip
+
+  # Сервер staff.fabrika-ks.ru: тесты (SQLite и MySQL, как на beget) и выкладка по FTP, если заданы секреты.
+  server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test
+          MYSQL_DATABASE: ks_test
+        ports: ['3306:3306']
+        options: --health-cmd="mysqladmin ping -ptest" --health-interval=5s --health-timeout=5s --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Server tests (SQLite)
+        run: php server/tests/run.php
+
+      - name: Server tests (MySQL)
+        env:
+          DB_DSN: mysql:host=127.0.0.1;port=3306;dbname=ks_test;charset=utf8mb4
+          DB_USER: root
+          DB_PASSWORD: test
+        run: php server/tests/run.php
+
+      # Пароли — только из секретов GitHub; config.php собирается здесь и уходит на сервер выше папки сайта.
+      - name: Deploy to beget
+        if: github.event_name == 'push'
+        env:
+          FTP_HOST: ${{ secrets.BEGET_FTP_HOST }}
+          FTP_USER: ${{ secrets.BEGET_FTP_USER }}
+          FTP_PASSWORD: ${{ secrets.BEGET_FTP_PASSWORD }}
+          SITE_DIR: ${{ secrets.BEGET_SITE_DIR }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          KS_APP_KEY: ${{ secrets.KS_APP_KEY }}
+          KS_SETUP_KEY: ${{ secrets.KS_SETUP_KEY }}
+          MS_TOKEN: ${{ secrets.MS_TOKEN }}
+        run: |
+          if [ -z "$FTP_HOST" ] || [ -z "$DB_NAME" ] || [ -z "$KS_SETUP_KEY" ]; then
+            echo "Секреты beget не заданы — выкладка пропущена"; exit 0
+          fi
+          sudo apt-get install -y -qq lftp > /dev/null
+          SITE_DIR="${SITE_DIR:-staff.fabrika-ks.ru}"
+          mkdir -p deploy/ks/src deploy/public_html
+          cp server/src/*.php deploy/ks/src/
+          cp server/public/index.php server/public/.htaccess deploy/public_html/
+          php -r 'file_put_contents("deploy/ks/config.php", "<?php\nreturn " . var_export([
+            "db_host" => getenv("DB_HOST") ?: "localhost", "db_name" => getenv("DB_NAME"), "db_user" => getenv("DB_USER"),
+            "db_password" => getenv("DB_PASSWORD"), "app_key" => getenv("KS_APP_KEY"), "setup_key" => getenv("KS_SETUP_KEY"),
+            "ms_token" => getenv("MS_TOKEN"),
+          ], true) . ";\n");'
+          printf 'Require all denied\n' > deploy/ks/.htaccess
+          lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "
+            set ftp:ssl-allow yes; set net:max-retries 2; set net:timeout 20;
+            mkdir -p $SITE_DIR/ks; mirror -R --no-perms deploy/ks $SITE_DIR/ks;
+            mirror -R --no-perms deploy/public_html $SITE_DIR/public_html; bye"
+          rm -rf deploy
+          echo "Сервер выложен: https://$SITE_DIR"
