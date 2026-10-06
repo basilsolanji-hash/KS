@@ -24,6 +24,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -90,20 +91,40 @@ fun StaffConnectScreen(vm: StaffViewModel, onBack: () -> Unit) {
                 Column(Modifier.padding(16.dp)) {
                     Text(m.name, color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     Text(m.roleTitle + " · " + vm.url, color = colors.textSecondary, fontSize = 13.sp)
+                    if (m.tracked) Text(stringResource(R.string.activity_notice), color = colors.textSecondary, fontSize = 12.sp)
                 }
             }
             if (m.director) {
                 SectionTitle(R.string.staff_wifi)
                 val s = settings
                 var late by remember(s) { mutableStateOf(s?.lateMinutes?.toString() ?: "10") }
+                var idle by remember(s) { mutableStateOf(s?.idleMinutes?.toString() ?: "30") }
+                var ips by remember(s) { mutableStateOf(s?.allowedIps.orEmpty()) }
+                var confirmOff by remember { mutableStateOf(false) }
                 Text(stringResource(R.string.staff_wifi_hint, s?.myIp.orEmpty(), s?.allowedIps?.ifBlank { "—" } ?: "—"), color = colors.textSecondary, fontSize = 13.sp)
                 ActionButton(R.string.staff_wifi_set, R.drawable.ic_web, primary = false, Modifier.fillMaxWidth()) {
-                    vm.saveSettings(s?.myIp.orEmpty(), late.toIntOrNull() ?: 10)
+                    // Добавить адрес этого телефона к уже разрешённым (несколько точек Wi-Fi фабрики).
+                    val list = (s?.allowedIps.orEmpty().split(',') + s?.myIp.orEmpty()).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+                    vm.saveSettings(list.joinToString(","), late.toIntOrNull() ?: 10, idle.toIntOrNull() ?: 30)
                 }
-                TextButton(onClick = { vm.saveSettings("", late.toIntOrNull() ?: 10) }) { Text(stringResource(R.string.staff_wifi_off), color = colors.textSecondary) }
+                KnitField(ips, { ips = it.take(500) }, R.string.staff_ips, text = true, maxLength = 500)
                 KnitField(late, { late = it.filter(Char::isDigit).take(3) }, R.string.staff_late, suffix = "мин")
+                KnitField(idle, { idle = it.filter(Char::isDigit).take(3) }, R.string.staff_idle, suffix = "мин")
                 ActionButton(R.string.shortcuts_save, R.drawable.ic_cloud, primary = false, Modifier.fillMaxWidth()) {
-                    vm.saveSettings(s?.allowedIps.orEmpty(), late.toIntOrNull() ?: 10)
+                    vm.saveSettings(ips, late.toIntOrNull() ?: 10, idle.toIntOrNull() ?: 30)
+                }
+                if (s?.allowedIps?.isNotBlank() == true) {
+                    TextButton(onClick = { confirmOff = true }) { Text(stringResource(R.string.staff_wifi_off), color = colors.textSecondary) }
+                }
+                if (confirmOff) {
+                    AlertDialog(
+                        onDismissRequest = { confirmOff = false },
+                        title = { Text(stringResource(R.string.staff_wifi_off)) },
+                        text = { Text(stringResource(R.string.staff_wifi_off_confirm), color = colors.textPrimary) },
+                        confirmButton = { TextButton(onClick = { confirmOff = false; vm.saveSettings("", late.toIntOrNull() ?: 10, idle.toIntOrNull() ?: 30) }) { Text(stringResource(R.string.staff_wifi_off), color = RED) } },
+                        dismissButton = { TextButton(onClick = { confirmOff = false }) { Text(stringResource(R.string.cancel), color = colors.textSecondary) } },
+                        containerColor = colors.panel,
+                    )
                 }
             }
             TextButton(onClick = { vm.disconnect() }) { Text(stringResource(R.string.staff_disconnect), color = RED) }
@@ -150,6 +171,7 @@ fun StaffProductionScreen(vm: StaffViewModel, onBack: () -> Unit) {
     val me by vm.me.collectAsStateWithLifecycle()
     val jobs by vm.jobs.collectAsStateWithLifecycle()
     var adding by remember { mutableStateOf(false) }
+    var closing by remember { mutableStateOf<Job?>(null) }
     var finishing by remember { mutableStateOf<StageRun?>(null) }
     var starting by remember { mutableStateOf<Pair<Job, Triple<String, String, Boolean>>?>(null) }
     LaunchedEffect(Unit) { vm.loadJobs() }
@@ -212,7 +234,7 @@ fun StaffProductionScreen(vm: StaffViewModel, onBack: () -> Unit) {
                         }
                     }
                     if (m.full && job.stages.any { it.stage == "pack" && !it.running }) {
-                        TextButton(onClick = { vm.closeJob(job) }) { Text(stringResource(R.string.staff_job_close), color = colors.textSecondary) }
+                        TextButton(onClick = { closing = job }) { Text(stringResource(R.string.staff_job_close), color = colors.textSecondary) }
                     }
                 }
             }
@@ -229,9 +251,23 @@ fun StaffProductionScreen(vm: StaffViewModel, onBack: () -> Unit) {
             containerColor = colors.panel,
         )
     }
+    closing?.let { job ->
+        AlertDialog(
+            onDismissRequest = { closing = null },
+            title = { Text(stringResource(R.string.staff_job_close)) },
+            text = { Text(stringResource(R.string.staff_job_close_confirm, job.title), color = colors.textPrimary) },
+            confirmButton = { TextButton(onClick = { vm.closeJob(job); closing = null }) { Text(stringResource(R.string.staff_job_close), color = colors.textPrimary, fontWeight = FontWeight.SemiBold) } },
+            dismissButton = { TextButton(onClick = { closing = null }) { Text(stringResource(R.string.cancel), color = colors.textSecondary) } },
+            containerColor = colors.panel,
+        )
+    }
     finishing?.let { run ->
-        var qty by remember(run.id) { mutableStateOf("") }
-        var comment by remember(run.id) { mutableStateOf("") }
+        // Черновик количества и комментария живёт до успешного ответа сервера (ошибка связи не стирает ввод).
+        var qty by rememberSaveable(run.id) { mutableStateOf("") }
+        var comment by rememberSaveable(run.id) { mutableStateOf("") }
+        val busy by vm.busy.collectAsStateWithLifecycle()
+        val qtyValue = qty.toIntOrNull()
+        val canFinish = !busy && qtyValue != null && (qtyValue > 0 || comment.isNotBlank())
         AlertDialog(
             onDismissRequest = { finishing = null },
             title = { Text(stringResource(R.string.staff_finish)) },
@@ -241,7 +277,11 @@ fun StaffProductionScreen(vm: StaffViewModel, onBack: () -> Unit) {
                     KnitField(comment, { comment = it }, R.string.staff_comment, text = true, maxLength = 300)
                 }
             },
-            confirmButton = { TextButton(onClick = { vm.finishStage(run, qty.toIntOrNull() ?: 0, comment); finishing = null }) { Text(stringResource(R.string.staff_finish), color = colors.textPrimary, fontWeight = FontWeight.SemiBold) } },
+            confirmButton = {
+                TextButton(enabled = canFinish, onClick = { vm.finishStage(run, qtyValue ?: 0, comment) { finishing = null } }) {
+                    Text(stringResource(R.string.staff_finish), color = if (canFinish) colors.textPrimary else colors.textSecondary, fontWeight = FontWeight.SemiBold)
+                }
+            },
             dismissButton = { TextButton(onClick = { finishing = null }) { Text(stringResource(R.string.cancel), color = colors.textSecondary) } },
             containerColor = colors.panel,
         )
@@ -304,7 +344,7 @@ fun EmployeesScreen(vm: StaffViewModel, onBack: () -> Unit) {
                         Text(e.name, color = if (e.active) colors.textPrimary else colors.textSecondary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                         Text(m.roles[e.role] ?: e.role, color = colors.textSecondary, fontSize = 13.sp)
                     }
-                    val days = e.schedule.days.sorted().joinToString(" ") { DAY_NAMES.getOrElse(it - 1) { "?" } }
+                    val days = if (e.schedule.cycle) "${e.schedule.cycleOn}/${e.schedule.cycleOff}" else e.schedule.days.sorted().joinToString(" ") { DAY_NAMES.getOrElse(it - 1) { "?" } }
                     Text(
                         listOf(e.position, "$days ${e.schedule.start}–${e.schedule.end}", if (!e.active) stringResource(R.string.staff_inactive) else "", if (e.msId != null) "МойСклад" else "")
                             .filter { it.isNotBlank() }.joinToString(" · "),
@@ -339,7 +379,30 @@ fun EmployeesScreen(vm: StaffViewModel, onBack: () -> Unit) {
                     KnitField(e.phone, { e = e.copy(phone = it) }, R.string.quote_client_phone, text = true, maxLength = 40)
                     KnitField(e.email, { e = e.copy(email = it.trim()) }, R.string.quote_client_email, text = true, maxLength = 120)
                     Text(stringResource(R.string.staff_schedule), color = colors.textSecondary, fontSize = 13.sp)
-                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = !e.schedule.cycle, onClick = { e = e.copy(schedule = e.schedule.copy(cycleOn = 0)) },
+                            label = { Text(stringResource(R.string.staff_schedule_week)) },
+                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = colors.equalsKey, selectedLabelColor = colors.equalsKeyText, labelColor = colors.textPrimary),
+                        )
+                        FilterChip(
+                            selected = e.schedule.cycle,
+                            onClick = {
+                                val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+                                e = e.copy(schedule = e.schedule.copy(cycleOn = 2, cycleOff = 2, anchor = e.schedule.anchor.ifBlank { today }))
+                            },
+                            label = { Text(stringResource(R.string.staff_schedule_cycle)) },
+                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = colors.equalsKey, selectedLabelColor = colors.equalsKeyText, labelColor = colors.textPrimary),
+                        )
+                    }
+                    if (e.schedule.cycle) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            KnitField(e.schedule.cycleOn.toString(), { v -> e = e.copy(schedule = e.schedule.copy(cycleOn = v.filter(Char::isDigit).take(2).toIntOrNull()?.coerceIn(1, 14) ?: 1)) }, R.string.staff_cycle_on, modifier = Modifier.weight(1f))
+                            KnitField(e.schedule.cycleOff.toString(), { v -> e = e.copy(schedule = e.schedule.copy(cycleOff = v.filter(Char::isDigit).take(2).toIntOrNull()?.coerceIn(0, 14) ?: 0)) }, R.string.staff_cycle_off, modifier = Modifier.weight(1f))
+                        }
+                        KnitField(e.schedule.anchor, { v -> e = e.copy(schedule = e.schedule.copy(anchor = v.take(10))) }, R.string.staff_cycle_anchor, text = true, maxLength = 10)
+                    }
+                    if (!e.schedule.cycle) Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                         DAY_NAMES.forEachIndexed { i, d ->
                             val day = i + 1
                             FilterChip(
@@ -473,9 +536,15 @@ fun RatingScreen(vm: StaffViewModel, onBack: () -> Unit) {
                             color = colors.textSecondary, fontSize = 13.sp,
                         )
                     }
+                    r.activity?.let { a ->
+                        Text(stringResource(R.string.staff_rating_activity, a, hours(r.activeMinutes ?: 0)), color = colors.textSecondary, fontSize = 13.sp)
+                    }
                 }
             }
         }
         Text(stringResource(R.string.staff_rating_hint), color = colors.textSecondary, fontSize = 12.sp)
     }
 }
+
+/** «3 ч 25 мин». */
+internal fun hours(minutes: Int): String = if (minutes >= 60) "${minutes / 60} ч ${minutes % 60} мин" else "$minutes мин"

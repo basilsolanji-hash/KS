@@ -8,12 +8,12 @@ data class YarnShare(val yarn: String, val percent: BigDecimal)
 
 /**
  * Состав нитей в ячейке таблицы: «Хлопок 95; Спандекс 5» или «Полиэстер 100%».
- * Пусто → пустой список. Некорректный текст → `null`.
+ * Пусто → пустой список. Некорректный текст или сумма долей не 100 % (допуск 0,5) → `null`.
  */
 object Composition {
     fun parse(text: String): List<YarnShare>? {
         if (text.isBlank()) return emptyList()
-        return text.split(';', '\n').filter { it.isNotBlank() }.map { part ->
+        val shares = text.split(';', '\n').filter { it.isNotBlank() }.map { part ->
             val cleaned = part.replace("%", "").trim()
             val idx = cleaned.lastIndexOf(' ')
             if (idx <= 0) return null
@@ -22,6 +22,8 @@ object Composition {
             if (name.isEmpty() || percent.signum() <= 0) return null
             YarnShare(name, percent)
         }
+        val sum = shares.fold(BigDecimal.ZERO) { a, s -> a + s.percent }
+        return shares.takeIf { (sum - BigDecimal(100)).abs() <= BigDecimal("0.5") }
     }
 
     fun format(shares: List<YarnShare>): String =

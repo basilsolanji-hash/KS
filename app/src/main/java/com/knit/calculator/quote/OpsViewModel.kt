@@ -185,12 +185,24 @@ class OpsViewModel(application: Application) : AndroidViewModel(application) {
         return null
     }
 
+    /** Неудачная оплата: повтор той же оплаты идёт с тем же ID — таблица и МойСклад не создадут дубль. */
+    private var pendingPayment: Payment? = null
+
     suspend fun addPayment(quoteId: String, quoteNumber: Int, client: String, amount: BigDecimal, date: Long, note: String): String? {
-        val p = Payment(UUID.randomUUID().toString(), quoteId, quoteNumber, client, date, amount, note.trim())
-        val error = change({ it.addPayment(OpsJson.payment(p).put("author", author())) }) { it.copy(payments = it.payments + p) }
+        val retry = pendingPayment?.takeIf { it.quoteId == quoteId && it.amount.compareTo(amount) == 0 && it.note == note.trim() }
+        val p = retry ?: Payment(UUID.randomUUID().toString(), quoteId, quoteNumber, client, date, amount, note.trim())
+        pendingPayment = p
+        var msError: String? = null
+        val error = change({ msError = it.addPayment(OpsJson.payment(p).put("author", author())) }) { d ->
+            if (d.payments.any { it.id == p.id }) d else d.copy(payments = d.payments + p)
+        }
+        if (error == null) {
+            pendingPayment = null
+            com.knit.calculator.staff.StaffEvents.log("payment", "КП № $quoteNumber · $client · ${amount.toPlainString()} ₽")
+        }
         // Оплаченная сумма в МойСклад пересчитывается там — перечитываем.
         if (error == null && _data.value.msPaid != null) load()
-        return error
+        return error ?: msError?.let { "Оплата записана в таблицу, но не в МойСклад: $it" }
     }
 
     suspend fun deletePayment(p: Payment): String? =

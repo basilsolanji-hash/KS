@@ -18,9 +18,10 @@ class ServerStore(context: Context) {
         get() = prefs.getString("url", null) ?: DEFAULT_URL
         set(v) { prefs.edit().putString("url", v).apply() }
 
+    /** Токен телефона — зашифрован ключом Android Keystore. */
     var token: String?
-        get() = prefs.getString("token", null)
-        set(v) { prefs.edit().putString("token", v).apply() }
+        get() = com.knit.calculator.quote.Secrets.decrypt(prefs.getString("token", null)).ifEmpty { null }
+        set(v) { prefs.edit().putString("token", v?.let { com.knit.calculator.quote.Secrets.encrypt(it) }).apply() }
 
     /** Последний ответ «me» — чтобы меню по роли было видно сразу, без сети. */
     var me: String?
@@ -73,11 +74,15 @@ data class StaffMe(
     val roles: Map<String, String>,
     /** Этапы: ключ, название, можно ли вести этот этап. */
     val stages: List<Triple<String, String, Boolean>>,
+    /** Учитывается активность в приложении (офис, рабочее время). */
+    val tracked: Boolean = false,
 ) {
     val director: Boolean get() = role == "director"
     val full: Boolean get() = role == "director" || role == "assistant"
     /** Сотрудник производства: в меню только производство, время, рейтинг. */
     val production: Boolean get() = role in setOf("designer", "operator", "handwork")
+    /** Товаровед: товары МойСклад, склад, этикетки — без финансов и КП. */
+    val merch: Boolean get() = role == "merch"
     val roleTitle: String get() = roles[role] ?: role
 
     companion object {
@@ -88,6 +93,7 @@ data class StaffMe(
             return StaffMe(
                 me.optInt("id"), me.optString("name"), me.optString("role"), roles,
                 (0 until stages.length()).map { stages.getJSONObject(it) }.map { Triple(it.optString("key"), it.optString("name"), it.optBoolean("mine")) },
+                o.optBoolean("tracked"),
             )
         }
     }

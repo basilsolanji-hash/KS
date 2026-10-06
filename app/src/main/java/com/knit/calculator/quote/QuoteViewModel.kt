@@ -432,6 +432,7 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         return try {
             val bytes = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { file.readBytes() }
             SheetClient(config).sendEmail(_draft.value.id, to, subject, text, file.name, bytes)
+            com.knit.calculator.staff.StaffEvents.log("quoteSend", "№ ${_draft.value.number} · ${_draft.value.clientCompany}")
             null
         } catch (e: Exception) {
             e.message ?: "Нет связи с Google"
@@ -477,7 +478,9 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         val config = _syncConfig.value
         val settings = _settings.value
         val economics = CostCalculator.quote(views.mapNotNull { v -> v.line?.let { v.economics } })
-        val profit = economics.totalProfit.takeIf { views.any { it.economics != null } }
+        // Прибыль сохраняется, только если себестоимость известна по всем позициям (частичная — не итог).
+        val priced = views.filter { it.line != null }
+        val profit = economics.totalProfit.takeIf { priced.isNotEmpty() && priced.all { it.economics != null } }
         val validUntil = validUntilMillis(settings)
         val products = linkedMapOf<String, BigDecimal>()
         views.forEach { v -> v.line?.let { products[v.product.name] = (products[v.product.name] ?: BigDecimal.ZERO) + it.total } }
@@ -540,6 +543,7 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         }
         updateDraft { it.copy(number = number, saved = true) }
         val d = _draft.value
+        com.knit.calculator.staff.StaffEvents.log("quote", "№ $number · ${d.clientCompany} · ${totals.total.toPlainString()} ₽")
         val previous = store.loadArchive().firstOrNull { it.id == d.id }
         val archived = ArchivedQuote(
             id = d.id,
@@ -932,6 +936,7 @@ class QuoteViewModel(application: Application) : AndroidViewModel(application) {
         if (!config.enabled) return "Нужно подключение к Google Таблице"
         return try {
             SheetClient(config).msUpdateProduct(p.externalType, p.externalId, changes)
+            com.knit.calculator.staff.StaffEvents.log("product", p.name)
             refreshMs(force = true)
             null
         } catch (e: Exception) {

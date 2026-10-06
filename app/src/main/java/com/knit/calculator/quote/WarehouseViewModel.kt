@@ -26,7 +26,8 @@ data class CountItem(val id: String, val type: String, val name: String, val qty
 
 /**
  * Склад по сканеру: отгрузка заказа МойСклад (сверка с заказом) и инвентаризация.
- * Инвентаризация сохраняется на телефоне — долгий подсчёт не теряется, если приложение закрылось.
+ * Сканы отгрузки, приёмки и инвентаризации сохраняются на телефоне — подсчёт не теряется, если приложение закрылось.
+ * У каждой операции свой номер (opId): повтор после обрыва связи не создаёт второй документ в МойСклад.
  */
 class WarehouseViewModel(application: Application) : AndroidViewModel(application) {
     private val store = QuoteStore(application)
@@ -77,12 +78,12 @@ class WarehouseViewModel(application: Application) : AndroidViewModel(applicatio
         _loading.value = true
         viewModelScope.launch {
             try {
-                _lines.value = c.msShipOrder(o.id).objects().map {
+                _lines.value = restoreScans("ship:${o.id}", c.msShipOrder(o.id).objects().map {
                     ShipLine(
                         it.optString("id"), it.optString("type"), it.optString("name"), it.optString("article"), it.optString("barcode"),
                         money(it.opt("quantity")), money(it.opt("shipped")),
                     )
-                }
+                })
             } catch (e: Exception) {
                 _message.value = e.message ?: "МойСклад недоступен"
             } finally {
@@ -101,6 +102,7 @@ class WarehouseViewModel(application: Application) : AndroidViewModel(applicatio
         when (val r = Warehouse.match(_lines.value, code, catalog)) {
             is com.knit.calculator.core.ScanResult.Matched -> {
                 _lines.value = Warehouse.add(_lines.value, r.index)
+                _order.value?.let { saveScans("ship:${it.id}", _lines.value) }
                 val l = _lines.value[r.index]
                 _message.value = if (l.over) "Лишнее: ${l.name} — ${fmt(l.scanned)} из ${fmt(l.remaining)}" else "${l.name}: ${fmt(l.scanned)} из ${fmt(l.remaining)}"
             }
@@ -111,6 +113,7 @@ class WarehouseViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun adjustShip(index: Int, step: Int) {
         _lines.value = Warehouse.add(_lines.value, index, BigDecimal(step))
+        _order.value?.let { saveScans("ship:${it.id}", _lines.value) }
     }
 
     fun ship(onDone: () -> Unit) {
@@ -121,7 +124,9 @@ class WarehouseViewModel(application: Application) : AndroidViewModel(applicatio
         _loading.value = true
         viewModelScope.launch {
             try {
-                val d = c.msShip(o.id, items)
+                val d = c.msShip(o.id, items, opId("ship:${o.id}"))
+                forget("ship:${o.id}")
+                com.knit.calculator.staff.StaffEvents.log("ship", "${o.name} · ${o.client}")
                 _message.value = "Отгрузка № ${d.optString("name")} создана в МойСклад"
                 closeOrder()
                 loadOrders()
@@ -166,12 +171,12 @@ class WarehouseViewModel(application: Application) : AndroidViewModel(applicatio
         _loading.value = true
         viewModelScope.launch {
             try {
-                _receiveLines.value = c.msReceiveDoc(d.type, d.id).objects().map {
+                _receiveLines.value = restoreScans("recv:${d.type}:${d.id}", c.msReceiveDoc(d.type, d.id).objects().map {
                     ShipLine(
                         it.optString("id"), it.optString("type"), it.optString("name"), it.optString("article"), it.optString("barcode"),
                         money(it.opt("quantity")), money(it.opt("shipped")),
                     )
-                }
+                })
             } catch (e: Exception) {
                 _message.value = e.message ?: "МойСклад недоступен"
             } finally {
@@ -189,6 +194,7 @@ class WarehouseViewModel(application: Application) : AndroidViewModel(applicatio
         when (val r = Warehouse.match(_receiveLines.value, code, catalog)) {
             is com.knit.calculator.core.ScanResult.Matched -> {
                 _receiveLines.value = Warehouse.add(_receiveLines.value, r.index)
+                _receiveDoc.value?.let { saveScans("recv:${it.type}:${it.id}", _receiveLines.value) }
                 val l = _receiveLines.value[r.index]
                 _message.value = if (l.over) "Больше, чем ждём: ${l.name} — ${fmt(l.scanned)} из ${fmt(l.remaining)}" else "${l.name}: ${fmt(l.scanned)} из ${fmt(l.remaining)}"
             }
@@ -199,6 +205,7 @@ class WarehouseViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun adjustReceive(index: Int, step: Int) {
         _receiveLines.value = Warehouse.add(_receiveLines.value, index, BigDecimal(step))
+        _receiveDoc.value?.let { saveScans("recv:${it.type}:${it.id}", _receiveLines.value) }
     }
 
     /** Провести приёмку: количество — как отсканировали (лишнее поставщика тоже принимается, если подтвердили). */
@@ -210,7 +217,9 @@ class WarehouseViewModel(application: Application) : AndroidViewModel(applicatio
         _loading.value = true
         viewModelScope.launch {
             try {
-                val r = c.msReceive(d.type, d.id, items)
+                val r = c.msReceive(d.type, d.id, items, opId("recv:${d.type}:${d.id}"))
+                forget("recv:${d.type}:${d.id}")
+                com.knit.calculator.staff.StaffEvents.log("receive", "${d.name} · ${d.supplier}")
                 _message.value = "Приёмка № ${r.optString("name")} проведена в МойСклад"
                 closeReceive()
                 loadReceiveDocs()
@@ -243,7 +252,10 @@ class WarehouseViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun removeCount(id: String) = setCount(_count.value.filterNot { it.id == id })
 
-    fun clearCount() = setCount(emptyList())
+    fun clearCount() {
+        setCount(emptyList())
+        forget("inventory")
+    }
 
     fun saveInventory() {
         val c = client() ?: return
@@ -252,7 +264,9 @@ class WarehouseViewModel(application: Application) : AndroidViewModel(applicatio
         _loading.value = true
         viewModelScope.launch {
             try {
-                val d = c.msInventory(items)
+                val d = c.msInventory(items, opId("inventory"))
+                forget("inventory")
+                com.knit.calculator.staff.StaffEvents.log("inventory", "${items.length()} поз.")
                 _message.value = "Инвентаризация № ${d.optString("name")} создана в МойСклад"
                 clearCount()
             } catch (e: Exception) {
@@ -279,4 +293,23 @@ class WarehouseViewModel(application: Application) : AndroidViewModel(applicatio
     }.getOrDefault(emptyList())
 
     private fun fmt(v: BigDecimal) = v.stripTrailingZeros().toPlainString()
+
+    // ---------- Черновики сканов и номер операции ----------
+
+    /** Номер операции документа: создаётся при первой отправке и живёт до успеха. */
+    private fun opId(doc: String): String =
+        prefs.getString("op:$doc", null) ?: java.util.UUID.randomUUID().toString().also { prefs.edit().putString("op:$doc", it).apply() }
+
+    private fun saveScans(doc: String, lines: List<ShipLine>) {
+        val o = JSONObject()
+        lines.filter { it.scanned.signum() > 0 }.forEach { o.put(it.id, it.scanned.toPlainString()) }
+        prefs.edit().putString("scan:$doc", o.toString()).apply()
+    }
+
+    private fun restoreScans(doc: String, lines: List<ShipLine>): List<ShipLine> {
+        val o = runCatching { JSONObject(prefs.getString("scan:$doc", "{}") ?: "{}") }.getOrDefault(JSONObject())
+        return lines.map { l -> o.optString(l.id).toBigDecimalOrNull()?.let { l.copy(scanned = it) } ?: l }
+    }
+
+    private fun forget(doc: String) = prefs.edit().remove("scan:$doc").remove("op:$doc").apply()
 }

@@ -85,7 +85,7 @@ enum class HomeWidget(val title: Int, val directorOnly: Boolean = false, val per
 val DEFAULT_WIDGETS = HomeWidget.entries.toList()
 
 /** Разделы, доступные с главного экрана. */
-enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI, STAFF_SERVER, STAFF_PRODUCTION, EMPLOYEES, RATING }
+enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI, STAFF_SERVER, STAFF_PRODUCTION, EMPLOYEES, RATING, ACTIVITY }
 
 /** Пункт меню: раздел, подпись, значок. */
 data class MenuItem(val action: HomeAction, val label: Int, val icon: Int)
@@ -110,6 +110,17 @@ fun menuGroups(director: Boolean, msEnabled: Boolean, staffRole: String? = null)
                 MenuItem(HomeAction.FINANCE, R.string.home_finance, R.drawable.ic_report),
             ),
             R.string.menu_group_staff to listOf(MenuItem(HomeAction.EMPLOYEES, R.string.staff_employees, R.drawable.ic_list)),
+            service,
+        )
+        // Товаровед: товары МойСклад, склад по сканеру, этикетки — без КП и финансов.
+        "merch" -> return listOf(
+            R.string.home_group_production to listOfNotNull(
+                MenuItem(HomeAction.PRODUCTS, R.string.home_products, R.drawable.ic_inventory),
+                if (msEnabled) MenuItem(HomeAction.WAREHOUSE, R.string.home_warehouse, R.drawable.ic_scan) else MenuItem(HomeAction.STOCK, R.string.home_stock, R.drawable.ic_inventory),
+                MenuItem(HomeAction.LABELS, R.string.home_labels, R.drawable.ic_label),
+                MenuItem(HomeAction.YARN, R.string.home_yarn, R.drawable.ic_yarn),
+                MenuItem(HomeAction.COMMS, R.string.home_comms, R.drawable.ic_chat),
+            ),
             service,
         )
     }
@@ -141,6 +152,7 @@ fun menuGroups(director: Boolean, msEnabled: Boolean, staffRole: String? = null)
     ),
     R.string.menu_group_staff to listOfNotNull(
         if (full) MenuItem(HomeAction.EMPLOYEES, R.string.staff_employees, R.drawable.ic_list) else null,
+        if (full) MenuItem(HomeAction.ACTIVITY, R.string.menu_activity, R.drawable.ic_report) else null,
     ),
     service.first to (listOf(MenuItem(HomeAction.SETTINGS, R.string.home_settings, R.drawable.ic_settings)) + service.second),
     )

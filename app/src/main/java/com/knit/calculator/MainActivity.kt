@@ -6,6 +6,9 @@ import androidx.fragment.app.FragmentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.launch
 import androidx.activity.viewModels
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.DisposableEffect
@@ -37,7 +40,7 @@ import com.knit.calculator.yarn.YarnScreen
 import com.knit.calculator.yarn.YarnViewModel
 
 /** Экраны приложения; переход «назад» описан у каждого экрана. */
-private enum class Screen { HOME, CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY, REPORT, ORDER_YARN, SHOP, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, CLIENT, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI, STAFF_SERVER, STAFF_PRODUCTION, EMPLOYEES, RATING }
+private enum class Screen { HOME, CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY, REPORT, ORDER_YARN, SHOP, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, CLIENT, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI, STAFF_SERVER, STAFF_PRODUCTION, EMPLOYEES, RATING, ACTIVITY }
 
 class MainActivity : FragmentActivity() {
 
@@ -99,6 +102,16 @@ class MainActivity : FragmentActivity() {
         if (savedInstanceState == null && lockOn()) locked = true
         // Ежедневная сводка (9:00): долги, отгрузки, просрочки, КП без ответа.
         com.knit.calculator.quote.DailyDigest.schedule(this, com.knit.calculator.quote.QuoteStore(this).digestEnabled)
+        // Активность офиса: пока приложение на экране — отметка раз в минуту; действия — из экранов (StaffEvents).
+        com.knit.calculator.staff.StaffEvents.sink = { kind, detail -> staffViewModel.event(kind, detail) }
+        lifecycleScope.launch {
+            repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
+                while (true) {
+                    staffViewModel.ping()
+                    kotlinx.coroutines.delay(60_000)
+                }
+            }
+        }
         enableEdgeToEdge()
         setContent {
             val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
@@ -284,6 +297,7 @@ class MainActivity : FragmentActivity() {
                                 HomeAction.STAFF_PRODUCTION -> Screen.STAFF_PRODUCTION
                                 HomeAction.EMPLOYEES -> Screen.EMPLOYEES
                                 HomeAction.RATING -> Screen.RATING
+                                HomeAction.ACTIVITY -> Screen.ACTIVITY
                             },
                         )
                     }
@@ -343,6 +357,7 @@ class MainActivity : FragmentActivity() {
                     Screen.STAFF_PRODUCTION -> com.knit.calculator.staff.StaffProductionScreen(staffViewModel, onBack = ::back)
                     Screen.EMPLOYEES -> com.knit.calculator.staff.EmployeesScreen(staffViewModel, onBack = ::back)
                     Screen.RATING -> com.knit.calculator.staff.RatingScreen(staffViewModel, onBack = ::back)
+                    Screen.ACTIVITY -> com.knit.calculator.staff.ActivityScreen(staffViewModel, onBack = ::back)
                     Screen.AI -> com.knit.calculator.comms.AiScreen(quoteViewModel, director, onBack = ::back)
                     Screen.WAREHOUSE -> com.knit.calculator.quote.WarehouseScreen(quoteViewModel, warehouseViewModel, onBack = ::back)
                     Screen.COMMS -> com.knit.calculator.comms.CommsScreen(onBack = ::back)

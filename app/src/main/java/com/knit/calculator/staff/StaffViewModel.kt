@@ -27,7 +27,15 @@ data class StageRun(
 
 data class Job(val id: Int, val title: String, val client: String, val quantity: Int, val deadline: Long?, val stages: List<StageRun>)
 
-data class Schedule(val days: List<Int>, val start: String, val end: String)
+/** График: дни недели или сменный цикл «[cycleOn] через [cycleOff]» от даты [anchor] (2/2 и т. п.). */
+data class Schedule(val days: List<Int>, val start: String, val end: String, val cycleOn: Int = 0, val cycleOff: Int = 0, val anchor: String = "") {
+    val cycle: Boolean get() = cycleOn > 0
+    fun toJson(): JSONObject {
+        val o = JSONObject().put("days", JSONArray(days)).put("start", start).put("end", end)
+        if (cycle) o.put("type", "cycle").put("on", cycleOn).put("off", cycleOff).put("anchor", anchor)
+        return o
+    }
+}
 
 data class Employee(
     val id: Int,
@@ -53,9 +61,32 @@ data class RatingRow(
     val output: Int?,
     val attendance: Int?,
     val punctuality: Int?,
+    val activity: Int? = null,
+    val activeMinutes: Int? = null,
 )
 
-data class StaffSettings(val allowedIps: String, val lateMinutes: Int, val myIp: String)
+data class StaffSettings(val allowedIps: String, val lateMinutes: Int, val myIp: String, val idleMinutes: Int = 30)
+
+/** Активность сотрудника офиса за период. */
+data class ActivityRow(
+    val id: Int,
+    val name: String,
+    val role: String,
+    val minutes: Int,
+    val sessions: Int,
+    val first: Long?,
+    val last: Long?,
+    val maxGapMinutes: Int,
+    val actions: Map<String, Int>,
+    val working: Boolean,
+    val idle: Boolean,
+)
+
+data class FeedRow(val who: String, val kind: String, val detail: String, val time: Long)
+
+data class ActivityReport(val days: Int, val idleMinutes: Int, val people: List<ActivityRow>, val feed: List<FeedRow>)
+
+data class MsAuditRow(val who: String, val moment: String, val event: String, val entity: String, val count: Int, val info: String)
 
 /**
  * Сервер фабрики: вход сотрудника, производство по этапам, сотрудники (директор), рейтинг.
@@ -86,12 +117,14 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun client() = ServerClient(store.url, store.token)
 
-    private fun run(block: suspend (ServerClient) -> Unit) {
+    private fun run(onDone: () -> Unit = {}, block: suspend (ServerClient) -> Unit) {
         if (!store.connected) { _message.value = "Сначала подключитесь к серверу фабрики"; return }
+        if (_busy.value) return // повторное нажатие, пока идёт запрос
         _busy.value = true
         viewModelScope.launch {
             try {
                 block(client())
+                onDone()
             } catch (e: ServerException) {
                 _message.value = e.message
                 if (e.message == "Нужен вход") { store.clear(); _me.value = null }
@@ -129,7 +162,10 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Выход: токен этого телефона отзывается и на сервере. */
     fun disconnect() {
+        val c = if (store.connected) client() else null
+        c?.let { viewModelScope.launch { runCatching { it.call("logout") } } }
         store.clear()
         _me.value = null
         _jobs.value = null
@@ -152,8 +188,10 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
         loadJobsNow(c)
     }
 
+    /** Закрыть заказ: меняется только отметка «готово» (срок и связь с КП остаются). */
     fun closeJob(job: Job) = run { c ->
-        c.call("jobSave", JSONObject().put("job", JSONObject().put("id", job.id).put("title", job.title).put("client", job.client).put("quantity", job.quantity).put("done", true)))
+        c.call("jobSave", JSONObject().put("job", JSONObject().put("id", job.id).put("done", true)))
+        _message.value = "Заказ закрыт"
         loadJobsNow(c)
     }
 
@@ -162,7 +200,8 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
         loadJobsNow(c)
     }
 
-    fun finishStage(stageRun: StageRun, quantity: Int, comment: String) = run { c ->
+    /** Завершить этап; [onDone] — только после ответа сервера (окно не закрывается при ошибке связи). */
+    fun finishStage(stageRun: StageRun, quantity: Int, comment: String, onDone: () -> Unit = {}) = run(onDone) { c ->
         val r = c.call("stageFinish", JSONObject().put("id", stageRun.id).put("quantity", quantity).put("comment", comment))
         _message.value = "Этап завершён за ${r.optLong("minutes")} мин"
         loadJobsNow(c)
@@ -194,7 +233,7 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
         val body = JSONObject().put("employee", JSONObject()
             .put("id", e.id).put("name", e.name).put("role", e.role).put("position", e.position)
             .put("phone", e.phone).put("email", e.email).put("active", e.active)
-            .put("schedule", JSONObject().put("days", JSONArray(e.schedule.days)).put("start", e.schedule.start).put("end", e.schedule.end)))
+            .put("schedule", e.schedule.toJson()))
         val r = c.call("employeeSave", body)
         r.optString("key").takeIf { !r.isNull("key") && it.isNotBlank() }?.let(onKey)
         loadEmployeesNow(c)
@@ -227,9 +266,54 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
             Employee(
                 e.optInt("id"), e.optString("name"), e.optString("role"), e.optString("position"),
                 e.optString("ms_id").takeIf { !e.isNull("ms_id") && it.isNotBlank() }, e.optBoolean("active"),
-                Schedule((0 until days.length()).map { days.optInt(it) }, s.optString("start", "09:00"), s.optString("end", "18:00")),
+                Schedule(
+                    (0 until days.length()).map { days.optInt(it) }, s.optString("start", "09:00"), s.optString("end", "18:00"),
+                    if (s.optString("type") == "cycle") s.optInt("on") else 0, s.optInt("off"), s.optString("anchor"),
+                ),
                 e.optString("phone"), e.optString("email"), e.optBoolean("hasKey"),
             )
+        }
+    }
+
+    // ---------- Активность в приложении ----------
+
+    private val _activity = MutableStateFlow<ActivityReport?>(null)
+    val activity: StateFlow<ActivityReport?> = _activity.asStateFlow()
+    private val _msAudit = MutableStateFlow<List<MsAuditRow>?>(null)
+    val msAudit: StateFlow<List<MsAuditRow>?> = _msAudit.asStateFlow()
+
+    /** Отметка «приложение открыто» (раз в минуту, пока на экране); ошибки связи молча пропускаются. */
+    fun ping() {
+        if (!store.connected || _me.value?.tracked != true) return
+        viewModelScope.launch { runCatching { client().call("ping") } }
+    }
+
+    /** Действие в приложении (КП, клиент, товар, отгрузка…) — для отчёта директора. */
+    fun event(kind: String, detail: String = "") {
+        if (!store.connected || _me.value?.tracked != true) return
+        viewModelScope.launch { runCatching { client().call("event", JSONObject().put("kind", kind).put("detail", detail.take(200))) } }
+    }
+
+    fun loadActivity(days: Int) = run { c ->
+        val r = c.call("activity", JSONObject().put("days", days))
+        _activity.value = ActivityReport(
+            days,
+            r.optInt("idleMinutes", 30),
+            (r.optJSONArray("people") ?: JSONArray()).objects().map { p ->
+                val a = p.optJSONObject("actions") ?: JSONObject()
+                ActivityRow(
+                    p.optInt("id"), p.optString("name"), p.optString("role"), p.optInt("minutes"), p.optInt("sessions"),
+                    p.longOrNull("first"), p.longOrNull("last"), p.optInt("maxGapMinutes"),
+                    a.keys().asSequence().associateWith { a.optInt(it) }, p.optBoolean("working"), p.optBoolean("idle"),
+                )
+            },
+            (r.optJSONArray("feed") ?: JSONArray()).objects().map { f -> FeedRow(f.optString("who"), f.optString("kind"), f.optString("detail"), f.optLong("time")) },
+        )
+    }
+
+    fun loadMsAudit(days: Int) = run { c ->
+        _msAudit.value = (c.call("msAudit", JSONObject().put("days", days)).optJSONArray("events") ?: JSONArray()).objects().map {
+            MsAuditRow(it.optString("who"), it.optString("moment"), it.optString("event"), it.optString("entity"), it.optInt("count"), it.optString("info"))
         }
     }
 
@@ -240,19 +324,19 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
             RatingRow(
                 r.optInt("id"), r.optString("name"), r.optString("role"), r.optInt("score"),
                 r.intOrNull("planned"), r.intOrNull("present"), r.intOrNull("onTime"), r.intOrNull("output"),
-                r.intOrNull("attendance"), r.intOrNull("punctuality"),
+                r.intOrNull("attendance"), r.intOrNull("punctuality"), r.intOrNull("activity"), r.intOrNull("activeMinutes"),
             )
         }
     }
 
     fun loadSettings() = run { c ->
         val s = c.call("settings")
-        _settings.value = StaffSettings(s.optString("allowed_ips"), s.optInt("late_minutes", 10), s.optString("my_ip"))
+        _settings.value = StaffSettings(s.optString("allowed_ips"), s.optInt("late_minutes", 10), s.optString("my_ip"), s.optInt("idle_minutes", 30))
     }
 
-    fun saveSettings(allowedIps: String, lateMinutes: Int) = run { c ->
-        val s = c.call("settingsSave", JSONObject().put("allowed_ips", allowedIps).put("late_minutes", lateMinutes))
-        _settings.value = StaffSettings(s.optString("allowed_ips"), s.optInt("late_minutes", 10), s.optString("my_ip"))
+    fun saveSettings(allowedIps: String, lateMinutes: Int, idleMinutes: Int) = run { c ->
+        val s = c.call("settingsSave", JSONObject().put("allowed_ips", allowedIps).put("late_minutes", lateMinutes).put("idle_minutes", idleMinutes))
+        _settings.value = StaffSettings(s.optString("allowed_ips"), s.optInt("late_minutes", 10), s.optString("my_ip"), s.optInt("idle_minutes", 30))
         _message.value = "Настройки сервера сохранены"
     }
 }

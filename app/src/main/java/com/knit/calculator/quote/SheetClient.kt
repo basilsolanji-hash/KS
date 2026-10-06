@@ -148,8 +148,8 @@ class SheetClient(private val config: SyncConfig) {
     suspend fun msShipOrder(orderId: String): JSONArray = get("msShipOrder", "orderId" to orderId).optJSONArray("positions") ?: JSONArray()
 
     /** Отгрузка по заказу: [items] — {id, qty}. Возвращает {name, positions}. */
-    suspend fun msShip(orderId: String, items: JSONArray): JSONObject {
-        val body = JSONObject().put("action", "msShip").put("key", config.key).put("orderId", orderId).put("items", items)
+    suspend fun msShip(orderId: String, items: JSONArray, opId: String): JSONObject {
+        val body = JSONObject().put("action", "msShip").put("key", config.key).put("orderId", orderId).put("items", items).put("opId", opId)
         return request(URL(config.url.trim()), body.toString()).optJSONObject("demand") ?: JSONObject()
     }
 
@@ -160,14 +160,14 @@ class SheetClient(private val config: SyncConfig) {
         get("msReceiveDoc", "docType" to type, "docId" to id).optJSONArray("positions") ?: JSONArray()
 
     /** Провести приёмку с отсканированным количеством. */
-    suspend fun msReceive(type: String, id: String, items: JSONArray): JSONObject {
-        val body = JSONObject().put("action", "msReceive").put("key", config.key).put("docType", type).put("docId", id).put("items", items)
+    suspend fun msReceive(type: String, id: String, items: JSONArray, opId: String): JSONObject {
+        val body = JSONObject().put("action", "msReceive").put("key", config.key).put("docType", type).put("docId", id).put("items", items).put("opId", opId)
         return request(URL(config.url.trim()), body.toString()).optJSONObject("supply") ?: JSONObject()
     }
 
     /** Инвентаризация: [items] — {id, type, qty}. */
-    suspend fun msInventory(items: JSONArray): JSONObject {
-        val body = JSONObject().put("action", "msInventory").put("key", config.key).put("items", items)
+    suspend fun msInventory(items: JSONArray, opId: String): JSONObject {
+        val body = JSONObject().put("action", "msInventory").put("key", config.key).put("items", items).put("opId", opId)
         return request(URL(config.url.trim()), body.toString()).optJSONObject("inventory") ?: JSONObject()
     }
 
@@ -225,7 +225,8 @@ class SheetClient(private val config: SyncConfig) {
         return number
     }
 
-    suspend fun addPayment(payment: JSONObject) { post("addPayment", "payment", payment) }
+    /** Оплата; возвращает ошибку МойСклад (оплата в таблице сохранена, но в МойСклад не попала) или `null`. */
+    suspend fun addPayment(payment: JSONObject): String? = MsResult.from(post("addPayment", "payment", payment).optJSONObject("ms"))?.error
 
     suspend fun deletePayment(id: String) { post("deletePayment", "id", id) }
 

@@ -59,6 +59,8 @@ class CostingTest {
         assertEquals(emptyList<YarnShare>(), Composition.parse(""))
         assertNull(Composition.parse("Хлопок"))
         assertEquals("Хлопок 95 %; Спандекс 5 %", Composition.format(Composition.parse("Хлопок 95; Спандекс 5")!!))
+        assertNull("сумма 120 % — ошибка", Composition.parse("Хлопок 60; Полиэстер 60"))
+        assertNull("сумма 80 % — ошибка", Composition.parse("Хлопок 80"))
     }
 
     @Test fun orderYarnSumsAcrossLines() {

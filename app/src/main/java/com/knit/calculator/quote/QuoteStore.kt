@@ -130,14 +130,14 @@ class QuoteStore(context: Context) {
 
     fun loadSyncConfig(): SyncConfig = SyncConfig(
         url = prefs.getString(KEY_SYNC_URL, "").orEmpty(),
-        key = prefs.getString(KEY_SYNC_KEY, "").orEmpty(),
+        key = Secrets.decrypt(prefs.getString(KEY_SYNC_KEY, "")),
         manager = prefs.getString(KEY_SYNC_MANAGER, "").orEmpty(),
     )
 
     fun saveSyncConfig(c: SyncConfig) {
         prefs.edit()
             .putString(KEY_SYNC_URL, c.url)
-            .putString(KEY_SYNC_KEY, c.key)
+            .putString(KEY_SYNC_KEY, Secrets.encrypt(c.key))
             .putString(KEY_SYNC_MANAGER, c.manager)
             .apply()
     }
@@ -256,8 +256,8 @@ class QuoteStore(context: Context) {
         set(v) { prefs.edit().putString("recent_ms", v.take(12).joinToString("\n")).apply() }
 
     var directorPin: String
-        get() = prefs.getString("director_pin", "").orEmpty()
-        set(value) = prefs.edit().putString("director_pin", value).apply()
+        get() = Secrets.decrypt(prefs.getString("director_pin", ""))
+        set(value) = prefs.edit().putString("director_pin", Secrets.encrypt(value)).apply()
 
     var logoVersion: String
         get() = prefs.getString(KEY_LOGO_VERSION, "").orEmpty()
