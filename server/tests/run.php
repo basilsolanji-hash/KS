@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 // Тесты сервера: SQLite в памяти (в CI ещё и MySQL — DB_DSN), МойСклад — имитация.
-foreach (['Db', 'Crypto', 'Rules', 'ApiServer'] as $f) require_once __DIR__ . "/../src/$f.php";
+foreach (['Db', 'Crypto', 'Rules', 'ApiPeople', 'ApiWork', 'ApiServer'] as $f) require_once __DIR__ . "/../src/$f.php";
 
 $checks = 0;
 function ok(bool $cond, string $what): void
