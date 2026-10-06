@@ -62,6 +62,10 @@ fun WarehouseScreen(quoteVm: QuoteViewModel, vm: WarehouseViewModel, onBack: () 
     val count by vm.count.collectAsStateWithLifecycle()
     val loading by vm.loading.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
+    val receiveDocs by vm.receiveDocs.collectAsStateWithLifecycle()
+    val receiveDoc by vm.receiveDoc.collectAsStateWithLifecycle()
+    val receiveLines by vm.receiveLines.collectAsStateWithLifecycle()
+    var confirmReceive by remember { mutableStateOf(false) }
     var tab by rememberSaveable { mutableStateOf(0) }
     var confirmShip by remember { mutableStateOf(false) }
     var confirmCount by remember { mutableStateOf(false) }
@@ -70,13 +74,26 @@ fun WarehouseScreen(quoteVm: QuoteViewModel, vm: WarehouseViewModel, onBack: () 
         if (vm.orders.value == null) vm.loadOrders()
     }
 
-    fun onCode(code: String) = if (tab == 0) vm.scanShip(code, catalog) else vm.scanCount(code, catalog)
+    // Вкладки: 0 — отгрузка, 1 — приёмка, 2 — инвентаризация.
+    fun onCode(code: String) = when (tab) {
+        0 -> vm.scanShip(code, catalog)
+        1 -> vm.scanReceive(code, catalog)
+        else -> vm.scanCount(code, catalog)
+    }
+    LaunchedEffect(tab) { if (tab == 1 && vm.receiveDocs.value == null) vm.loadReceiveDocs() }
 
-    FormScreen(stringResource(R.string.wh_title), { if (order != null) vm.closeOrder() else onBack() }, actions = {
+    FormScreen(stringResource(R.string.wh_title), {
+        when {
+            tab == 0 && order != null -> vm.closeOrder()
+            tab == 1 && receiveDoc != null -> vm.closeReceive()
+            else -> onBack()
+        }
+    }, actions = {
         if (tab == 0 && order == null) KnitIconButton(R.drawable.ic_arrow_down, stringResource(R.string.sync_refresh), { vm.loadOrders() })
+        if (tab == 1 && receiveDoc == null) KnitIconButton(R.drawable.ic_arrow_down, stringResource(R.string.sync_refresh), { vm.loadReceiveDocs() })
     }) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(R.string.wh_tab_ship, R.string.wh_tab_count).forEachIndexed { i, label ->
+            listOf(R.string.wh_tab_ship, R.string.wh_tab_receive, R.string.wh_tab_count).forEachIndexed { i, label ->
                 FilterChip(
                     selected = tab == i, onClick = { tab = i }, label = { Text(stringResource(label)) },
                     colors = FilterChipDefaults.filterChipColors(selectedContainerColor = colors.equalsKey, selectedLabelColor = colors.equalsKeyText, labelColor = colors.textPrimary),
@@ -89,12 +106,41 @@ fun WarehouseScreen(quoteVm: QuoteViewModel, vm: WarehouseViewModel, onBack: () 
             Text(it, color = if (bad) RED else colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         }
 
-        val scanning = (tab == 0 && order != null) || tab == 1
+        val scanning = (tab == 0 && order != null) || (tab == 1 && receiveDoc != null) || tab == 2
         if (scanning) ScanInput(onCode = ::onCode, onCamera = {
             BarcodeScan.scan(context, ::onCode) { e -> android.widget.Toast.makeText(context, e, android.widget.Toast.LENGTH_LONG).show() }
         })
 
-        if (tab == 0) {
+        if (tab == 1) {
+            val d = receiveDoc
+            if (d == null) {
+                Text(stringResource(R.string.wh_pick_receive), color = colors.textSecondary, fontSize = 14.sp)
+                receiveDocs?.let { list ->
+                    if (list.isEmpty()) Text(stringResource(R.string.wh_no_receive), color = colors.textSecondary, fontSize = 14.sp)
+                    list.forEach { x ->
+                        Surface(onClick = { vm.clearMessage(); vm.openReceive(x) }, shape = RoundedCornerShape(16.dp), color = colors.panel, modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                                Text(
+                                    stringResource(if (x.type == "supply") R.string.wh_receive_draft else R.string.wh_receive_order, x.name) + " · " + x.supplier,
+                                    color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                                )
+                                Text(
+                                    SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(Date(x.moment)) + " · " + QuoteCalculator.formatMoney(x.sum) + " ₽",
+                                    color = colors.textSecondary, fontSize = 13.sp,
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                Text(stringResource(if (d.type == "supply") R.string.wh_receive_draft else R.string.wh_receive_order, d.name) + " · " + d.supplier,
+                    color = colors.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                receiveLines.forEachIndexed { i, l -> ShipRow(l, onMinus = { vm.adjustReceive(i, -1) }, onPlus = { vm.adjustReceive(i, 1) }) }
+                if (receiveLines.any { it.scanned.signum() > 0 }) {
+                    ActionButton(R.string.wh_receive_do, R.drawable.ic_inventory, primary = true, Modifier.fillMaxWidth()) { confirmReceive = true }
+                }
+            }
+        } else if (tab == 0) {
             val o = order
             if (o == null) {
                 Text(stringResource(R.string.wh_pick_order), color = colors.textSecondary, fontSize = 14.sp)
@@ -169,6 +215,27 @@ fun WarehouseScreen(quoteVm: QuoteViewModel, vm: WarehouseViewModel, onBack: () 
                 }
             },
             dismissButton = { TextButton(onClick = { confirmShip = false }) { Text(stringResource(R.string.cancel), color = colors.textSecondary) } },
+            containerColor = colors.panel,
+        )
+    }
+    if (confirmReceive) {
+        val s = com.knit.calculator.core.Warehouse.summary(receiveLines)
+        AlertDialog(
+            onDismissRequest = { confirmReceive = false },
+            title = { Text(stringResource(R.string.wh_receive_do)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(stringResource(R.string.wh_receive_total, q(s.scanned)), color = colors.textPrimary)
+                    if (s.short.isNotEmpty()) Text(stringResource(R.string.wh_receive_short, s.short.joinToString { it.name + " — " + q(it.remaining - it.scanned) }), color = RED, fontSize = 13.sp)
+                    if (s.over.isNotEmpty()) Text(stringResource(R.string.wh_receive_over, s.over.joinToString { it.name }), color = RED, fontSize = 13.sp)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { confirmReceive = false; vm.receive() }) {
+                    Text(stringResource(R.string.wh_receive_do), color = colors.textPrimary, fontWeight = FontWeight.SemiBold)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmReceive = false }) { Text(stringResource(R.string.cancel), color = colors.textSecondary) } },
             containerColor = colors.panel,
         )
     }

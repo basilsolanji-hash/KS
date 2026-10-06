@@ -153,6 +153,18 @@ class SheetClient(private val config: SyncConfig) {
         return request(URL(config.url.trim()), body.toString()).optJSONObject("demand") ?: JSONObject()
     }
 
+    /** Приёмки: непроведённые приёмки и заказы поставщикам. */
+    suspend fun msReceiveList(): JSONArray = get("msReceiveList").optJSONArray("docs") ?: JSONArray()
+
+    suspend fun msReceiveDoc(type: String, id: String): JSONArray =
+        get("msReceiveDoc", "docType" to type, "docId" to id).optJSONArray("positions") ?: JSONArray()
+
+    /** Провести приёмку с отсканированным количеством. */
+    suspend fun msReceive(type: String, id: String, items: JSONArray): JSONObject {
+        val body = JSONObject().put("action", "msReceive").put("key", config.key).put("docType", type).put("docId", id).put("items", items)
+        return request(URL(config.url.trim()), body.toString()).optJSONObject("supply") ?: JSONObject()
+    }
+
     /** Инвентаризация: [items] — {id, type, qty}. */
     suspend fun msInventory(items: JSONArray): JSONObject {
         val body = JSONObject().put("action", "msInventory").put("key", config.key).put("items", items)

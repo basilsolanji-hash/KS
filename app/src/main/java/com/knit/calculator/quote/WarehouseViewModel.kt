@@ -18,6 +18,9 @@ import java.math.BigDecimal
 /** Заказ к отгрузке. */
 data class ShipOrder(val id: String, val name: String, val client: String, val moment: Long, val sum: BigDecimal, val shipped: BigDecimal)
 
+/** Документ к приёмке: черновик приёмки или заказ поставщику. */
+data class ReceiveDoc(val type: String, val id: String, val name: String, val supplier: String, val moment: Long, val sum: BigDecimal)
+
 /** Посчитанный при инвентаризации товар. */
 data class CountItem(val id: String, val type: String, val name: String, val qty: BigDecimal, val stock: BigDecimal?)
 
@@ -123,6 +126,94 @@ class WarehouseViewModel(application: Application) : AndroidViewModel(applicatio
                 closeOrder()
                 loadOrders()
                 onDone()
+            } catch (e: Exception) {
+                _message.value = e.message ?: "МойСклад недоступен"
+            } finally {
+                _loading.value = false
+            }
+        }
+    }
+
+    // ---------- Приёмка ----------
+
+    private val _receiveDocs = MutableStateFlow<List<ReceiveDoc>?>(null)
+    val receiveDocs: StateFlow<List<ReceiveDoc>?> = _receiveDocs.asStateFlow()
+    private val _receiveDoc = MutableStateFlow<ReceiveDoc?>(null)
+    val receiveDoc: StateFlow<ReceiveDoc?> = _receiveDoc.asStateFlow()
+    private val _receiveLines = MutableStateFlow<List<ShipLine>>(emptyList())
+    val receiveLines: StateFlow<List<ShipLine>> = _receiveLines.asStateFlow()
+
+    fun loadReceiveDocs() {
+        val c = client() ?: run { _message.value = "Нужно подключение к Google Таблице и МойСклад"; return }
+        _loading.value = true
+        viewModelScope.launch {
+            try {
+                _receiveDocs.value = c.msReceiveList().objects().map {
+                    ReceiveDoc(it.optString("type"), it.optString("id"), it.optString("name"), it.optString("supplier"), it.optLong("moment"), money(it.opt("sum")))
+                }
+            } catch (e: Exception) {
+                _message.value = e.message ?: "МойСклад недоступен"
+            } finally {
+                _loading.value = false
+            }
+        }
+    }
+
+    fun openReceive(d: ReceiveDoc) {
+        val c = client() ?: return
+        _receiveDoc.value = d
+        _receiveLines.value = emptyList()
+        _loading.value = true
+        viewModelScope.launch {
+            try {
+                _receiveLines.value = c.msReceiveDoc(d.type, d.id).objects().map {
+                    ShipLine(
+                        it.optString("id"), it.optString("type"), it.optString("name"), it.optString("article"), it.optString("barcode"),
+                        money(it.opt("quantity")), money(it.opt("shipped")),
+                    )
+                }
+            } catch (e: Exception) {
+                _message.value = e.message ?: "МойСклад недоступен"
+            } finally {
+                _loading.value = false
+            }
+        }
+    }
+
+    fun closeReceive() {
+        _receiveDoc.value = null
+        _receiveLines.value = emptyList()
+    }
+
+    fun scanReceive(code: String, catalog: List<Product>) {
+        when (val r = Warehouse.match(_receiveLines.value, code, catalog)) {
+            is com.knit.calculator.core.ScanResult.Matched -> {
+                _receiveLines.value = Warehouse.add(_receiveLines.value, r.index)
+                val l = _receiveLines.value[r.index]
+                _message.value = if (l.over) "Больше, чем ждём: ${l.name} — ${fmt(l.scanned)} из ${fmt(l.remaining)}" else "${l.name}: ${fmt(l.scanned)} из ${fmt(l.remaining)}"
+            }
+            is com.knit.calculator.core.ScanResult.NotInOrder -> _message.value = "Нет в документе: ${r.name}"
+            com.knit.calculator.core.ScanResult.Unknown -> _message.value = "Штрихкод $code не найден"
+        }
+    }
+
+    fun adjustReceive(index: Int, step: Int) {
+        _receiveLines.value = Warehouse.add(_receiveLines.value, index, BigDecimal(step))
+    }
+
+    /** Провести приёмку: количество — как отсканировали (лишнее поставщика тоже принимается, если подтвердили). */
+    fun receive() {
+        val c = client() ?: return
+        val d = _receiveDoc.value ?: return
+        val items = JSONArray()
+        _receiveLines.value.filter { it.scanned.signum() > 0 }.forEach { items.put(JSONObject().put("id", it.id).put("qty", it.scanned.toDouble())) }
+        _loading.value = true
+        viewModelScope.launch {
+            try {
+                val r = c.msReceive(d.type, d.id, items)
+                _message.value = "Приёмка № ${r.optString("name")} проведена в МойСклад"
+                closeReceive()
+                loadReceiveDocs()
             } catch (e: Exception) {
                 _message.value = e.message ?: "МойСклад недоступен"
             } finally {

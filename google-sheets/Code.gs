@@ -208,6 +208,12 @@ function route_(req) {
         return json_({ ok: true, positions: msShipOrder_(String(req.orderId || '')) });
       case 'msShip':
         return json_({ ok: true, demand: msShip_(ss, String(req.orderId || ''), req.items || []) });
+      case 'msReceiveList':
+        return json_({ ok: true, docs: msReceiveList_() });
+      case 'msReceiveDoc':
+        return json_({ ok: true, positions: msReceiveDoc_(String(req.docType || ''), String(req.docId || '')) });
+      case 'msReceive':
+        return json_({ ok: true, supply: msReceive_(ss, String(req.docType || ''), String(req.docId || ''), req.items || []) });
       case 'msInventory':
         return json_({ ok: true, inventory: msInventory_(ss, req.items || []) });
       case 'msImage':
@@ -1616,6 +1622,91 @@ function msShip_(ss, orderId, items) {
   if (store) body.store = msMeta_('store', store.id);
   var demand = ms_('post', '/entity/demand', body);
   return { id: demand.id, name: demand.name, positions: positions.length };
+}
+
+// ---------------------------------------------------------------- Приёмка: проведение по сканеру
+
+/** Что принимать: непроведённые приёмки и заказы поставщикам, принятые не полностью (последние 100). */
+function msReceiveList_() {
+  if (!msEnabled_()) throw new Error('МойСклад не подключён');
+  var drafts = (ms_('get', '/entity/supply?limit=100&order=moment,desc&expand=agent&filter=' + encodeURIComponent('applicable=false')).rows || [])
+    .map(function (d) {
+      return { type: 'supply', id: d.id, name: d.name, supplier: (d.agent && d.agent.name) || '', moment: msTime_(d.moment), sum: (Number(d.sum) || 0) / 100 };
+    });
+  var orders = (ms_('get', '/entity/purchaseorder?limit=100&order=moment,desc&expand=agent&filter=' + encodeURIComponent('applicable=true')).rows || [])
+    .filter(function (o) { return (Number(o.sum) || 0) > 0 && (Number(o.shippedSum) || 0) + 1 < (Number(o.sum) || 0); })
+    .map(function (o) {
+      return { type: 'purchaseorder', id: o.id, name: o.name, supplier: (o.agent && o.agent.name) || '', moment: msTime_(o.moment), sum: (Number(o.sum) || 0) / 100 };
+    });
+  return drafts.concat(orders);
+}
+
+function msReceiveType_(type) {
+  if (type !== 'supply' && type !== 'purchaseorder') throw new Error('Неверный документ');
+  return type;
+}
+
+/** Позиции документа: сколько ждём, штрихкод — для сверки при сканировании. */
+function msReceiveDoc_(type, id) {
+  if (!msEnabled_()) throw new Error('МойСклад не подключён');
+  msReceiveType_(type);
+  msCheckId_(id);
+  var rows = ms_('get', '/entity/' + type + '/' + id + '/positions?limit=100&expand=assortment').rows || [];
+  return rows.filter(function (p) { return p.assortment && p.assortment.meta && p.assortment.meta.type !== 'service'; }).map(function (p) {
+    var a = p.assortment;
+    return {
+      id: msIdOf_(a), type: a.meta.type, name: a.name || '', article: a.article || a.code || '', barcode: msEan13_(a),
+      quantity: Number(p.quantity) || 0, shipped: type === 'purchaseorder' ? (Number(p.shipped) || 0) : 0, positionId: p.id,
+    };
+  });
+}
+
+/**
+ * Провести приёмку с фактическим количеством.
+ * Черновик приёмки: количество позиций — как отсканировали (не принятые — удаляются), затем «проведено».
+ * Заказ поставщику: создаётся проведённая приёмка по отсканированному.
+ */
+function msReceive_(ss, type, id, items) {
+  if (!msEnabled_()) throw new Error('МойСклад не подключён');
+  msReceiveType_(type);
+  msCheckId_(id);
+  var qty = {};
+  (items || []).forEach(function (i) { if (Number(i.qty) > 0) qty[String(i.id)] = (qty[String(i.id)] || 0) + Number(i.qty); });
+  if (!Object.keys(qty).length) throw new Error('Ничего не отсканировано');
+  if (type === 'supply') {
+    var rows = ms_('get', '/entity/supply/' + id + '/positions?limit=1000').rows || [];
+    var accepted = 0;
+    rows.forEach(function (p) {
+      var aid = msIdOf_(p.assortment);
+      if (qty[aid]) {
+        ms_('put', '/entity/supply/' + id + '/positions/' + p.id, { quantity: qty[aid] });
+        delete qty[aid];
+        accepted++;
+      } else {
+        ms_('delete', '/entity/supply/' + id + '/positions/' + p.id);
+      }
+    });
+    if (Object.keys(qty).length) throw new Error('В приёмке нет отсканированных товаров: ' + Object.keys(qty).length);
+    var done = ms_('put', '/entity/supply/' + id, { applicable: true });
+    return { id: id, name: done.name, positions: accepted };
+  }
+  var template = ms_('put', '/entity/supply/new', { purchaseOrder: msMeta_('purchaseorder', id) });
+  var positions = ((template.positions && template.positions.rows) || template.positions || []).map(function (p) {
+    var aid = msIdOf_(p.assortment);
+    if (!qty[aid]) return null;
+    var out = { assortment: p.assortment, quantity: qty[aid], price: p.price, vat: p.vat };
+    delete qty[aid];
+    return out;
+  }).filter(function (p) { return p; });
+  if (Object.keys(qty).length) throw new Error('В заказе поставщику нет отсканированных товаров: ' + Object.keys(qty).length);
+  var body = {};
+  Object.keys(template).forEach(function (k) { if (k !== 'positions') body[k] = template[k]; });
+  body.positions = positions;
+  body.applicable = true;
+  var store = msStore_(ss);
+  if (store) body.store = msMeta_('store', store.id);
+  var supply = ms_('post', '/entity/supply', body);
+  return { id: supply.id, name: supply.name, positions: positions.length };
 }
 
 /** Инвентаризация склада из «Настроек»: отсканированные товары и посчитанное количество. */

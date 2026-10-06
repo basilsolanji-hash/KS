@@ -789,6 +789,15 @@
     <string name="home_warehouse">Склад: сканер</string>
     <string name="wh_title">Склад: отгрузка и инвентаризация</string>
     <string name="wh_tab_ship">Отгрузка</string>
+    <string name="wh_tab_receive">Приёмка</string>
+    <string name="wh_pick_receive">Непроведённые приёмки и заказы поставщикам — выберите документ и сканируйте товар.</string>
+    <string name="wh_no_receive">Всё принято — непроведённых приёмок нет.</string>
+    <string name="wh_receive_draft">Приёмка № %s</string>
+    <string name="wh_receive_order">Заказ поставщику № %s</string>
+    <string name="wh_receive_do">Провести приёмку</string>
+    <string name="wh_receive_total">Будет принято: %s шт. Приёмка проведётся в МойСклад, остатки увеличатся.</string>
+    <string name="wh_receive_short">Не пришло: %s</string>
+    <string name="wh_receive_over">Пришло больше, чем в документе: %s</string>
     <string name="wh_tab_count">Инвентаризация</string>
     <string name="wh_pick_order">Выберите заказ МойСклад — затем сканируйте товары.</string>
     <string name="wh_no_orders">Все заказы отгружены.</string>

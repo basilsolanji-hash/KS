@@ -235,6 +235,8 @@ const msDb = {
   ],
   demand: [],
   inventory: [],
+  supply: [],
+  purchaseorder: [],
   cashout: [{ id: 'co1', moment: '2099-01-03 10:00:00.000', sum: 50000 }],
   expenseitem: [{ id: 'ex1', name: 'Аренда' }],
   invoicein: [
@@ -292,8 +294,8 @@ context.UrlFetchApp.fetch = (url, options) => {
     if (!filter) return rows;
     const m = filter.match(/^(\w+)(>=|=|~)(.*)$/);
     if (m[1] === 'archived') return rows;
-    if (m[2] === '>=') return rows.filter((r) => String(r[m[1]] || '') >= m[3]);
-    return rows.filter((r) => (m[2] === '=' ? String(r[m[1]] || '') === m[3] : String(r[m[1]] || '').includes(m[3])));
+    if (m[2] === '>=') return rows.filter((r) => String(r[m[1]] ?? '') >= m[3]);
+    return rows.filter((r) => (m[2] === '=' ? String(r[m[1]] ?? '') === m[3] : String(r[m[1]] ?? '').includes(m[3])));
   };
   if (path === '/report/stock/bystore/current') return msRespond(200, [{ assortmentId: 'p1', storeId: 'st1', stock: 120 }]);
   if (path === '/report/sales/plotseries') {
@@ -305,8 +307,18 @@ context.UrlFetchApp.fetch = (url, options) => {
     const order = msDb.customerorder.find((o) => o.id === msIdOf(body.customerOrder));
     return msRespond(200, { customerOrder: body.customerOrder, agent: order.agent || {}, positions: { rows: order.positions.map((p) => Object.assign({}, p)) } });
   }
-  if (/^\/entity\/customerorder\/[^/]+\/positions$/.test(path) && params.expand === 'assortment') {
-    const order = msDb.customerorder.find((o) => o.id === parts[2]);
+  if (path === '/entity/supply/new' && method === 'put') {
+    const po = msDb.purchaseorder.find((o) => o.id === msIdOf(body.purchaseOrder));
+    return msRespond(200, { purchaseOrder: body.purchaseOrder, agent: po.agent || {}, positions: { rows: po.positions.map((p) => Object.assign({}, p)) } });
+  }
+  if (parts[3] === 'positions' && parts[4]) {
+    const owner = msDb[parts[1]].find((o) => o.id === parts[2]);
+    const pos = owner.positions.find((p) => p.id === parts[4]);
+    if (method === 'put') { Object.assign(pos, body); return msRespond(200, pos); }
+    if (method === 'delete') { owner.positions.splice(owner.positions.indexOf(pos), 1); return msRespond(200); }
+  }
+  if (/^\/entity\/(customerorder|supply|purchaseorder)\/[^/]+\/positions$/.test(path) && params.expand === 'assortment') {
+    const order = msDb[parts[1]].find((o) => o.id === parts[2]);
     return list(order.positions.map((p) => Object.assign({}, p, { assortment: Object.assign({ meta: p.assortment.meta }, msDb.product.concat(msDb.variant).find((x) => x.id === msIdOf(p.assortment))) })));
   }
   if (path === '/entity/product/p1/images') {
@@ -625,6 +637,36 @@ assert.deepStrictEqual(call({ action: 'shifts', month: '2026-10' }).shifts.map((
 assert.strictEqual(call({ action: 'shifts', month: '2026-10' }).shifts[0].suspicious, true);
 asManager({ action: 'shiftSave', shift: { id: 'sh-ivan-now', start: Date.now() } });
 assert.strictEqual(asManager({ action: 'shifts', month: new Date().toISOString().slice(0, 7) }).shifts.find((x) => x.id === 'sh-ivan-now').suspicious, false);
+
+// Приёмка: черновик проводится с фактическим количеством; по заказу поставщику — новая проведённая приёмка.
+msDb.supply.push({
+  id: 'sup1', name: '00031', applicable: false, sum: 500000, moment: '2099-02-02 10:00:00.000', agent: { name: 'Пряжа-Опт' },
+  meta: { href: MS + '/entity/supply/sup1' },
+  positions: [
+    { id: 'sp1', assortment: { meta: { href: MS + '/entity/product/p1', type: 'product' } }, quantity: 100, price: 1000 },
+    { id: 'sp2', assortment: { meta: { href: MS + '/entity/variant/v2', type: 'variant' } }, quantity: 50, price: 1000 },
+  ],
+});
+msDb.purchaseorder.push({
+  id: 'po9', name: '00009', applicable: true, sum: 900000, shippedSum: 0, moment: '2099-02-01 10:00:00.000', agent: { name: 'Нитки' },
+  meta: { href: MS + '/entity/purchaseorder/po9' },
+  positions: [{ id: 'pp1', assortment: { meta: { href: MS + '/entity/product/p1', type: 'product' } }, quantity: 300, shipped: 100, price: 3000 }],
+});
+const recvList = call({ action: 'msReceiveList' }).docs;
+assert.deepStrictEqual(recvList.map((d) => [d.type, d.id, d.supplier]), [['supply', 'sup1', 'Пряжа-Опт'], ['purchaseorder', 'po9', 'Нитки']]);
+const recvPos = call({ action: 'msReceiveDoc', docType: 'purchaseorder', docId: 'po9' }).positions;
+assert.deepStrictEqual(recvPos.map((p) => [p.id, p.quantity, p.shipped, p.barcode]), [['p1', 300, 100, '2000000000015']]);
+assert.ok(call({ action: 'msReceiveDoc', docType: 'demand', docId: 'x1' }).error);
+const recv = call({ action: 'msReceive', docType: 'supply', docId: 'sup1', items: [{ id: 'p1', qty: 98 }] }).supply;
+assert.strictEqual(recv.positions, 1);
+assert.strictEqual(msDb.supply[0].applicable, true);
+assert.deepStrictEqual(msDb.supply[0].positions.map((p) => [p.id, p.quantity]), [['sp1', 98]]);
+const recvPo = call({ action: 'msReceive', docType: 'purchaseorder', docId: 'po9', items: [{ id: 'p1', qty: 200 }] }).supply;
+assert.strictEqual(recvPo.positions, 1);
+const newSupply = msDb.supply[msDb.supply.length - 1];
+assert.strictEqual(newSupply.applicable, true);
+assert.deepStrictEqual(newSupply.positions.map((p) => p.quantity), [200]);
+assert.ok(/нет отсканированных/.test(call({ action: 'msReceive', docType: 'purchaseorder', docId: 'po9', items: [{ id: 'zz', qty: 1 }] }).error));
 
 // ---- Зарплата менеджеров: оклад 60 000 + 3 % от оплат месяца по КП менеджера.
 const ym = new Date().toISOString().slice(0, 7);
