@@ -153,7 +153,7 @@ class MoySkladUiTest {
         compose.onNodeWithText("Принтер не выбран").performScrollTo().assertExists()
         Shots.take("53_labels_list", compose)
 
-        // Этикетка в точках принтера (203 dpi): макет 959×592, команды TSPL для рулона 75 мм.
+        // Этикетка в точках принтера (203 dpi): макет 600×959 (76×120 мм), логотип и QR магазина, команды TSPL для рулона 76 мм.
         val product = com.knit.calculator.core.Product(
             1, "Подвяз трикотажный 1×1 (ПЭ) Белый, 14х100 см", "шт", BigDecimal.ONE, code = "11-001 0067", barcode = "4601234567893",
             attributes = mapOf("Цвет" to "Белый", "Размер" to "14х100 см", "Состав / материала" to "полиэстер 100%"),
@@ -162,14 +162,15 @@ class MoySkladUiTest {
         val content = com.knit.calculator.label.labelContent(
             com.knit.calculator.label.LabelJob(product, 2, "50"), com.knit.calculator.quote.CompanySettings(), "10.2026",
         )
-        val bitmap = com.knit.calculator.label.LabelRenderer.render(content, spec)
-        org.junit.Assert.assertEquals(959, bitmap.width)
-        org.junit.Assert.assertEquals(592, bitmap.height)
+        val logo = com.knit.calculator.label.labelLogo(androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext)
+        val bitmap = com.knit.calculator.label.LabelRenderer.render(content, spec, logo)
+        org.junit.Assert.assertEquals(600, bitmap.width)
+        org.junit.Assert.assertEquals(959, bitmap.height)
         Shots.save(bitmap, "54_label_203dpi")
         val mono = com.knit.calculator.label.LabelRenderer.toMono(bitmap)
         val cmd = String(com.knit.calculator.core.LabelPrinter.commands(spec, mono, 2), Charsets.ISO_8859_1)
-        org.junit.Assert.assertTrue(cmd.startsWith("SIZE 75 mm,120 mm"))
-        org.junit.Assert.assertTrue(cmd.contains("BITMAP 0,0,74,959,0,"))
+        org.junit.Assert.assertTrue(cmd.startsWith("SIZE 76 mm,120 mm"))
+        org.junit.Assert.assertTrue(cmd.contains("BITMAP 0,0,75,959,0,"))
         org.junit.Assert.assertTrue(cmd.endsWith("PRINT 2,1\r\n"))
     }
 

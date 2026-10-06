@@ -99,8 +99,8 @@ class OpsUiTest {
 
         // Назад до главного → «Оплаты и долги»: долг 44 800 ₽.
         repeat(3) { compose.onNodeWithContentDescription("Назад").performClick() }
-        // Главный экран директора: графики продаж и прихода (КП согласовано, оплата 50 000 ₽).
-        compose.waitUntil(10_000) { compose.onAllNodes(hasText("Динамика продаж (согласованные КП)")).fetchSemanticsNodes().isNotEmpty() }
+        // Главный экран директора: приход денег (оплата 50 000 ₽); продажи — только из МойСклад (здесь его нет).
+        compose.waitUntil(10_000) { compose.onAllNodes(hasText("Приход и расход денег")).fetchSemanticsNodes().isNotEmpty() }
         Shots.take("47_home_top", compose)
         compose.onNodeWithText("Приход и расход денег").performScrollTo()
         Shots.take("48_home_charts", compose)
