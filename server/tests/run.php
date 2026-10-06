@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 // Тесты сервера: SQLite в памяти (в CI ещё и MySQL — DB_DSN), МойСклад — имитация.
-foreach (['Db', 'Crypto', 'Rules', 'ApiPeople', 'ApiWork', 'ApiServer'] as $f) require_once __DIR__ . "/../src/$f.php";
+foreach (['Db', 'Crypto', 'Rules', 'ApiPeople', 'ApiWork', 'ApiOrders', 'ApiServer'] as $f) require_once __DIR__ . "/../src/$f.php";
 
 $checks = 0;
 function ok(bool $cond, string $what): void
@@ -35,6 +35,28 @@ $ms = function (string $method, string $path, ?array $body) use (&$msCalls) {
             ['id' => 'ms-emp-0002', 'name' => 'Архивный', 'archived' => true],
         ]];
     }
+    $ord = 'a1b2c3d4-0000-0000-0000-000000000001';
+    if (str_starts_with($path, '/entity/customerorder?')) return ['meta' => ['size' => 1], 'rows' => [[
+        'id' => $ord, 'name' => '00042', 'moment' => '2026-10-06 10:00:00.000', 'agent' => ['name' => 'ООО Ромашка'], 'organization' => ['name' => 'ООО «Солвер»'],
+        'sum' => 9480000, 'payedSum' => 5000000, 'shippedSum' => 0, 'state' => ['name' => 'Новый', 'color' => 15106326],
+    ]]];
+    if ($path === "/entity/customerorder/$ord?expand=agent,organization,state,store,project") return [
+        'id' => $ord, 'name' => '00042', 'agent' => ['name' => 'ООО Ромашка', 'inn' => '7700000000'], 'organization' => ['name' => 'ООО «Солвер»'],
+        'sum' => 9480000, 'payedSum' => 5000000, 'state' => ['name' => 'Новый', 'meta' => ['href' => 'https://x/entity/customerorder/metadata/states/st000001-aaaa']],
+        'demands' => [['meta' => ['href' => 'https://x/entity/demand/dm000001-aaaa', 'type' => 'demand']]],
+        'payments' => [['meta' => ['href' => 'https://x/entity/paymentin/pm000001-aaaa', 'type' => 'paymentin']]],
+    ];
+    if ($path === '/entity/customerorder/metadata') return ['states' => [['id' => 'st000001-aaaa', 'name' => 'Новый'], ['id' => 'st000002-bbbb', 'name' => 'Отгружен']]];
+    if ($path === "/entity/customerorder/$ord/positions?limit=1000&expand=assortment") return ['rows' => [[
+        'id' => 'ps000001-aaaa', 'quantity' => 600, 'price' => 15800, 'discount' => 0, 'vat' => 22,
+        'assortment' => ['name' => 'Подвяз 14×100', 'article' => '11-001', 'meta' => ['href' => 'https://x/entity/product/pr000001-aaaa', 'type' => 'product']],
+    ]]];
+    if ($path === '/entity/demand/dm000001-aaaa') return ['name' => '00010', 'sum' => 0, 'applicable' => false];
+    if ($path === '/entity/paymentin/pm000001-aaaa') return ['name' => '00007', 'sum' => 5000000];
+    if ($path === '/entity/customerorder/metadata/embeddedtemplate') return ['rows' => [['id' => 'tp000001-aaaa', 'name' => 'Заказ покупателя']]];
+    if ($path === '/entity/customerorder/metadata/customtemplate') return ['rows' => []];
+    if (str_ends_with($path, '/export')) return ['_location' => 'https://online.moysklad.ru/file/x.pdf'];
+    if ($method === 'DOWNLOAD') return ['_bytes' => '%PDF-1.4 test'];
     if (str_starts_with($path, '/audit?')) return ['rows' => [['uid' => 'admin@solver', 'moment' => '2026-10-06 09:00:00', 'eventType' => 'update', 'entityType' => 'product', 'objectCount' => 2]]];
     return [];
 };
@@ -162,6 +184,24 @@ ok($call(['action' => '../etc'])['error'] === 'Неизвестное дейст
 
 // График: неверные значения заменяются стандартом.
 ok(Ks\Rules::schedule('{"days":[1,9],"start":"25:00"}') === ['days' => [1], 'start' => '09:00', 'end' => '18:00'], 'проверка графика');
+
+// Заказы МойСклад: список, карточка со связанными документами, правка позиций, печать.
+$ordId = 'a1b2c3d4-0000-0000-0000-000000000001';
+$list = $D(['action' => 'msOrders', 'search' => 'Ромашка']);
+ok($list['orders'][0]['name'] === '00042' && $list['orders'][0]['sum'] === 94800.0 && $list['orders'][0]['payed'] === 50000.0, 'список заказов');
+$card = $D(['action' => 'msOrder', 'id' => $ordId]);
+ok($card['positions'][0]['price'] === 158.0 && $card['positions'][0]['assortmentId'] === 'pr000001-aaaa', 'позиции заказа');
+ok(count($card['related']) === 2 && $card['related'][0]['type'] === 'demand' && $card['related'][1]['sum'] === 50000.0, 'связанные документы');
+$saved = $D(['action' => 'msOrderSave', 'id' => $ordId, 'description' => 'Срочно', 'stateId' => 'st000002-bbbb',
+    'positions' => [['id' => 'ps000001-aaaa', 'assortmentId' => 'pr000001-aaaa', 'assortmentType' => 'product', 'quantity' => 650, 'price' => 155.5, 'discount' => 5]]]);
+$put = array_values(array_filter($msCalls, fn($c) => $c[0] === 'PUT' && $c[1] === "/entity/customerorder/$ordId"))[0][2];
+ok($saved['ok'] && $put['positions'][0]['price'] === 15550 && $put['positions'][0]['quantity'] === 650.0 && str_ends_with($put['state']['meta']['href'], 'st000002-bbbb'), 'заказ сохранён в МойСклад');
+ok(str_contains($D(['action' => 'msOrderSave', 'id' => $ordId, 'positions' => [['assortmentId' => 'pr000001-aaaa', 'quantity' => 0]]])['error'], 'больше нуля'), 'нулевое количество нельзя');
+ok($D(['action' => 'msOrder', 'id' => '../etc'])['error'] === 'Неверный документ', 'чужие пути в МойСклад нельзя');
+ok($D(['action' => 'msTemplates', 'type' => 'customerorder'])['templates'][0]['name'] === 'Заказ покупателя', 'печатные формы');
+$pdf = $D(['action' => 'msPrint', 'type' => 'customerorder', 'id' => $ordId, 'template' => 'tp000001-aaaa', 'fileName' => 'Заказ 00042']);
+ok(base64_decode($pdf['pdf']) === '%PDF-1.4 test' && str_ends_with($pdf['name'], '.pdf'), 'PDF заказа');
+ok($call(['action' => 'msOrders', 'token' => $hwLogin['token']])['error'] === 'Нет доступа', 'ручная работа заказы не видит');
 
 // Изменение сотрудника — только переданные поля (телефон не стирается).
 $D(['action' => 'employeeSave', 'employee' => ['id' => $hw['employee']['id'], 'phone' => '+7 911 000-00-00']]);

@@ -85,7 +85,7 @@ enum class HomeWidget(val title: Int, val directorOnly: Boolean = false, val per
 val DEFAULT_WIDGETS = HomeWidget.entries.toList()
 
 /** Разделы, доступные с главного экрана. */
-enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI, STAFF_SERVER, STAFF_PRODUCTION, EMPLOYEES, RATING, ACTIVITY }
+enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI, STAFF_SERVER, STAFF_PRODUCTION, EMPLOYEES, RATING, ACTIVITY, MS_ORDERS }
 
 /** Пункт меню: раздел, подпись, значок. */
 data class MenuItem(val action: HomeAction, val label: Int, val icon: Int)
@@ -108,6 +108,7 @@ fun menuGroups(director: Boolean, msEnabled: Boolean, staffRole: String? = null)
             R.string.home_group_money to listOf(
                 MenuItem(HomeAction.PAYMENTS, R.string.home_payments, R.drawable.ic_payments),
                 MenuItem(HomeAction.FINANCE, R.string.home_finance, R.drawable.ic_report),
+                MenuItem(HomeAction.MS_ORDERS, R.string.orders_title, R.drawable.ic_list),
             ),
             R.string.menu_group_staff to listOf(MenuItem(HomeAction.EMPLOYEES, R.string.staff_employees, R.drawable.ic_list)),
             service,
@@ -129,6 +130,7 @@ fun menuGroups(director: Boolean, msEnabled: Boolean, staffRole: String? = null)
     R.string.home_group_sales to listOf(
         MenuItem(HomeAction.QUOTE, R.string.menu_quote, R.drawable.ic_add),
         MenuItem(HomeAction.HISTORY, R.string.home_history, R.drawable.ic_history),
+        MenuItem(HomeAction.MS_ORDERS, R.string.orders_title, R.drawable.ic_list),
         MenuItem(HomeAction.PRODUCTS, R.string.home_products, R.drawable.ic_inventory),
         MenuItem(HomeAction.REPORT, R.string.home_report, R.drawable.ic_report),
         MenuItem(HomeAction.COMMS, R.string.home_comms, R.drawable.ic_chat),

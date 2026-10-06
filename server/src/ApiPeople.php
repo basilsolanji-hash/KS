@@ -109,7 +109,24 @@ trait ApiPeople
     {
         $token = (string)($this->config['ms_token'] ?? '');
         if ($token === '') throw new ApiError('МойСклад не подключён на сервере');
+        // Готовый файл печатной формы: временная ссылка МойСклад, только https на их домене.
+        if ($method === 'DOWNLOAD') {
+            if (!preg_match('~^https://[\w.-]*moysklad\.ru/~', $path)) throw new ApiError('Неверная ссылка на файл');
+            $ch = curl_init($path);
+            curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 40, CURLOPT_FOLLOWLOCATION => true, CURLOPT_MAXREDIRS => 3,
+                CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $token]]);
+            $bytes = (string)curl_exec($ch);
+            $code = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+            curl_close($ch);
+            if ($code >= 400 || $code === 0) throw new ApiError("МойСклад: файл не получен ($code)");
+            return ['_bytes' => $bytes];
+        }
         $ch = curl_init('https://api.moysklad.ru/api/remap/1.2' . $path);
+        $location = '';
+        curl_setopt($ch, CURLOPT_HEADERFUNCTION, function ($ch, $h) use (&$location) {
+            if (stripos($h, 'Location:') === 0) $location = trim(substr($h, 9));
+            return strlen($h);
+        });
         curl_setopt_array($ch, [
             CURLOPT_CUSTOMREQUEST => $method, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 25, CURLOPT_ENCODING => 'gzip',
             CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $token, 'Accept: application/json;charset=utf-8', 'Content-Type: application/json'],
@@ -120,6 +137,7 @@ trait ApiPeople
         curl_close($ch);
         $data = json_decode($text, true) ?: [];
         if ($code >= 400 || $code === 0) throw new ApiError('МойСклад: ' . ($data['errors'][0]['error'] ?? "ошибка $code"));
+        if ($location !== '' && $code >= 300 && $code < 400) $data['_location'] = $location;
         return $data;
     }
 

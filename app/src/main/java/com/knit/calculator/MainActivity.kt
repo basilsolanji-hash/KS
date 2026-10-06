@@ -40,7 +40,7 @@ import com.knit.calculator.yarn.YarnScreen
 import com.knit.calculator.yarn.YarnViewModel
 
 /** Экраны приложения; переход «назад» описан у каждого экрана. */
-private enum class Screen { HOME, CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY, REPORT, ORDER_YARN, SHOP, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, CLIENT, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI, STAFF_SERVER, STAFF_PRODUCTION, EMPLOYEES, RATING, ACTIVITY }
+private enum class Screen { HOME, CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY, REPORT, ORDER_YARN, SHOP, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, CLIENT, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI, STAFF_SERVER, STAFF_PRODUCTION, EMPLOYEES, RATING, ACTIVITY, MS_ORDERS }
 
 class MainActivity : FragmentActivity() {
 
@@ -82,6 +82,7 @@ class MainActivity : FragmentActivity() {
     private val warehouseViewModel: com.knit.calculator.quote.WarehouseViewModel by viewModels()
     private val workViewModel: com.knit.calculator.quote.WorkViewModel by viewModels()
     private val staffViewModel: com.knit.calculator.staff.StaffViewModel by viewModels()
+    private val ordersViewModel: com.knit.calculator.staff.OrdersViewModel by viewModels()
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
@@ -299,6 +300,7 @@ class MainActivity : FragmentActivity() {
                                 HomeAction.EMPLOYEES -> Screen.EMPLOYEES
                                 HomeAction.RATING -> Screen.RATING
                                 HomeAction.ACTIVITY -> Screen.ACTIVITY
+                                HomeAction.MS_ORDERS -> Screen.MS_ORDERS
                             },
                         )
                     }
@@ -359,6 +361,7 @@ class MainActivity : FragmentActivity() {
                     Screen.EMPLOYEES -> com.knit.calculator.staff.EmployeesScreen(staffViewModel, onBack = ::back)
                     Screen.RATING -> com.knit.calculator.staff.RatingScreen(staffViewModel, onBack = ::back)
                     Screen.ACTIVITY -> com.knit.calculator.staff.ActivityScreen(staffViewModel, onBack = ::back)
+                    Screen.MS_ORDERS -> com.knit.calculator.staff.MsOrdersScreen(ordersViewModel, onBack = ::back)
                     Screen.AI -> com.knit.calculator.comms.AiScreen(quoteViewModel, director, onBack = ::back)
                     Screen.WAREHOUSE -> com.knit.calculator.quote.WarehouseScreen(quoteViewModel, warehouseViewModel, onBack = ::back)
                     Screen.COMMS -> com.knit.calculator.comms.CommsScreen(onBack = ::back)
