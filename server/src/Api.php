@@ -57,8 +57,8 @@ final class Api
     /** Первый запуск: директор создаётся ключом установки из config (один раз). */
     private function setup(array $req): array
     {
-        $setupKey = (string)($this->config['setup_key'] ?? '');
-        if ($setupKey === '' || !hash_equals($setupKey, (string)($req['setup_key'] ?? ''))) {
+        $setupKey = trim((string)($this->config['setup_key'] ?? ''));
+        if ($setupKey === '' || !hash_equals($setupKey, trim((string)($req['setup_key'] ?? '')))) {
             $this->fail();
             throw new ApiError('Неверный ключ установки');
         }
