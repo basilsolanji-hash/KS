@@ -1039,4 +1039,5 @@
     <string name="home_group_money">Деньги</string>
     <string name="home_group_production">Производство</string>
     <string name="chart_no_out">Расход появится после подключения МойСклад (исходящие платежи).</string>
+    <string name="training_title">Обучение</string>
 </resources>
