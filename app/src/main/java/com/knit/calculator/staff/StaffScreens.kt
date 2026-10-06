@@ -317,7 +317,7 @@ private val DAY_NAMES = listOf("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "
 
 /** Сотрудники (директор): роль, должность, контакты, график; ключ входа и QR; импорт и карточка МойСклад. */
 @Composable
-fun EmployeesScreen(vm: StaffViewModel, onBack: () -> Unit) {
+fun EmployeesScreen(vm: StaffViewModel, onBack: () -> Unit, onProfile: (Int) -> Unit = {}) {
     val colors = LocalKnitColors.current
     val me by vm.me.collectAsStateWithLifecycle()
     val employees by vm.employees.collectAsStateWithLifecycle()
@@ -424,6 +424,7 @@ fun EmployeesScreen(vm: StaffViewModel, onBack: () -> Unit) {
                     }
                     if (start.id != 0) {
                         TextButton(onClick = { vm.newKey(start) { k -> shownKey = k }; editing = null }) { Text(stringResource(R.string.staff_new_key), color = colors.textPrimary) }
+                        TextButton(onClick = { editing = null; onProfile(start.id) }) { Text(stringResource(R.string.profile_open), color = colors.textPrimary) }
                         if (start.msId != null) TextButton(onClick = { msCard = start; editing = null }) { Text(stringResource(R.string.staff_ms_card), color = colors.textPrimary) }
                     }
                 }

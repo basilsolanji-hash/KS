@@ -84,7 +84,7 @@ data class ActivityRow(
 
 data class FeedRow(val who: String, val kind: String, val detail: String, val time: Long)
 
-data class ActivityReport(val days: Int, val idleMinutes: Int, val people: List<ActivityRow>, val feed: List<FeedRow>)
+data class ActivityReport(val days: Int, val idleMinutes: Int, val people: List<ActivityRow>, val feed: List<FeedRow>, val screens: List<Pair<String, Int>> = emptyList())
 
 data class MsAuditRow(val who: String, val moment: String, val event: String, val entity: String, val count: Int, val info: String)
 
@@ -285,9 +285,9 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
     val msAudit: StateFlow<List<MsAuditRow>?> = _msAudit.asStateFlow()
 
     /** Отметка «приложение открыто» (раз в минуту, пока на экране); ошибки связи молча пропускаются. */
-    fun ping() {
+    fun ping(screen: String = "") {
         if (!store.connected || _me.value?.tracked != true) return
-        viewModelScope.launch { runCatching { client().call("ping") } }
+        viewModelScope.launch { runCatching { client().call("ping", JSONObject().put("screen", screen)) } }
     }
 
     /** Действие в приложении (КП, клиент, товар, отгрузка…) — для отчёта директора. */
@@ -310,6 +310,7 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
                 )
             },
             (r.optJSONArray("feed") ?: JSONArray()).objects().map { f -> FeedRow(f.optString("who"), f.optString("kind"), f.optString("detail"), f.optLong("time")) },
+            (r.optJSONArray("screens") ?: JSONArray()).objects().map { it.optString("screen") to it.optInt("minutes") },
         )
     }
 

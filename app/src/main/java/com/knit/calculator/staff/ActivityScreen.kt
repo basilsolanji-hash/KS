@@ -34,6 +34,14 @@ import java.util.Locale
 
 private val IDLE_RED = Color(0xFFD32F2F)
 
+/** Экраны приложения в статистике. */
+private val SCREEN_TITLES = mapOf(
+    "home" to "Главный", "quote" to "КП", "quote_history" to "Заказы и КП", "ms_orders" to "Заказы МойСклад", "products" to "Товары",
+    "client" to "Клиенты", "payments" to "Оплаты", "finance" to "Финансы", "warehouse" to "Склад", "labels" to "Этикетки",
+    "tasks" to "Задачи", "comms" to "Связь", "ai" to "ИИ", "shop" to "Магазин", "staff_production" to "Производство",
+    "calculator" to "Калькулятор", "yarn" to "Пряжа", "report" to "Отчёт", "worktime" to "Рабочее время", "activity" to "Активность",
+)
+
 /** Названия действий в отчёте. */
 private val KINDS = mapOf(
     "quote" to "КП", "quoteSend" to "отправлено КП", "client" to "клиенты", "product" to "товары", "order" to "заказы",
@@ -106,6 +114,13 @@ fun ActivityScreen(vm: StaffViewModel, onBack: () -> Unit) {
             }
         }
         Text(stringResource(R.string.activity_hint, r.idleMinutes), color = colors.textSecondary, fontSize = 12.sp)
+        if (r.screens.isNotEmpty()) {
+            SectionTitle(R.string.activity_screens)
+            val total = r.screens.sumOf { it.second }.coerceAtLeast(1)
+            r.screens.forEach { (s, m) ->
+                Text("${SCREEN_TITLES[s] ?: s} — ${hours(m)} (${m * 100 / total} %)", color = colors.textPrimary, fontSize = 13.sp)
+            }
+        }
         if (r.feed.isNotEmpty()) {
             SectionTitle(R.string.activity_feed)
             r.feed.take(60).forEach { f ->

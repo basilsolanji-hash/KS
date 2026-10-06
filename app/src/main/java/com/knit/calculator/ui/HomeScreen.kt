@@ -85,7 +85,7 @@ enum class HomeWidget(val title: Int, val directorOnly: Boolean = false, val per
 val DEFAULT_WIDGETS = HomeWidget.entries.toList()
 
 /** Разделы, доступные с главного экрана. */
-enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI, STAFF_SERVER, STAFF_PRODUCTION, EMPLOYEES, RATING, ACTIVITY, MS_ORDERS, TASKS }
+enum class HomeAction { QUOTE, YARN, CALCULATOR, HISTORY, REPORT, SHOP, SETTINGS, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI, STAFF_SERVER, STAFF_PRODUCTION, EMPLOYEES, RATING, ACTIVITY, MS_ORDERS, TASKS, PROFILE, PAYROLL }
 
 /** Пункт меню: раздел, подпись, значок. */
 data class MenuItem(val action: HomeAction, val label: Int, val icon: Int)
@@ -94,6 +94,8 @@ data class MenuItem(val action: HomeAction, val label: Int, val icon: Int)
 fun menuGroups(director: Boolean, msEnabled: Boolean, staffRole: String? = null): List<Pair<Int, List<MenuItem>>> {
     val service = R.string.menu_group_service to listOf(
         MenuItem(HomeAction.TASKS, R.string.tasks_title, R.drawable.ic_list),
+        MenuItem(HomeAction.PROFILE, R.string.profile_title, R.drawable.ic_settings),
+        MenuItem(HomeAction.PAYROLL, R.string.payroll_title, R.drawable.ic_payments),
         MenuItem(HomeAction.WORKTIME, R.string.home_worktime, R.drawable.ic_history),
         MenuItem(HomeAction.RATING, R.string.staff_rating, R.drawable.ic_report),
         MenuItem(HomeAction.STAFF_SERVER, R.string.staff_server, R.drawable.ic_cloud),
@@ -128,37 +130,67 @@ fun menuGroups(director: Boolean, msEnabled: Boolean, staffRole: String? = null)
     }
     val full = director || staffRole == "assistant"
     return listOf(
-    R.string.home_group_sales to listOf(
-        MenuItem(HomeAction.QUOTE, R.string.menu_quote, R.drawable.ic_add),
-        MenuItem(HomeAction.HISTORY, R.string.home_history, R.drawable.ic_history),
-        MenuItem(HomeAction.MS_ORDERS, R.string.orders_title, R.drawable.ic_list),
-        MenuItem(HomeAction.PRODUCTS, R.string.home_products, R.drawable.ic_inventory),
-        MenuItem(HomeAction.REPORT, R.string.home_report, R.drawable.ic_report),
-        MenuItem(HomeAction.COMMS, R.string.home_comms, R.drawable.ic_chat),
-        MenuItem(HomeAction.AI, R.string.home_ai, R.drawable.ic_ai),
-        MenuItem(HomeAction.SHOP, R.string.home_shop, R.drawable.ic_web),
-    ),
-    R.string.home_group_money to listOfNotNull(
-        MenuItem(HomeAction.PAYMENTS, R.string.home_payments, R.drawable.ic_payments),
-        if (director) MenuItem(HomeAction.FINANCE, R.string.home_finance, R.drawable.ic_report) else null,
-        if (director) MenuItem(HomeAction.COST, R.string.home_cost, R.drawable.ic_calculator) else null,
-    ),
-    R.string.home_group_production to listOfNotNull(
-        MenuItem(HomeAction.PRODUCTION, R.string.home_production, R.drawable.ic_factory),
-        MenuItem(HomeAction.YARN, R.string.home_yarn, R.drawable.ic_yarn),
-        // С МойСклад склад пряжи ведётся там.
-        if (!msEnabled) MenuItem(HomeAction.STOCK, R.string.home_stock, R.drawable.ic_inventory) else null,
-        if (msEnabled) MenuItem(HomeAction.WAREHOUSE, R.string.home_warehouse, R.drawable.ic_scan) else null,
-        MenuItem(HomeAction.STAFF_PRODUCTION, R.string.staff_production, R.drawable.ic_factory),
-        MenuItem(HomeAction.LABELS, R.string.home_labels, R.drawable.ic_label),
-        MenuItem(HomeAction.CALCULATOR, R.string.home_calculator, R.drawable.ic_calculator),
-    ),
-    R.string.menu_group_staff to listOfNotNull(
-        if (full) MenuItem(HomeAction.EMPLOYEES, R.string.staff_employees, R.drawable.ic_list) else null,
-        if (full) MenuItem(HomeAction.ACTIVITY, R.string.menu_activity, R.drawable.ic_report) else null,
-    ),
-    service.first to (listOf(MenuItem(HomeAction.SETTINGS, R.string.home_settings, R.drawable.ic_settings)) + service.second),
+        R.string.menu_group_work to listOf(
+            MenuItem(HomeAction.QUOTE, R.string.menu_quote, R.drawable.ic_add),
+            MenuItem(HomeAction.HISTORY, R.string.home_history, R.drawable.ic_history),
+            MenuItem(HomeAction.MS_ORDERS, R.string.orders_title, R.drawable.ic_list),
+            MenuItem(HomeAction.TASKS, R.string.tasks_title, R.drawable.ic_list),
+            MenuItem(HomeAction.PRODUCTS, R.string.home_products, R.drawable.ic_inventory),
+            MenuItem(HomeAction.COMMS, R.string.home_comms, R.drawable.ic_chat),
+            MenuItem(HomeAction.REPORT, R.string.home_report, R.drawable.ic_report),
+            MenuItem(HomeAction.AI, R.string.home_ai, R.drawable.ic_ai),
+            MenuItem(HomeAction.SHOP, R.string.home_shop, R.drawable.ic_web),
+        ),
+        R.string.home_group_production to listOfNotNull(
+            MenuItem(HomeAction.PRODUCTION, R.string.home_production, R.drawable.ic_factory),
+            MenuItem(HomeAction.STAFF_PRODUCTION, R.string.staff_production, R.drawable.ic_factory),
+            // С МойСклад склад ведётся там (сканер); без него — склад пряжи на телефоне.
+            if (msEnabled) MenuItem(HomeAction.WAREHOUSE, R.string.home_warehouse, R.drawable.ic_scan) else MenuItem(HomeAction.STOCK, R.string.home_stock, R.drawable.ic_inventory),
+            MenuItem(HomeAction.YARN, R.string.home_yarn, R.drawable.ic_yarn),
+            MenuItem(HomeAction.LABELS, R.string.home_labels, R.drawable.ic_label),
+            MenuItem(HomeAction.CALCULATOR, R.string.home_calculator, R.drawable.ic_calculator),
+        ),
+        R.string.home_group_money to listOfNotNull(
+            MenuItem(HomeAction.PAYMENTS, R.string.home_payments, R.drawable.ic_payments),
+            if (director) MenuItem(HomeAction.FINANCE, R.string.home_finance, R.drawable.ic_report) else null,
+            if (director) MenuItem(HomeAction.COST, R.string.home_cost, R.drawable.ic_calculator) else null,
+            MenuItem(HomeAction.PAYROLL, R.string.payroll_title, R.drawable.ic_payments),
+        ),
+        R.string.menu_group_staff to listOfNotNull(
+            if (full) MenuItem(HomeAction.EMPLOYEES, R.string.staff_employees, R.drawable.ic_list) else null,
+            if (full) MenuItem(HomeAction.ACTIVITY, R.string.menu_activity, R.drawable.ic_report) else null,
+            MenuItem(HomeAction.RATING, R.string.staff_rating, R.drawable.ic_report),
+            MenuItem(HomeAction.WORKTIME, R.string.home_worktime, R.drawable.ic_history),
+            MenuItem(HomeAction.PROFILE, R.string.profile_title, R.drawable.ic_settings),
+        ),
+        R.string.menu_group_service to listOf(
+            MenuItem(HomeAction.SETTINGS, R.string.home_settings, R.drawable.ic_settings),
+            MenuItem(HomeAction.STAFF_SERVER, R.string.staff_server, R.drawable.ic_cloud),
+            MenuItem(HomeAction.ABOUT, R.string.menu_about, R.drawable.ic_doc),
+        ),
     )
+}
+
+/**
+ * Частота разделов на этом телефоне: в каждой группе меню частые — сверху.
+ * Счётчик убывает со временем (×0,9 при каждом 50-м нажатии), чтобы меню подстраивалось под новые привычки.
+ */
+object MenuUsage {
+    private fun prefs(ctx: android.content.Context) = ctx.getSharedPreferences("menu_usage", android.content.Context.MODE_PRIVATE)
+
+    fun counts(ctx: android.content.Context): Map<HomeAction, Int> =
+        HomeAction.entries.associateWith { prefs(ctx).getInt(it.name, 0) }.filterValues { it > 0 }
+
+    fun hit(ctx: android.content.Context, action: HomeAction) {
+        val p = prefs(ctx)
+        val total = p.getInt("_total", 0) + 1
+        val e = p.edit().putInt(action.name, p.getInt(action.name, 0) + 10).putInt("_total", total)
+        if (total % 50 == 0) HomeAction.entries.forEach { a -> e.putInt(a.name, (p.getInt(a.name, 0) * 0.9).toInt()) }
+        e.apply()
+    }
+
+    fun sorted(groups: List<Pair<Int, List<MenuItem>>>, counts: Map<HomeAction, Int>): List<Pair<Int, List<MenuItem>>> =
+        groups.map { (t, items) -> t to items.sortedByDescending { counts[it.action] ?: 0 } }
 }
 
 /** Кнопки наверху по умолчанию. */
@@ -214,7 +246,10 @@ fun HomeScreen(
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var editShortcuts by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     var editWidgets by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-    val groups = menuGroups(director, sync.msEnabled, staffRole)
+    val menuContext = androidx.compose.ui.platform.LocalContext.current
+    val groups = androidx.compose.runtime.remember(director, sync.msEnabled, staffRole, drawer.isOpen) {
+        MenuUsage.sorted(menuGroups(director, sync.msEnabled, staffRole), MenuUsage.counts(menuContext))
+    }
     val canQuote = staffRole == null || staffRole in setOf("director", "assistant", "manager")
     val all = groups.flatMap { it.second }
     fun go(a: HomeAction) {
@@ -240,7 +275,7 @@ fun HomeScreen(
                                 label = { Text(stringResource(item.label), fontSize = 16.sp) },
                                 icon = { Icon(painterResource(item.icon), null, Modifier.size(22.dp)) },
                                 selected = false,
-                                onClick = { go(item.action) },
+                                onClick = { MenuUsage.hit(menuContext, item.action); go(item.action) },
                                 colors = androidx.compose.material3.NavigationDrawerItemDefaults.colors(
                                     unselectedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
                                     unselectedTextColor = colors.textPrimary,

@@ -40,7 +40,7 @@ import com.knit.calculator.yarn.YarnScreen
 import com.knit.calculator.yarn.YarnViewModel
 
 /** Экраны приложения; переход «назад» описан у каждого экрана. */
-private enum class Screen { HOME, CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY, REPORT, ORDER_YARN, SHOP, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, CLIENT, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI, STAFF_SERVER, STAFF_PRODUCTION, EMPLOYEES, RATING, ACTIVITY, MS_ORDERS, TASKS }
+private enum class Screen { HOME, CALCULATOR, YARN, QUOTE, CATALOG, PRODUCT, COMPANY, QUOTE_HISTORY, REPORT, ORDER_YARN, SHOP, PAYMENTS, PRODUCTION, STOCK, LABELS, ABOUT, PRODUCTS, CLIENT, FINANCE, COST, COMMS, WAREHOUSE, WORKTIME, AI, STAFF_SERVER, STAFF_PRODUCTION, EMPLOYEES, RATING, ACTIVITY, MS_ORDERS, TASKS, PROFILE, PAYROLL }
 
 class MainActivity : FragmentActivity() {
 
@@ -84,6 +84,13 @@ class MainActivity : FragmentActivity() {
     private val staffViewModel: com.knit.calculator.staff.StaffViewModel by viewModels()
     private val ordersViewModel: com.knit.calculator.staff.OrdersViewModel by viewModels()
     private val tasksViewModel: com.knit.calculator.staff.TasksViewModel by viewModels()
+    private val profileViewModel: com.knit.calculator.staff.ProfileViewModel by viewModels()
+
+    /** Чей профиль/выплаты открыты (null — свои). */
+    private var profileTarget by mutableStateOf<Int?>(null)
+
+    /** Экран сейчас — для статистики экранов. */
+    @Volatile private var currentScreen = "home"
 
     /** Задача из уведомления — открыть экран задач на ней. */
     private var openTask by mutableStateOf<Int?>(null)
@@ -120,7 +127,7 @@ class MainActivity : FragmentActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
                 while (true) {
-                    staffViewModel.ping()
+                    staffViewModel.ping(currentScreen)
                     com.knit.calculator.staff.StaffNotifier.poll(this@MainActivity)
                     kotlinx.coroutines.delay(60_000)
                 }
@@ -147,6 +154,7 @@ class MainActivity : FragmentActivity() {
             var clientName by rememberSaveable { mutableStateOf("") }
             // Нажали уведомление о задаче — сразу экран задач.
             androidx.compose.runtime.LaunchedEffect(openTask) { if (openTask != null && screen != Screen.TASKS) open(Screen.TASKS) }
+            androidx.compose.runtime.SideEffect { currentScreen = screen.name.lowercase() }
             fun back() { stack = if (stack.size > 1) stack.dropLast(1) else stack }
             val sync by quoteViewModel.sync.collectAsStateWithLifecycle()
             val settings by quoteViewModel.settings.collectAsStateWithLifecycle()
@@ -255,6 +263,12 @@ class MainActivity : FragmentActivity() {
                         staffViewModel.loadRating("%04d-%02d".format(c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH) + 1))
                     }
                 }
+                // Сервер фабрики: соглашения не приняты — сначала они (один раз; «Назад» — отложить до следующего запуска).
+                var legalLater by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+                if (staffMe != null && staffMe?.legalOk == false && !legalLater) {
+                    com.knit.calculator.staff.LegalScreen(profileViewModel, onAccepted = { staffViewModel.refreshMe() }, onLater = { legalLater = true })
+                    return@KnitTheme
+                }
                 when (screen) {
                     Screen.HOME -> HomeScreen(sync, themeMode, director, onTheme = viewModel::cycleTheme, day = day, version = version, myPay = myPay, charts = charts,
                         shortcuts = shortcuts,
@@ -317,6 +331,8 @@ class MainActivity : FragmentActivity() {
                                 HomeAction.ACTIVITY -> Screen.ACTIVITY
                                 HomeAction.MS_ORDERS -> Screen.MS_ORDERS
                                 HomeAction.TASKS -> Screen.TASKS
+                                HomeAction.PROFILE -> { profileTarget = null; Screen.PROFILE }
+                                HomeAction.PAYROLL -> { profileTarget = null; Screen.PAYROLL }
                             },
                         )
                     }
@@ -374,11 +390,17 @@ class MainActivity : FragmentActivity() {
                     Screen.WORKTIME -> com.knit.calculator.quote.WorkTimeScreen(workViewModel, director, onBack = ::back)
                     Screen.STAFF_SERVER -> com.knit.calculator.staff.StaffConnectScreen(staffViewModel, onBack = ::back)
                     Screen.STAFF_PRODUCTION -> com.knit.calculator.staff.StaffProductionScreen(staffViewModel, onBack = ::back)
-                    Screen.EMPLOYEES -> com.knit.calculator.staff.EmployeesScreen(staffViewModel, onBack = ::back)
+                    Screen.EMPLOYEES -> com.knit.calculator.staff.EmployeesScreen(staffViewModel, onBack = ::back, onProfile = { profileTarget = it; open(Screen.PROFILE) })
                     Screen.RATING -> com.knit.calculator.staff.RatingScreen(staffViewModel, onBack = ::back)
                     Screen.ACTIVITY -> com.knit.calculator.staff.ActivityScreen(staffViewModel, onBack = ::back)
                     Screen.MS_ORDERS -> com.knit.calculator.staff.MsOrdersScreen(ordersViewModel, onBack = ::back)
                     Screen.TASKS -> com.knit.calculator.staff.TasksScreen(tasksViewModel, staffMe, openTask, onBack = { openTask = null; back() })
+                    Screen.PROFILE -> com.knit.calculator.staff.ProfileScreen(profileViewModel, staffMe, profileTarget, onPayroll = { profileTarget = it; open(Screen.PAYROLL) }, onBack = ::back)
+                    Screen.PAYROLL -> {
+                        val people by tasksViewModel.people.collectAsStateWithLifecycle()
+                        androidx.compose.runtime.LaunchedEffect(Unit) { if (people.isEmpty()) tasksViewModel.loadPeople() }
+                        com.knit.calculator.staff.PayrollScreen(profileViewModel, staffMe, profileTarget, people, onBack = ::back)
+                    }
                     Screen.AI -> com.knit.calculator.comms.AiScreen(quoteViewModel, director, onBack = ::back)
                     Screen.WAREHOUSE -> com.knit.calculator.quote.WarehouseScreen(quoteViewModel, warehouseViewModel, onBack = ::back)
                     Screen.COMMS -> com.knit.calculator.comms.CommsScreen(onBack = ::back)

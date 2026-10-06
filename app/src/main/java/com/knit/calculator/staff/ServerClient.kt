@@ -76,6 +76,8 @@ data class StaffMe(
     val stages: List<Triple<String, String, Boolean>>,
     /** Учитывается активность в приложении (офис, рабочее время). */
     val tracked: Boolean = false,
+    /** Соглашения приняты (иначе — экран соглашений перед работой). */
+    val legalOk: Boolean = true,
 ) {
     val director: Boolean get() = role == "director"
     val full: Boolean get() = role == "director" || role == "assistant"
@@ -94,6 +96,7 @@ data class StaffMe(
                 me.optInt("id"), me.optString("name"), me.optString("role"), roles,
                 (0 until stages.length()).map { stages.getJSONObject(it) }.map { Triple(it.optString("key"), it.optString("name"), it.optBoolean("mine")) },
                 o.optBoolean("tracked"),
+                o.optBoolean("legalOk", true),
             )
         }
     }
