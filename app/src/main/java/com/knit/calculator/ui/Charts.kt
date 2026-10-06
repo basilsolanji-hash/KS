@@ -25,6 +25,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
@@ -165,9 +167,11 @@ fun wholeNumber(v: BigDecimal): String =
 @Composable
 fun TrendChart(
     title: String,
-    months: List<String>,
+    labels: List<String>,
     series: List<Pair<String, List<BigDecimal>>>,
     colors: List<Color>,
+    /** Прошлый период по каждой серии (рисуется пунктиром на фоне); `null` — не показывать. */
+    previous: List<List<BigDecimal>?> = emptyList(),
     plan: BigDecimal? = null,
     planLabel: String = "",
     unit: String = "₽",
@@ -176,51 +180,55 @@ fun TrendChart(
     modifier: Modifier = Modifier,
 ) {
     val theme = LocalKnitColors.current
-    var selected by remember(months) { mutableStateOf(months.lastIndex) }
+    var selected by remember(labels) { mutableStateOf(labels.lastIndex) }
     val reveal = remember { androidx.compose.animation.core.Animatable(0f) }
     androidx.compose.runtime.LaunchedEffect(series) {
         reveal.snapTo(0f)
         reveal.animateTo(1f, androidx.compose.animation.core.tween(500))
     }
-    val max = (series.flatMap { it.second } + listOfNotNull(plan)).maxOrNull()?.takeIf { it.signum() > 0 } ?: BigDecimal.ONE
+    val max = (series.flatMap { it.second } + previous.filterNotNull().flatten() + listOfNotNull(plan))
+        .maxOrNull()?.takeIf { it.signum() > 0 } ?: BigDecimal.ONE
     val fmt: (BigDecimal) -> String = { wholeNumber(it) + " " + unit }
+    fun pct(now: BigDecimal, before: BigDecimal): Int? =
+        if (before.signum() <= 0) null else now.subtract(before).multiply(BigDecimal(100)).divide(before, 0, java.math.RoundingMode.HALF_UP).toInt()
     Surface(shape = RoundedCornerShape(20.dp), color = theme.panel, modifier = modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(title, color = theme.textSecondary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 if (toggle != null) Segmented(toggle.first, toggle.second, onToggle)
             }
-            if (months.isEmpty()) return@Column
-            val i = selected.coerceIn(0, months.lastIndex)
-            // Крупно — значение выбранного месяца, рядом изменение к прошлому месяцу.
+            if (labels.isEmpty()) return@Column
+            val i = selected.coerceIn(0, labels.lastIndex)
+            // Крупно — итог периода и изменение к прошлому периоду; ниже — выбранный столбец.
             series.forEachIndexed { s, (name, v) ->
-                val value = v.getOrNull(i) ?: BigDecimal.ZERO
-                val prev = v.getOrNull(i - 1)
+                val total = v.fold(BigDecimal.ZERO, BigDecimal::add)
+                val before = previous.getOrNull(s)?.fold(BigDecimal.ZERO, BigDecimal::add)
                 Row(verticalAlignment = Alignment.Bottom) {
-                    if (series.size > 1) {
-                        Canvas(Modifier.padding(bottom = 7.dp, end = 6.dp).size(8.dp)) { drawCircle(colors[s]) }
-                    }
+                    if (series.size > 1) Canvas(Modifier.padding(bottom = 7.dp, end = 6.dp).size(8.dp)) { drawCircle(colors[s]) }
                     Text(
-                        fmt(value), color = theme.textPrimary,
+                        fmt(total), color = theme.textPrimary,
                         fontSize = if (series.size > 1) 18.sp else 24.sp, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.semantics { contentDescription = "$name ${shortMonth(months[i])}: ${fmt(value)}" },
+                        modifier = Modifier.semantics { contentDescription = "$name: ${fmt(total)}" },
                     )
                     if (series.size > 1) Text("  $name", color = theme.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(bottom = 2.dp))
-                    if (prev != null && prev.signum() > 0) {
-                        val pct = value.subtract(prev).multiply(BigDecimal(100)).divide(prev, 0, java.math.RoundingMode.HALF_UP)
-                        val up = pct.signum() >= 0
+                    pct(total, before ?: BigDecimal.ZERO)?.let { p ->
                         Text(
-                            (if (up) "  ▲ " else "  ▼ ") + pct.abs().toPlainString() + "% к " + shortMonth(months[i - 1]),
-                            color = if (up) Color(0xFF2E9E5B) else Color(0xFFD9534F),
+                            (if (p >= 0) "  ▲ " else "  ▼ ") + kotlin.math.abs(p) + "% к прошлому",
+                            color = if (p >= 0) Color(0xFF2E9E5B) else Color(0xFFD9534F),
                             fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 3.dp),
                         )
                     }
                 }
             }
+            Text(
+                labels[i] + ": " + series.joinToString(" · ") { (_, v) -> fmt(v.getOrNull(i) ?: BigDecimal.ZERO) } +
+                    (previous.firstOrNull()?.getOrNull(i)?.let { " (раньше " + fmt(it) + ")" } ?: ""),
+                color = theme.textSecondary, fontSize = 12.sp,
+            )
             if (plan != null) {
                 val v = series.firstOrNull()?.second?.getOrNull(i) ?: BigDecimal.ZERO
-                val pct = v.multiply(BigDecimal(100)).divide(plan.max(BigDecimal.ONE), 0, java.math.RoundingMode.HALF_UP)
-                Text("$planLabel ${compactRub(plan)} · выполнено $pct%", color = theme.textSecondary, fontSize = 12.sp)
+                val done = v.multiply(BigDecimal(100)).divide(plan.max(BigDecimal.ONE), 0, java.math.RoundingMode.HALF_UP)
+                Text("$planLabel ${compactRub(plan)} · выполнено $done%", color = theme.textSecondary, fontSize = 12.sp)
             }
             val grid = theme.textSecondary.copy(alpha = 0.18f)
             val planColor = theme.textSecondary
@@ -229,31 +237,41 @@ fun TrendChart(
             Canvas(
                 Modifier.fillMaxWidth().height(120.dp).padding(top = 6.dp)
                     .semantics { contentDescription = title }
-                    .pointerInput(months) {
+                    .pointerInput(labels) {
                         detectTapGestures { p ->
-                            selected = (p.x / (size.width.toFloat() / months.size)).toInt().coerceIn(0, months.lastIndex)
+                            selected = (p.x / (size.width.toFloat() / labels.size)).toInt().coerceIn(0, labels.lastIndex)
                         }
                     },
             ) {
-                val slot = size.width / months.size
+                val slot = size.width / labels.size
                 val top = 6.dp.toPx()
                 val h = size.height - top
                 fun y(v: BigDecimal) = top + h - (v.toFloat() / max.toFloat()) * h * reveal.value
+                fun path(values: List<BigDecimal>): Pair<androidx.compose.ui.graphics.Path, List<Offset>> {
+                    val pts = labels.indices.map { Offset(slot * (it + 0.5f), y(values.getOrNull(it) ?: BigDecimal.ZERO)) }
+                    return androidx.compose.ui.graphics.Path().apply {
+                        moveTo(pts[0].x, pts[0].y)
+                        for (k in 1 until pts.size) {
+                            val mid = (pts[k - 1].x + pts[k].x) / 2
+                            cubicTo(mid, pts[k - 1].y, mid, pts[k].y, pts[k].x, pts[k].y)
+                        }
+                    } to pts
+                }
                 for (g in 0..2) {
                     val gy = top + h * g / 2f
                     drawLine(grid, Offset(0f, gy), Offset(size.width, gy), strokeWidth = 1.dp.toPx())
                 }
                 drawLine(guide, Offset(slot * (i + 0.5f), top), Offset(slot * (i + 0.5f), size.height), strokeWidth = 1.dp.toPx(),
                     pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)))
+                // Прошлый период — бледный пунктир на фоне.
+                previous.forEachIndexed { s, values ->
+                    if (values == null || s >= colors.size) return@forEachIndexed
+                    drawPath(path(values).first, colors[s].copy(alpha = 0.35f), style = androidx.compose.ui.graphics.drawscope.Stroke(
+                        width = 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f)),
+                    ))
+                }
                 series.forEachIndexed { s, (_, values) ->
-                    val pts = months.indices.map { Offset(slot * (it + 0.5f), y(values.getOrNull(it) ?: BigDecimal.ZERO)) }
-                    val line = androidx.compose.ui.graphics.Path().apply {
-                        moveTo(pts[0].x, pts[0].y)
-                        for (k in 1 until pts.size) {
-                            val mid = (pts[k - 1].x + pts[k].x) / 2
-                            cubicTo(mid, pts[k - 1].y, mid, pts[k].y, pts[k].x, pts[k].y)
-                        }
-                    }
+                    val (line, pts) = path(values)
                     val fill = androidx.compose.ui.graphics.Path().apply {
                         addPath(line)
                         lineTo(pts.last().x, size.height)
@@ -277,13 +295,24 @@ fun TrendChart(
                         pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f)))
                 }
             }
-            Row(Modifier.fillMaxWidth()) {
-                months.forEachIndexed { m, k ->
-                    Text(
-                        shortMonth(k), color = if (m == i) theme.textPrimary else theme.textSecondary, fontSize = 12.sp,
-                        fontWeight = if (m == i) FontWeight.Bold else FontWeight.Normal,
-                        modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    )
+            // Подписи: не больше 8, выбранная — всегда; рисуются на холсте, чтобы «30» не обрезалось в узком столбце.
+            val step = ((labels.size + 7) / 8).coerceAtLeast(1)
+            val labelColor = theme.textSecondary.toArgb()
+            val activeColor = theme.textPrimary.toArgb()
+            Canvas(Modifier.fillMaxWidth().height(16.dp)) {
+                val slot = size.width / labels.size
+                val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                    textSize = 11.sp.toPx()
+                    textAlign = android.graphics.Paint.Align.CENTER
+                }
+                labels.forEachIndexed { m, k ->
+                    val near = kotlin.math.abs(m - i) in 1 until step
+                    if (m != i && (m % step != 0 || near)) return@forEachIndexed
+                    paint.color = if (m == i) activeColor else labelColor
+                    paint.isFakeBoldText = m == i
+                    val half = paint.measureText(k) / 2
+                    val x = (slot * (m + 0.5f)).coerceIn(half, size.width - half)
+                    drawContext.canvas.nativeCanvas.drawText(k, x, size.height - 3.dp.toPx(), paint)
                 }
             }
         }

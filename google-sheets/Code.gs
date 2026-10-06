@@ -372,7 +372,8 @@ function finance_(ss) {
       return { name: 'Счёт поставщика № ' + d.name, amount: ((Number(d.sum) || 0) - (Number(d.payedSum) || 0)) / 100, due: msTime_(d.paymentPlannedMoment || d.moment) };
     }).filter(function (x) { return x.amount > 0.009; });
     // Факт за 6 месяцев: графики «Приход и расход» на главном экране директора.
-    var weeks8 = msMoment_(new Date(Date.now() - 183 * 86400000));
+    // Два года: периоды «по месяцам» сравниваются с прошлым годом.
+    var weeks8 = msMoment_(new Date(Date.now() - 731 * 86400000));
     out.actualIn = msAll_('/entity/paymentin?filter=' + encodeURIComponent('moment>=' + weeks8)).map(function (d) {
       return { date: msTime_(d.moment), amount: (Number(d.sum) || 0) / 100 };
     });
@@ -388,14 +389,22 @@ function finance_(ss) {
     out.actualOut = msAll_('/entity/paymentout?filter=' + encodeURIComponent('moment>=' + weeks8)).map(expense)
       .concat(msAll_('/entity/cashout?filter=' + encodeURIComponent('moment>=' + weeks8)).map(expense));
     // Отгрузки по месяцам (₽ и шт) — один запрос к отчёту «Показатели продаж».
+    // Отгрузки (₽ и шт) из отчёта «Показатели продаж»: по месяцам за 5 лет, по дням за 62 дня, по часам за 2 дня.
     out.shipments = [];
+    out.shipDay = [];
+    out.shipHour = [];
     try {
-      var from = new Date(); from.setDate(1); from.setMonth(from.getMonth() - 6);
-      var series = ms_('get', '/report/sales/plotseries?interval=month&momentFrom=' + encodeURIComponent(msMoment_(from)) +
-        '&momentTo=' + encodeURIComponent(msMoment_(new Date()))).series || [];
-      out.shipments = series.map(function (r) {
-        return { date: msTime_(r.date), sum: (Number(r.sum) || 0) / 100, qty: Number(r.quantity) || 0 };
-      });
+      var plot = function (interval, from) {
+        var series = ms_('get', '/report/sales/plotseries?interval=' + interval + '&momentFrom=' + encodeURIComponent(msMoment_(from)) +
+          '&momentTo=' + encodeURIComponent(msMoment_(new Date()))).series || [];
+        return series.map(function (r) {
+          return { date: msTime_(r.date), sum: (Number(r.sum) || 0) / 100, qty: Number(r.quantity) || 0 };
+        });
+      };
+      var from = new Date(); from.setDate(1); from.setMonth(0); from.setFullYear(from.getFullYear() - 4);
+      out.shipments = plot('month', from);
+      out.shipDay = plot('day', new Date(Date.now() - 62 * 86400000));
+      out.shipHour = plot('hour', new Date(Date.now() - 2 * 86400000));
     } catch (err) {
       out.shipError = String((err && err.message) || err);
     }

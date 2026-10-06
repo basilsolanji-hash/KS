@@ -402,3 +402,44 @@ class WorkTimeTest {
         assertEquals("9 ч 30 мин", WorkTime.format(totals[1].minutes))
     }
 }
+
+class DynamicsTest {
+    private val tz = java.util.TimeZone.getTimeZone("Europe/Moscow")
+    private fun t(y: Int, m: Int, d: Int, h: Int = 12) = java.util.Calendar.getInstance(tz).apply { clear(); set(y, m - 1, d, h, 0) }.timeInMillis
+    private val now = t(2026, 10, 6, 14)
+    private val items = listOf(
+        t(2026, 10, 6, 9) to BigDecimal(100),   // сегодня 9:00
+        t(2026, 10, 5, 9) to BigDecimal(40),    // вчера 9:00
+        t(2026, 10, 1) to BigDecimal(200),
+        t(2026, 9, 20) to BigDecimal(300),      // в 30 днях
+        t(2026, 8, 20) to BigDecimal(500),      // прошлые 30 дней
+        t(2025, 10, 3) to BigDecimal(700),      // год назад
+    )
+
+    @Test fun todayByHourWithYesterday() {
+        val s = Dynamics.series(items, DynPeriod.TODAY, now)
+        assertEquals(15, s.labels.size)
+        assertEquals(BigDecimal(100), s.current[9])
+        assertEquals(BigDecimal(40), s.previous!![9])
+    }
+
+    @Test fun thirtyDaysAndPrevious() {
+        val s = Dynamics.series(items, DynPeriod.MONTH, now)
+        assertEquals(30, s.current.size)
+        assertEquals("6", s.labels.last())
+        assertEquals(BigDecimal(640), s.total)
+        assertEquals(BigDecimal(500), s.previousTotal)
+    }
+
+    @Test fun monthsComparedToYearAgoAndYears() {
+        val m = Dynamics.series(items, DynPeriod.MONTHS, now)
+        assertEquals("окт", m.labels.last())
+        assertEquals(BigDecimal(340), m.current.last())
+        assertEquals(BigDecimal(700), m.previous!!.last())
+        val y = Dynamics.series(items, DynPeriod.YEARS, now)
+        assertEquals(listOf("2022", "2023", "2024", "2025", "2026"), y.labels)
+        assertEquals(null, y.previous)
+        assertEquals(BigDecimal(700), y.current[3])
+        assertEquals("вт", Dynamics.series(items, DynPeriod.WEEK, now).labels[6]) // 6 октября 2026 — вторник
+    }
+}

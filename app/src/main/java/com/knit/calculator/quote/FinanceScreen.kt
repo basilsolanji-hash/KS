@@ -68,6 +68,9 @@ data class FinanceData(
     val expenses: List<com.knit.calculator.core.Expense> = emptyList(),
     /** Отгрузки МойСклад: дата, сумма ₽, штуки. */
     val shipments: List<Triple<Long, BigDecimal, BigDecimal>> = emptyList(),
+    /** Отгрузки по дням (62 дня) и по часам (2 дня). */
+    val shipDay: List<Triple<Long, BigDecimal, BigDecimal>> = emptyList(),
+    val shipHour: List<Triple<Long, BigDecimal, BigDecimal>> = emptyList(),
     /** `false` — МойСклад не подключён, отгрузок нет. */
     val hasShipments: Boolean = false,
 ) {
@@ -88,6 +91,8 @@ data class FinanceData(
                 com.knit.calculator.core.Expense(it.optLong("date"), money(it.opt("amount")), it.optString("category"))
             },
             shipments = o.optJSONArray("shipments").objects().map { Triple(it.optLong("date"), money(it.opt("sum")), money(it.opt("qty"))) },
+            shipDay = o.optJSONArray("shipDay").objects().map { Triple(it.optLong("date"), money(it.opt("sum")), money(it.opt("qty"))) },
+            shipHour = o.optJSONArray("shipHour").objects().map { Triple(it.optLong("date"), money(it.opt("sum")), money(it.opt("qty"))) },
             hasShipments = o.has("shipments"),
         )
     }

@@ -125,24 +125,18 @@ class MainActivity : FragmentActivity() {
             // Графики директора: продажи (согласованные КП), приход и расход по месяцам.
             val finance by financeViewModel.data.collectAsStateWithLifecycle()
             val charts = if (!director) null else androidx.compose.runtime.remember(deals, ops, finance) {
-                val now = System.currentTimeMillis()
                 val won = setOf(com.knit.calculator.core.QuoteStatus.APPROVED, com.knit.calculator.core.QuoteStatus.IN_WORK, com.knit.calculator.core.QuoteStatus.PAID)
-                val sales = com.knit.calculator.core.monthlySums(
-                    deals.orEmpty().filter { it.status in won }.map { it.toSale().let { s -> s.date to s.total } }, now,
-                )
+                val sales = deals.orEmpty().filter { it.status in won }.map { it.toSale().let { s -> s.date to s.total } }
                 val f = finance
-                val inflow = com.knit.calculator.core.monthlySums(
-                    if (f != null && f.actualIn.isNotEmpty()) f.actualIn else ops.payments.map { it.date to it.amount }, now,
-                )
-                val outflow = if (f != null && f.actualOut.isNotEmpty()) com.knit.calculator.core.monthlySums(f.actualOut, now) else null
-                val shipSum = if (f != null && f.hasShipments) com.knit.calculator.core.monthlySums(f.shipments.map { it.first to it.second }, now) else null
-                val shipQty = if (f != null && f.hasShipments) com.knit.calculator.core.monthlySums(f.shipments.map { it.first to it.third }, now) else null
-                com.knit.calculator.ui.HomeCharts(
-                    months = sales.map { it.first }, sales = sales.map { it.second },
-                    plan = f?.plan?.takeIf { it.signum() > 0 },
-                    inflow = inflow.map { it.second }, outflow = outflow?.map { it.second },
-                    shipSum = shipSum?.map { it.second }, shipQty = shipQty?.map { it.second },
-                ).takeIf { it.sales.any { v -> v.signum() > 0 } || it.inflow.any { v -> v.signum() > 0 } || it.outflow != null }
+                val inflow = if (f != null && f.actualIn.isNotEmpty()) f.actualIn else ops.payments.map { it.date to it.amount }
+                val outflow = if (f != null && f.actualOut.isNotEmpty()) f.actualOut else null
+                val ship = if (f != null && f.hasShipments) mapOf(
+                    com.knit.calculator.core.Grain.MONTH to f.shipments,
+                    com.knit.calculator.core.Grain.DAY to f.shipDay,
+                    com.knit.calculator.core.Grain.HOUR to f.shipHour,
+                ) else null
+                com.knit.calculator.ui.HomeCharts(sales, f?.plan?.takeIf { it.signum() > 0 }, inflow, outflow, ship)
+                    .takeIf { sales.isNotEmpty() || inflow.isNotEmpty() || outflow != null }
             }
             val financeLoading by financeViewModel.loading.collectAsStateWithLifecycle()
             val refreshing = sync.loading || financeLoading

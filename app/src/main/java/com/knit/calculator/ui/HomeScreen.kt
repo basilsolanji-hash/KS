@@ -54,17 +54,16 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** Графики главного экрана (директор): последние 6 месяцев. */
+/** Данные графиков главного экрана (директор): точки «время → сумма», периоды считаются на телефоне. */
 data class HomeCharts(
-    val months: List<String>,
-    val sales: List<java.math.BigDecimal>,
+    val sales: List<Pair<Long, java.math.BigDecimal>>,
+    /** План продаж в месяц (линия — на графике «По месяцам»). */
     val plan: java.math.BigDecimal?,
-    val inflow: List<java.math.BigDecimal>,
+    val inflow: List<Pair<Long, java.math.BigDecimal>>,
     /** Расход — только с МойСклад (исходящие платежи); `null` — данных нет. */
-    val outflow: List<java.math.BigDecimal>?,
-    /** Отгрузки МойСклад по месяцам: сумма и штуки; `null` — нет МойСклад. */
-    val shipSum: List<java.math.BigDecimal>? = null,
-    val shipQty: List<java.math.BigDecimal>? = null,
+    val outflow: List<Pair<Long, java.math.BigDecimal>>?,
+    /** Отгрузки МойСклад (время, ₽, шт) по точности; `null` — нет МойСклад. */
+    val ship: Map<com.knit.calculator.core.Grain, List<Triple<Long, java.math.BigDecimal, java.math.BigDecimal>>>? = null,
 )
 
 /** Разделы, доступные с главного экрана. */
@@ -286,33 +285,58 @@ fun HomeScreen(
                 }
             }
         }
-        // Динамика (директор): продажи, отгрузки, приход и расход.
+        // Динамика (директор): период сверху (по умолчанию 30 дней), прошлый период — пунктиром на фоне.
         if (charts != null) {
             GroupTitle(R.string.home_group_dynamics)
+            var periodName by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(com.knit.calculator.core.DynPeriod.MONTH.name) }
+            val period = com.knit.calculator.core.DynPeriod.valueOf(periodName)
+            androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(com.knit.calculator.core.DynPeriod.entries.size) { k ->
+                    val p = com.knit.calculator.core.DynPeriod.entries[k]
+                    androidx.compose.material3.FilterChip(
+                        selected = p == period, onClick = { periodName = p.name }, label = { Text(p.title) },
+                        colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = colors.equalsKey, selectedLabelColor = colors.equalsKeyText, labelColor = colors.textPrimary,
+                        ),
+                    )
+                }
+            }
+            val now = androidx.compose.runtime.remember(period, charts) { System.currentTimeMillis() }
+            val sales = androidx.compose.runtime.remember(period, charts) { com.knit.calculator.core.Dynamics.series(charts.sales, period, now) }
+            val inflow = androidx.compose.runtime.remember(period, charts) { com.knit.calculator.core.Dynamics.series(charts.inflow, period, now) }
+            val outflow = androidx.compose.runtime.remember(period, charts) { charts.outflow?.let { com.knit.calculator.core.Dynamics.series(it, period, now) } }
             val dark = colors.isDark
             TrendChart(
-                stringResource(R.string.chart_sales), charts.months,
-                listOf(stringResource(R.string.chart_sales_series) to charts.sales), listOf(ChartColors.inflow(dark)),
-                plan = charts.plan, planLabel = stringResource(R.string.chart_plan),
+                stringResource(R.string.chart_sales), sales.labels,
+                listOf(stringResource(R.string.chart_sales_series) to sales.current), listOf(ChartColors.inflow(dark)),
+                previous = listOf(sales.previous),
+                plan = if (period == com.knit.calculator.core.DynPeriod.MONTHS) charts.plan else null, planLabel = stringResource(R.string.chart_plan),
             )
-            if (charts.shipSum != null) {
+            val ship = charts.ship
+            if (ship != null) {
                 var pieces by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+                val points = (ship[com.knit.calculator.core.Dynamics.grain(period)].orEmpty().ifEmpty { ship[com.knit.calculator.core.Grain.MONTH].orEmpty() })
+                val shipSeries = androidx.compose.runtime.remember(period, charts, pieces) {
+                    com.knit.calculator.core.Dynamics.series(points.map { it.first to (if (pieces) it.third else it.second) }, period, now)
+                }
                 TrendChart(
-                    stringResource(R.string.chart_ship), charts.months,
-                    listOf(stringResource(R.string.chart_ship_series) to (if (pieces) charts.shipQty.orEmpty() else charts.shipSum)),
+                    stringResource(R.string.chart_ship), shipSeries.labels,
+                    listOf(stringResource(R.string.chart_ship_series) to shipSeries.current),
                     listOf(ChartColors.outflow(dark)),
+                    previous = listOf(shipSeries.previous),
                     unit = if (pieces) "шт" else "₽",
                     toggle = listOf("₽", "шт") to (if (pieces) 1 else 0),
                     onToggle = { pieces = it == 1 },
                 )
             }
             TrendChart(
-                stringResource(R.string.chart_flows), charts.months,
+                stringResource(R.string.chart_flows), inflow.labels,
                 listOfNotNull(
-                    stringResource(R.string.chart_in) to charts.inflow,
-                    charts.outflow?.let { stringResource(R.string.chart_out) to it },
+                    stringResource(R.string.chart_in) to inflow.current,
+                    outflow?.let { stringResource(R.string.chart_out) to it.current },
                 ),
                 listOf(ChartColors.inflow(dark), ChartColors.outflow(dark)),
+                previous = listOf(inflow.previous, outflow?.previous),
             )
             if (charts.outflow == null) Text(stringResource(R.string.chart_no_out), color = colors.textSecondary, fontSize = 12.sp)
         }

@@ -104,6 +104,10 @@ class OpsUiTest {
         Shots.take("47_home_top", compose)
         compose.onNodeWithText("Приход и расход денег").performScrollTo()
         Shots.take("48_home_charts", compose)
+        // Периоды динамики: «По месяцам» — тот же месяц год назад пунктиром.
+        compose.onNodeWithText("По месяцам").performClick()
+        compose.onNodeWithText("Приход и расход денег").performScrollTo()
+        Shots.take("49_home_months", compose)
         compose.openMenu("Оплаты и долги")
         waitText(money(44_800))
         compose.onNodeWithText("Подробнее").performClick()

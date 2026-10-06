@@ -297,7 +297,7 @@ context.UrlFetchApp.fetch = (url, options) => {
   };
   if (path === '/report/stock/bystore/current') return msRespond(200, [{ assortmentId: 'p1', storeId: 'st1', stock: 120 }]);
   if (path === '/report/sales/plotseries') {
-    assert.strictEqual(params.interval, 'month');
+    assert.ok(['month', 'day', 'hour'].includes(params.interval));
     assert.ok(params.momentFrom && params.momentTo);
     return msRespond(200, { series: [{ date: '2099-01-01 00:00:00.000', quantity: 1200, sum: 45000000 }, { date: '2099-02-01 00:00:00.000', quantity: 0, sum: 0 }] });
   }
@@ -547,6 +547,8 @@ assert.deepStrictEqual(fin.supplier.map((x) => [x.name, x.amount]), [['Счёт 
 assert.ok(fin.supplier[0].due > Date.UTC(2098, 0, 1));
 assert.deepStrictEqual(fin.actualOut.map((x) => [x.amount, x.category]), [[30000, 'Аренда'], [500, 'Без статьи']]);
 assert.deepStrictEqual(fin.shipments.map((x) => [x.sum, x.qty]), [[450000, 1200], [0, 0]]);
+assert.strictEqual(fin.shipDay.length, 2);
+assert.strictEqual(fin.shipHour.length, 2);
 assert.ok(fin.shipments[0].date > Date.UTC(2098, 0, 1));
 // Повтор — из кэша скрипта, fresh — заново из МойСклад.
 const finCalls = msCalls.length;
