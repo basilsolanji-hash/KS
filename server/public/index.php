@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 // Точка входа API «ФАБРИКА» (staff.fabrika-ks.ru). Код и config.php лежат выше папки сайта — снаружи их не открыть.
+ini_set('display_errors', '0');
 $base = is_dir(__DIR__ . '/../ks') ? __DIR__ . '/../ks' : __DIR__ . '/..';
 foreach (['Db', 'Crypto', 'Rules', 'Api'] as $f) require_once "$base/src/$f.php";
 
@@ -25,20 +26,39 @@ if ($raw === false || strlen($raw) > 1_000_000) $reply(['ok' => false, 'error' =
 $req = json_decode($raw, true);
 if (!is_array($req)) $reply(['ok' => false, 'error' => 'Нужен JSON'], 400);
 
+if (!is_file("$base/config.php")) $reply(['ok' => false, 'error' => 'Сервер не настроен'], 500);
 $config = require "$base/config.php";
-// Ключ шифрования базы: из секрета или создаётся один раз и хранится выше папки сайта (только для чтения владельцем).
+// Ключ шифрования базы: из секрета или создаётся один раз и хранится выше папки сайта (только владельцу).
+// Создание — атомарное (x): два первых запроса одновременно не получат разные ключи.
 if (empty($config['app_key'])) {
     $keyFile = "$base/app.key";
     if (!is_file($keyFile)) {
-        file_put_contents($keyFile, base64_encode(random_bytes(32)), LOCK_EX);
-        @chmod($keyFile, 0600);
+        $old = umask(0077);
+        $h = @fopen($keyFile, 'x');
+        if ($h) {
+            fwrite($h, base64_encode(random_bytes(32)));
+            fclose($h);
+        }
+        umask($old);
+        clearstatcache();
     }
-    $config['app_key'] = trim((string)file_get_contents($keyFile));
+    $config['app_key'] = trim((string)@file_get_contents($keyFile));
+    if (strlen(base64_decode($config['app_key'], true) ?: '') !== 32) $reply(['ok' => false, 'error' => 'Сервер не настроен'], 500);
+}
+
+// Адрес телефона: за прокси beget (адрес из внутренней сети) — из заголовка прокси; иначе — прямой адрес.
+// Заголовки от внешних адресов не принимаются (их можно подделать).
+$ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+    // X-Real-IP ставит сам прокси; в X-Forwarded-For надёжен только последний адрес (добавлен прокси).
+    $chain = explode(',', (string)($_SERVER['HTTP_X_FORWARDED_FOR'] ?? ''));
+    $fwd = trim((string)($_SERVER['HTTP_X_REAL_IP'] ?? end($chain)));
+    if (filter_var($fwd, FILTER_VALIDATE_IP)) $ip = $fwd;
 }
 try {
     $db = Ks\Db::fromConfig($config);
     $db->migrate();
-    $api = new Ks\Api($db, new Ks\Crypto($config['app_key']), $config, (string)($_SERVER['REMOTE_ADDR'] ?? ''));
+    $api = new Ks\Api($db, new Ks\Crypto($config['app_key']), $config, $ip);
     $reply($api->handle($req));
 } catch (Throwable $e) {
     error_log('ks: ' . $e->getMessage());

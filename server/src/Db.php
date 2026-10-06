@@ -7,7 +7,7 @@ use PDO;
 
 /**
  * База данных проекта: MySQL на beget (в тестах — SQLite в памяти).
- * Таблицы создаются и дополняются сами (migrate), версия схемы — в таблице settings.
+ * Таблицы создаются и дополняются сами (migrate), версия схемы — в таблице settings (SCHEMA).
  */
 final class Db
 {
@@ -68,8 +68,16 @@ final class Db
         $this->pdo->exec("CREATE TABLE IF NOT EXISTS $name ($body)$tail");
     }
 
+    /** Версия схемы: при совпадении миграция не выполняется (быстрый ответ на каждый запрос). */
+    public const SCHEMA = 3;
+
     public function migrate(): void
     {
+        try {
+            if ((int)$this->setting('schema', '0') >= self::SCHEMA) return;
+        } catch (\PDOException $e) {
+            // таблицы settings ещё нет — первая установка
+        }
         $id = $this->id();
         $this->table('settings', 'name VARCHAR(64) PRIMARY KEY, value TEXT');
         // Сотрудник: роль, связь с МойСклад, ключ входа (только хэш), телефон и e-mail — зашифрованы.
@@ -89,16 +97,24 @@ final class Db
         $this->table('audit', "id $id, employee_id BIGINT, action VARCHAR(64) NOT NULL, detail VARCHAR(500) DEFAULT '', ip VARCHAR(64),
             created_at BIGINT NOT NULL");
         $this->table('login_fails', 'ip VARCHAR(64) PRIMARY KEY, fails INTEGER NOT NULL, until_ms BIGINT NOT NULL');
+        // Активность в приложении: минуты на экране за день, заходы, самый долгий перерыв в рабочее время.
+        $this->table('activity', "employee_id BIGINT NOT NULL, day VARCHAR(10) NOT NULL, minutes INTEGER NOT NULL DEFAULT 0,
+            sessions INTEGER NOT NULL DEFAULT 0, first_ms BIGINT, last_ms BIGINT, max_gap_ms BIGINT NOT NULL DEFAULT 0, PRIMARY KEY (employee_id, day)");
+        // Действия в приложении: КП, клиент, товар, заказ, отгрузка, приёмка…
+        $this->table('events', "id $id, employee_id BIGINT NOT NULL, kind VARCHAR(24) NOT NULL, detail VARCHAR(200) DEFAULT '', created_at BIGINT NOT NULL");
         $this->index('stages_job', 'stages', 'job_id');
         $this->index('shifts_emp', 'shifts', 'employee_id, start_ms');
         $this->index('audit_time', 'audit', 'created_at');
+        $this->index('events_emp', 'events', 'employee_id, created_at');
+        $this->index('employees_ms', 'employees', 'ms_id', true);
+        $this->setSetting('schema', (string)self::SCHEMA);
     }
 
     /** Индекс без «IF NOT EXISTS» (его нет в MySQL): повторное создание просто пропускаем. */
-    private function index(string $name, string $table, string $cols): void
+    private function index(string $name, string $table, string $cols, bool $unique = false): void
     {
         try {
-            $this->pdo->exec("CREATE INDEX $name ON $table ($cols)");
+            $this->pdo->exec('CREATE ' . ($unique ? 'UNIQUE ' : '') . "INDEX $name ON $table ($cols)");
         } catch (\PDOException $e) {
             // уже есть
         }
@@ -108,6 +124,26 @@ final class Db
     {
         $row = $this->one('SELECT value FROM settings WHERE name = ?', [$name]);
         return $row['value'] ?? $default;
+    }
+
+    /** Транзакция: этапы и смены меняются атомарно (два одновременных запроса не создают дубль). */
+    public function tx(callable $fn): mixed
+    {
+        $this->pdo->beginTransaction();
+        try {
+            $r = $fn();
+            $this->pdo->commit();
+            return $r;
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    /** Блокировка строки до конца транзакции (MySQL; SQLite блокирует всю базу сама). */
+    public function lock(string $table, int $id): ?array
+    {
+        return $this->one("SELECT * FROM $table WHERE id = ?" . ($this->sqlite ? '' : ' FOR UPDATE'), [$id]);
     }
 
     public function setSetting(string $name, string $value): void

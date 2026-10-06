@@ -1,12 +1,14 @@
-# Только HTTPS, без списка файлов; все запросы — в index.php.
+# Только HTTPS (beget: TLS на nginx — смотрим и X-Forwarded-Proto), без списка файлов; все запросы — в index.php.
 Options -Indexes
 DirectoryIndex index.php
 RewriteEngine On
 RewriteCond %{HTTPS} !=on
+RewriteCond %{HTTP:X-Forwarded-Proto} !=https
 RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteRule ^ index.php [L]
-<FilesMatch "\.(php|json|sql|md|txt|log)$">
+# Открыт только index.php; любые другие файлы (ключи, настройки, журналы) — закрыты.
+<FilesMatch ".">
     Require all denied
 </FilesMatch>
 <Files "index.php">
