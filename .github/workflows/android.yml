@@ -246,23 +246,13 @@ jobs:
             "ms_token" => getenv("MS_TOKEN"),
           ], true) . ";\n");'
           printf 'Require all denied\n' > deploy/ks/.htaccess
-          # Диагностика: Api.php по частям — какая часть не проходит на beget (временный шаг).
-          cp server/src/Api.php probe-full.txt
-          cp server/src/Api.php probe-full.php
-          split -n 8 -d --additional-suffix=.php server/src/Api.php probe-part-
-          for f in probe-full.txt probe-full.php probe-part-*; do
-            if lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "set ftp:ssl-allow yes; set net:max-retries 1; set net:timeout 20; put $f -o ks/probe-$f; rm -f ks/probe-$f; bye" >/dev/null 2>&1; then
-              echo "probe $f ($(wc -c < $f) байт): OK"
-            else
-              echo "probe $f ($(wc -c < $f) байт): НЕ ПРОШЛА"
-            fi
-          done
-          rm -f probe-part-* probe-full.*
-          lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "
-            set ftp:ssl-allow yes; set net:max-retries 4; set net:timeout 30;
-            mkdir -p $SITE_DIR/ks; mirror -R --no-perms deploy/ks $SITE_DIR/ks;
-            mirror -R --no-perms deploy/public_html $SITE_DIR/public_html;
-            rm -f $SITE_DIR/public_html/index.html; echo '--- папка сайта:'; cls -la $SITE_DIR; echo '--- public_html:'; cls -la $SITE_DIR/public_html; bye"
+          # Каждый файл отдельной командой put (mirror на beget обрывается на перезаписи).
+          CMDS="set ftp:ssl-allow yes; set net:max-retries 4; set net:timeout 30; mkdir -p -f $SITE_DIR/ks/src;"
+          for f in deploy/ks/src/*.php; do CMDS="$CMDS put $f -o $SITE_DIR/ks/src/$(basename $f);"; done
+          CMDS="$CMDS put deploy/ks/config.php -o $SITE_DIR/ks/config.php; put deploy/ks/.htaccess -o $SITE_DIR/ks/.htaccess;"
+          CMDS="$CMDS put deploy/public_html/index.php -o $SITE_DIR/public_html/index.php; put deploy/public_html/.htaccess -o $SITE_DIR/public_html/.htaccess;"
+          CMDS="$CMDS rm -f $SITE_DIR/public_html/index.html; echo '--- папка сайта:'; cls -la $SITE_DIR/ks/src; bye"
+          lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "$CMDS"
           rm -rf deploy
           # Проверка: сайт отвечает, база подключается (запрос без входа должен дойти до проверки ключа).
           URL="${KS_URL:-https://staff.fabrika-ks.ru/}"
