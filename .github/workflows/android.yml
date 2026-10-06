@@ -181,7 +181,10 @@ jobs:
           DB_DSN: mysql:host=127.0.0.1;port=3306;dbname=ks_test;charset=utf8mb4
           DB_USER: root
           DB_PASSWORD: test
-        run: php server/tests/run.php
+        run: |
+          # Служба MySQL после проверки здоровья иногда ещё перезапускается — ждём, пока примет подключение.
+          for i in $(seq 1 30); do php -r 'new PDO(getenv("DB_DSN"), getenv("DB_USER"), getenv("DB_PASSWORD"));' 2>/dev/null && break; sleep 2; done
+          php server/tests/run.php
 
       # Пароли — только из секретов GitHub; config.php собирается здесь и уходит на сервер выше папки сайта.
       - name: Deploy to beget
