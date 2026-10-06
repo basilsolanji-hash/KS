@@ -70,17 +70,25 @@ final class Api
 
     // ---------------------------------------------------------------- Вход
 
-    /** Первый запуск: директор создаётся ключом установки из config (один раз; после — недоступно). */
+    /** Первый запуск: директор создаётся ключом установки из config; позже тот же ключ — вход директора (восстановление). */
     private function setup(array $req): array
     {
         $this->checkBlock();
-        if ($this->db->one('SELECT id FROM employees LIMIT 1')) throw new ApiError('Директор уже создан');
         $setupKey = trim((string)($this->config['setup_key'] ?? ''));
         if ($setupKey === '' || !hash_equals($setupKey, trim((string)($req['setup_key'] ?? '')))) {
             $this->fail();
             $this->log('setupFail', '');
             throw new ApiError('Неверный ключ установки');
         }
+        // Восстановление: директор уже есть (телефон потерян или приложение переустановлено) — вход директором.
+        $director = $this->db->one("SELECT * FROM employees WHERE role = 'director' AND active = 1 ORDER BY id LIMIT 1");
+        if ($director) {
+            $this->db->run('DELETE FROM login_fails WHERE ip = ?', [$this->ip]);
+            $this->me = $director;
+            $this->log('setupRecover', (string)($req['device'] ?? ''));
+            return ['token' => $this->newSession((int)$director['id'], (string)($req['device'] ?? ''))];
+        }
+        if ($this->db->one('SELECT id FROM employees LIMIT 1')) throw new ApiError('Нет активного директора');
         $name = trim((string)($req['name'] ?? 'Директор')) ?: 'Директор';
         $id = $this->db->insert('employees', [
             'name' => mb_substr($name, 0, 120), 'role' => 'director', 'position' => 'Директор',

@@ -53,7 +53,9 @@ ok(strlen(Ks\Crypto::newKey()) === 24, 'длина ключа');
 ok($call(['action' => 'setup', 'setup_key' => 'нет'])['ok'] === false, 'неверный ключ установки');
 $dir = $call(['action' => 'setup', 'setup_key' => 'setup-123', 'name' => 'Басил']);
 ok($dir['ok'] && strlen($dir['token']) === 64, 'директор создан');
-ok($call(['action' => 'setup', 'setup_key' => 'setup-123'])['ok'] === false, 'второй раз нельзя');
+$again = $call(['action' => 'setup', 'setup_key' => 'setup-123', 'name' => 'Чужой']);
+ok($again['ok'] && $call(['action' => 'me', 'token' => $again['token']])['me']['name'] === 'Басил', 'повторно — вход прежнего директора, нового не создаёт');
+ok((int)$db->one('SELECT COUNT(*) AS n FROM employees')['n'] === 1, 'второго директора нет');
 $D = fn(array $r, string $ip = '10.0.0.1') => $call($r + ['token' => $dir['token']], $ip);
 ok($D(['action' => 'me'])['me']['role'] === 'director', 'профиль директора');
 ok($call(['action' => 'me', 'token' => 'чужой'])['error'] === 'Нужен вход', 'без входа нельзя');
@@ -201,5 +203,6 @@ ok($call(['action' => 'me', 'token' => $hwLogin['token']])['error'] === 'Нуж�
 // Установка после создания директора недоступна даже с верным ключом; блок проверяется до ключа.
 for ($i = 0; $i < 5; $i++) $call(['action' => 'login', 'key' => 'нет'], '10.7.7.7');
 ok(str_contains($call(['action' => 'setup', 'setup_key' => 'setup-123'], '10.7.7.7')['error'], 'Подождите'), 'setup тоже под паузой');
+ok($call(['action' => 'setup', 'setup_key' => 'нет'], '10.8.8.8')['error'] === 'Неверный ключ установки', 'восстановление — только с ключом');
 
 echo "Сервер: все проверки пройдены ($checks)\n";
