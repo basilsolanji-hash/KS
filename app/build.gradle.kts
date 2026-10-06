@@ -77,6 +77,8 @@ dependencies {
     implementation(libs.play.services.code.scanner)
     // Вход по отпечатку / PIN телефона.
     implementation(libs.androidx.biometric)
+    // Новее, чем тянет biometric: старая fragment 1.2.x падает на кодах запуска камеры/файлов (больше 16 бит).
+    implementation(libs.androidx.fragment)
     implementation(libs.androidx.webkit)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
