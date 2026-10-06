@@ -831,6 +831,7 @@
     <string name="shift_close">Закрыть смену</string>
     <string name="shift_start">Начать смену</string>
     <string name="shift_close_confirm">Закрыть смену? Сегодня отработано %s.</string>
+    <string name="work_suspicious">время с телефона</string>
     <string name="work_empty">За этот месяц смен нет.</string>
     <string name="work_days">Дней: %d</string>
     <string name="work_unclosed">не закрыто смен: %d</string>

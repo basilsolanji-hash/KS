@@ -66,7 +66,10 @@ class WorkViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val a = SheetClient(config).shifts(month)
                 _team.value = (0 until a.length()).mapNotNull { a.optJSONObject(it) }.map {
-                    WorkShift(it.optString("id"), it.optString("person"), it.optLong("start"), if (it.isNull("end")) null else it.optLong("end"))
+                    WorkShift(
+                        it.optString("id"), it.optString("person"), it.optLong("start"), if (it.isNull("end")) null else it.optLong("end"),
+                        suspicious = it.optBoolean("suspicious"),
+                    )
                 }
                 _error.value = null
             } catch (e: Exception) {

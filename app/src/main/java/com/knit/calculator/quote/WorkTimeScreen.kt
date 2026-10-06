@@ -88,8 +88,9 @@ fun WorkTimeScreen(vm: WorkViewModel, director: Boolean, onBack: () -> Unit) {
                             Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     day.format(Date(s.start)) + ", " + hm.format(Date(s.start)) + "–" + (s.end?.let { hm.format(Date(it)) } ?: "…") +
-                                        " · " + WorkTime.format(WorkTime.minutes(s, System.currentTimeMillis())),
-                                    color = if (unclosed) Color(0xFFD32F2F) else colors.textPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f),
+                                        " · " + WorkTime.format(WorkTime.minutes(s, System.currentTimeMillis())) +
+                                        (if (s.suspicious) " · ⚠ " + stringResource(R.string.work_suspicious) else ""),
+                                    color = if (unclosed || s.suspicious) Color(0xFFD32F2F) else colors.textPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f),
                                 )
                                 if (director && unclosed) TextButton(onClick = { fixing = s }) { Text(stringResource(R.string.work_fix), color = colors.textPrimary) }
                             }

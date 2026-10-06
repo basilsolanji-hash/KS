@@ -9,6 +9,8 @@ data class WorkShift(
     val person: String,
     val start: Long,
     val end: Long? = null,
+    /** Часы телефона расходятся с сервером больше чем на 15 минут. */
+    val suspicious: Boolean = false,
 ) {
     val open: Boolean get() = end == null
 }

@@ -41,7 +41,7 @@ var HEADERS = {
   orders: ['№ КП', 'ID КП', 'Клиент', 'Создан', 'Срок отгрузки', 'Этап', 'Дата этапа', 'Изделия', 'Комментарий',
     'Пряжа (не изменять)', 'Пряжа списана'],
   yarnMoves: ['Дата', 'Пряжа', 'Кг (+ приход, − расход)', 'Основание', 'Менеджер', 'ID'],
-  shifts: ['ID', 'Сотрудник', 'Начало', 'Конец', 'Часов', 'Исправил'],
+  shifts: ['ID', 'Сотрудник', 'Начало', 'Конец', 'Часов', 'Исправил', 'Получено сервером'],
 };
 var START_INVOICE_SETTING = 'Начальный номер счёта';
 var KEY_SETTING = 'Ключ доступа';
@@ -899,10 +899,12 @@ function shiftSave_(ss, who, s) {
     if (owner !== me && !director) throw new Error('Это смена другого сотрудника');
     var fixedBy = owner !== me ? me : String(rows[i][5] || '');
     sheet.getRange(i + 1, 3, 1, 4).setValues([[new Date(start), end ? new Date(end) : '', end ? Math.round((end - start) / 36000) / 100 : '', fixedBy]]);
+    // Время сервера при закрытии — для сверки с часами телефона.
+    if (end && !fixedBy) sheet.getRange(i + 1, 8).setValue(new Date());
     return { id: id, person: owner, start: start, end: end };
   }
   var person = director && s.person ? String(s.person) : me;
-  sheet.appendRow([id, person, new Date(start), end ? new Date(end) : '', end ? Math.round((end - start) / 36000) / 100 : '', '']);
+  sheet.appendRow([id, person, new Date(start), end ? new Date(end) : '', end ? Math.round((end - start) / 36000) / 100 : '', '', new Date(), end ? new Date() : '']);
   return { id: id, person: person, start: start, end: end };
 }
 
@@ -917,7 +919,12 @@ function shifts_(ss, who, month) {
     return r[0] && r[2] instanceof Date && Utilities.formatDate(r[2], tz, 'yyyy-MM') === month &&
       (who.role === 'director' || String(r[1]) === me);
   }).map(function (r) {
-    return { id: String(r[0]), person: String(r[1]), start: r[2].getTime(), end: r[3] instanceof Date ? r[3].getTime() : null, fixedBy: String(r[5] || '') };
+    // Расхождение часов телефона с сервером больше 15 минут — директор видит предупреждение.
+    var drift = function (phone, server) { return phone && server instanceof Date && Math.abs(phone - server.getTime()) > 15 * 60000; };
+    return {
+      id: String(r[0]), person: String(r[1]), start: r[2].getTime(), end: r[3] instanceof Date ? r[3].getTime() : null, fixedBy: String(r[5] || ''),
+      suspicious: !!(drift(r[2].getTime(), r[6]) || drift(r[3] instanceof Date ? r[3].getTime() : 0, r[7])),
+    };
   });
 }
 

@@ -66,6 +66,8 @@ fun WebCatalogScreen(startUrl: String, onBack: () -> Unit) {
                 WebView(ctx).apply {
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
+                    settings.allowFileAccess = false
+                    settings.allowContentAccess = false
                     webViewClient = object : WebViewClient() {
                         // Ссылки сайта фабрики — внутри приложения, остальные (WhatsApp, телефон…) — в системе.
                         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {

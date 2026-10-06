@@ -194,6 +194,10 @@ internal fun createWebView(
     cookies.setAcceptThirdPartyCookies(this, true)
     settings.javaScriptEnabled = true
     settings.domStorageEnabled = true
+    // Страницы почты и ИИ не видят файлы приложения (КП, фото, кэш таблицы).
+    settings.allowFileAccess = false
+    settings.allowContentAccess = false
+    settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
     settings.databaseEnabled = true
     settings.loadWithOverviewMode = true
     settings.useWideViewPort = true

@@ -621,6 +621,10 @@ call({ action: 'shiftSave', shift: { id: 'sh-ivan-1', start: d0, end: d0 + 9 * 3
 assert.strictEqual(sheets['Рабочее время'].data[1][5], 'Директор');
 assert.deepStrictEqual(asManager({ action: 'shifts', month: '2026-10' }).shifts.map((x) => x.id), ['sh-ivan-1']);
 assert.deepStrictEqual(call({ action: 'shifts', month: '2026-10' }).shifts.map((x) => x.person), ['Иван', 'Директор']);
+// Время в прошлом (часы телефона подведены) — помечено.
+assert.strictEqual(call({ action: 'shifts', month: '2026-10' }).shifts[0].suspicious, true);
+asManager({ action: 'shiftSave', shift: { id: 'sh-ivan-now', start: Date.now() } });
+assert.strictEqual(asManager({ action: 'shifts', month: new Date().toISOString().slice(0, 7) }).shifts.find((x) => x.id === 'sh-ivan-now').suspicious, false);
 
 // ---- Зарплата менеджеров: оклад 60 000 + 3 % от оплат месяца по КП менеджера.
 const ym = new Date().toISOString().slice(0, 7);
