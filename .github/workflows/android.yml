@@ -8,6 +8,11 @@ on:
 permissions:
   contents: write
 
+# Новая отправка отменяет незаконченную сборку той же ветки: проверяется только последняя версия.
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
