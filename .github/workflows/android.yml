@@ -34,10 +34,15 @@ jobs:
           KS_KEYSTORE_BASE64: ${{ secrets.KS_KEYSTORE_BASE64 }}
           KS_KEYSTORE_PASSWORD: ${{ secrets.KS_KEYSTORE_PASSWORD }}
         run: |
-          if [ -n "$KS_KEYSTORE_BASE64" ] && [ -n "$KS_KEYSTORE_PASSWORD" ]; then
-            echo "$KS_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/ks.jks"
+          # Пробелы и переносы строк при вставке секрета не мешают; ключ проверяется паролем до сборки.
+          if [ -n "$KS_KEYSTORE_BASE64" ] && [ -n "$KS_KEYSTORE_PASSWORD" ] \
+            && printf '%s' "$KS_KEYSTORE_BASE64" | tr -d ' \r\n\t' | base64 -d > "$RUNNER_TEMP/ks.jks" 2>/dev/null \
+            && keytool -list -keystore "$RUNNER_TEMP/ks.jks" -storepass "$KS_KEYSTORE_PASSWORD" -alias ks >/dev/null 2>&1; then
             echo "KS_KEYSTORE_FILE=$RUNNER_TEMP/ks.jks" >> "$GITHUB_ENV"
             echo "Подпись: постоянный ключ из секретов"
+          elif [ -n "$KS_KEYSTORE_BASE64" ]; then
+            rm -f "$RUNNER_TEMP/ks.jks"
+            echo "::warning::Ключ подписи из секретов не подошёл (KS_KEYSTORE_BASE64 повреждён или неверный KS_KEYSTORE_PASSWORD) — APK подписан одноразовым ключом"
           elif [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "::warning::Проверка PR без постоянного ключа — APK только для тестов"
           else
