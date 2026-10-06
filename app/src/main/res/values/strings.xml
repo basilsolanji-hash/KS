@@ -849,6 +849,7 @@
     <string name="ai_none">Директор пока не открыл доступ к ИИ.</string>
     <string name="scan_barcode">Сканировать штрихкод</string>
     <string name="scan_not_found">Штрихкод %s не найден среди товаров — проверьте или обновите каталог.</string>
+    <string name="chart_sales_ms">Динамика продаж (отгрузки МойСклад)</string>
     <string name="chart_ship">Отгрузки (МойСклад)</string>
     <string name="chart_ship_series">Отгружено</string>
     <string name="home_group_dynamics">Динамика</string>

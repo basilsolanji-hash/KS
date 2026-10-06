@@ -75,7 +75,6 @@ enum class HomeWidget(val title: Int, val directorOnly: Boolean = false, val per
     DAY(R.string.day_title),
     MYPAY(R.string.salary_mine),
     SALES(R.string.chart_sales, directorOnly = true, periodic = true),
-    SHIP(R.string.chart_ship, directorOnly = true, periodic = true),
     FLOWS(R.string.chart_flows, directorOnly = true, periodic = true),
     EXPENSES(R.string.widget_expenses, directorOnly = true, periodic = true),
     CLIENTS(R.string.widget_clients, directorOnly = true, periodic = true),
@@ -324,30 +323,35 @@ fun HomeScreen(
                         }
                     }
                 }
+                // Продажи = отгрузки МойСклад (₽ / шт); без МойСклад — согласованные КП.
                 HomeWidget.SALES -> if (charts != null) {
-                    val sales = androidx.compose.runtime.remember(period, charts) { com.knit.calculator.core.Dynamics.series(charts.sales, period, now) }
-                    TrendChart(
-                        stringResource(R.string.chart_sales), sales.labels,
-                        listOf(stringResource(R.string.chart_sales_series) to sales.current), listOf(ChartColors.inflow(dark)),
-                        previous = listOf(sales.previous),
-                        plan = if (period == com.knit.calculator.core.DynPeriod.MONTHS) charts.plan else null, planLabel = stringResource(R.string.chart_plan),
-                    )
-                }
-                HomeWidget.SHIP -> charts?.ship?.let { ship ->
-                    var pieces by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
-                    val points = ship[com.knit.calculator.core.Dynamics.grain(period)].orEmpty().ifEmpty { ship[com.knit.calculator.core.Grain.MONTH].orEmpty() }
-                    val shipSeries = androidx.compose.runtime.remember(period, charts, pieces) {
-                        com.knit.calculator.core.Dynamics.series(points.map { it.first to (if (pieces) it.third else it.second) }, period, now)
+                    val ship = charts.ship
+                    if (ship != null) {
+                        var pieces by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+                        val points = ship[com.knit.calculator.core.Dynamics.grain(period)].orEmpty().ifEmpty { ship[com.knit.calculator.core.Grain.MONTH].orEmpty() }
+                        val shipSeries = androidx.compose.runtime.remember(period, charts, pieces) {
+                            com.knit.calculator.core.Dynamics.series(points.map { it.first to (if (pieces) it.third else it.second) }, period, now)
+                        }
+                        TrendChart(
+                            stringResource(R.string.chart_sales_ms), shipSeries.labels,
+                            listOf(stringResource(R.string.chart_ship_series) to shipSeries.current),
+                            listOf(ChartColors.inflow(dark)),
+                            previous = listOf(shipSeries.previous),
+                            plan = if (period == com.knit.calculator.core.DynPeriod.MONTHS && !pieces) charts.plan else null,
+                            planLabel = stringResource(R.string.chart_plan),
+                            unit = if (pieces) "шт" else "₽",
+                            toggle = listOf("₽", "шт") to (if (pieces) 1 else 0),
+                            onToggle = { pieces = it == 1 },
+                        )
+                    } else {
+                        val sales = androidx.compose.runtime.remember(period, charts) { com.knit.calculator.core.Dynamics.series(charts.sales, period, now) }
+                        TrendChart(
+                            stringResource(R.string.chart_sales), sales.labels,
+                            listOf(stringResource(R.string.chart_sales_series) to sales.current), listOf(ChartColors.inflow(dark)),
+                            previous = listOf(sales.previous),
+                            plan = if (period == com.knit.calculator.core.DynPeriod.MONTHS) charts.plan else null, planLabel = stringResource(R.string.chart_plan),
+                        )
                     }
-                    TrendChart(
-                        stringResource(R.string.chart_ship), shipSeries.labels,
-                        listOf(stringResource(R.string.chart_ship_series) to shipSeries.current),
-                        listOf(ChartColors.outflow(dark)),
-                        previous = listOf(shipSeries.previous),
-                        unit = if (pieces) "шт" else "₽",
-                        toggle = listOf("₽", "шт") to (if (pieces) 1 else 0),
-                        onToggle = { pieces = it == 1 },
-                    )
                 }
                 HomeWidget.FLOWS -> if (charts != null) {
                     val inflow = androidx.compose.runtime.remember(period, charts) { com.knit.calculator.core.Dynamics.series(charts.inflow, period, now) }
