@@ -226,6 +226,11 @@ class QuoteStore(context: Context) {
         set(v) { prefs.edit().putString("home_shortcuts", v?.joinToString(",")).apply() }
 
     /** Запрет снимков и записи экрана (финансы и клиенты не уходят скриншотами). По умолчанию включён. */
+    /** Полный экран: строка состояния и кнопки навигации скрыты, появляются свайпом от края. */
+    var fullScreen: Boolean
+        get() = prefs.getBoolean("full_screen", true)
+        set(v) { prefs.edit().putBoolean("full_screen", v).apply() }
+
     var secureScreen: Boolean
         get() = prefs.getBoolean("secure_screen", true)
         set(v) { prefs.edit().putBoolean("secure_screen", v).apply() }

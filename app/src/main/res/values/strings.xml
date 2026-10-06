@@ -636,6 +636,8 @@
     <string name="lock_unlock">Войти</string>
     <string name="lock_setting">Вход по отпечатку / PIN телефона</string>
     <string name="lock_setting_hint">При запуске и после 5 минут в фоне — защита данных, если телефон потерян.</string>
+    <string name="full_screen_setting">Полный экран</string>
+    <string name="full_screen_hint">Строка состояния и кнопки навигации скрыты. Чтобы их показать — проведите от верхнего или нижнего края.</string>
     <string name="secure_setting">Запрет снимков экрана</string>
     <string name="secure_setting_hint">На этом телефоне скриншоты и запись экрана приложения недоступны. У менеджеров запрет включён всегда.</string>
     <string name="pin_setting">Свой PIN-код (4 цифры)</string>

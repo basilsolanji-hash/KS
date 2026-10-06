@@ -467,6 +467,25 @@ fun CompanyScreen(viewModel: QuoteViewModel, onBack: () -> Unit) {
                     },
                 )
             }
+            // Полный экран — каждый выбирает для своего телефона.
+            run {
+                var full by rememberSaveable { mutableStateOf(QuoteStore(context).fullScreen) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.full_screen_setting), color = colors.textPrimary, fontSize = 16.sp)
+                        Text(stringResource(R.string.full_screen_hint), color = colors.textSecondary, fontSize = 13.sp)
+                    }
+                    Switch(
+                        checked = full,
+                        onCheckedChange = { v ->
+                            full = v
+                            QuoteStore(context).fullScreen = v
+                            (context as? android.app.Activity)?.let { com.knit.calculator.applyFullScreen(it) }
+                        },
+                        colors = SwitchDefaults.colors(checkedTrackColor = colors.equalsKey, checkedThumbColor = colors.equalsKeyText),
+                    )
+                }
+            }
             // Запрет снимков экрана — меняет только директор.
             if (director) {
                 var secure by rememberSaveable { mutableStateOf(QuoteStore(context).secureScreen) }

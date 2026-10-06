@@ -80,10 +80,22 @@ class MainActivity : FragmentActivity() {
     private val workViewModel: com.knit.calculator.quote.WorkViewModel by viewModels()
     private val staffViewModel: com.knit.calculator.staff.StaffViewModel by viewModels()
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // После камеры, выбора файла или другого приложения панели снова скрываем.
+        if (hasFocus) applyFullScreen(this)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         com.knit.calculator.ui.CrashLog.install(this)
         applySecureScreen(this)
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            // Рисуем и под вырезом камеры — экран используется целиком.
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
         if (savedInstanceState == null && lockOn()) locked = true
         // Ежедневная сводка (9:00): долги, отгрузки, просрочки, КП без ответа.
         com.knit.calculator.quote.DailyDigest.schedule(this, com.knit.calculator.quote.QuoteStore(this).digestEnabled)
@@ -98,6 +110,7 @@ class MainActivity : FragmentActivity() {
             DisposableEffect(darkTheme) {
                 val style = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT) { darkTheme }
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+                applyFullScreen(this@MainActivity)
                 onDispose {}
             }
             // Простой стек экранов: «назад» возвращает на предыдущий экран, в конце — главный.
@@ -364,6 +377,17 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
+    }
+}
+
+/** Полный экран по настройке «fullScreen»: системные панели скрыты, свайп от края показывает их на время. */
+fun applyFullScreen(activity: android.app.Activity) {
+    val c = androidx.core.view.WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+    if (com.knit.calculator.quote.QuoteStore(activity).fullScreen) {
+        c.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        c.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+    } else {
+        c.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
     }
 }
 
