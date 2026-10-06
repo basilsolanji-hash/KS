@@ -247,8 +247,10 @@ jobs:
           ], true) . ";\n");'
           printf 'Require all denied\n' > deploy/ks/.htaccess
           # Каждый файл отдельной командой put.
-          # Папки — отдельным подключением: ошибка «уже есть» портит следующую передачу в том же сеансе.
-          lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "set ftp:ssl-allow yes; mkdir -p -f $SITE_DIR/ks/src; bye" || true
+          # Папки создаются, только если их нет: ошибка «уже есть» на beget обрывает следующие большие передачи (426).
+          if ! lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "set ftp:ssl-allow yes; cls $SITE_DIR/ks/src/; bye" >/dev/null 2>&1; then
+            lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "set ftp:ssl-allow yes; mkdir -p $SITE_DIR/ks/src; bye" || true
+          fi
           # Каждый файл — отдельным подключением (на beget перезапись в общем сеансе обрывается), повтор до 3 раз.
           [ "$SITE_DIR" = "." ] && P="" || P="$SITE_DIR/"
           up() {
@@ -258,8 +260,6 @@ jobs:
             done
             echo "::warning::Не загружен $2"; return 1
           }
-          # Диагностика (временно): подробный ответ сервера FTP для большого файла.
-          lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" -e "debug 3; set ftp:ssl-allow yes; set net:max-retries 1; set net:timeout 20; put deploy/ks/src/ApiServer.php -o ${P}ks/src/ApiServer.php; bye" 2>&1 | grep -v -i "PASS\|USER" | tail -40 || true
           for f in deploy/ks/src/*.php; do up "$f" "${P}ks/src/$(basename $f)" || true; done
           up deploy/ks/config.php "${P}ks/config.php" || true
           up deploy/ks/.htaccess "${P}ks/.htaccess" || true
