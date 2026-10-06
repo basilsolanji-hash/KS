@@ -69,7 +69,7 @@ final class Db
     }
 
     /** Версия схемы: при совпадении миграция не выполняется (быстрый ответ на каждый запрос). */
-    public const SCHEMA = 4;
+    public const SCHEMA = 5;
 
     public function migrate(): void
     {
@@ -114,6 +114,21 @@ final class Db
         // Уведомления сотруднику (телефон забирает их сам, раз в 15 минут и при открытии).
         $this->table('notifications', "id $id, employee_id BIGINT NOT NULL, kind VARCHAR(24) NOT NULL, title VARCHAR(200) NOT NULL,
             body VARCHAR(500) DEFAULT '', ref VARCHAR(64) DEFAULT '', created_at BIGINT NOT NULL, read_at BIGINT DEFAULT NULL");
+        // Профиль сотрудника: личные данные одним зашифрованным блоком, фото, подтверждение директором.
+        $this->table('profiles', "employee_id BIGINT PRIMARY KEY, data_enc TEXT, photo_file BIGINT DEFAULT NULL, pay_visible INTEGER NOT NULL DEFAULT 0,
+            confirmed_by BIGINT DEFAULT NULL, confirmed_at BIGINT DEFAULT NULL, updated_at BIGINT NOT NULL");
+        $this->table('employee_docs', "id $id, employee_id BIGINT NOT NULL, kind VARCHAR(24) NOT NULL, file_id BIGINT NOT NULL, created_at BIGINT NOT NULL");
+        // Принятие соглашений: какой документ, какая редакция, когда, с какого адреса.
+        $this->table('consents', "id $id, employee_id BIGINT NOT NULL, doc VARCHAR(24) NOT NULL, version VARCHAR(16) NOT NULL, accepted_at BIGINT NOT NULL, ip VARCHAR(64)");
+        // Выплаты: начисления и выплаты по месяцам; сумма зашифрована.
+        $this->table('payroll', "id $id, employee_id BIGINT NOT NULL, month VARCHAR(7) NOT NULL, kind VARCHAR(12) NOT NULL, amount_enc TEXT NOT NULL,
+            comment VARCHAR(300) DEFAULT '', created_by BIGINT NOT NULL, created_at BIGINT NOT NULL");
+        // Статистика экранов: минуты по экранам за день.
+        $this->table('screen_stats', "employee_id BIGINT NOT NULL, day VARCHAR(10) NOT NULL, screen VARCHAR(32) NOT NULL, minutes INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (employee_id, day, screen)");
+        $this->index('docs_emp', 'employee_docs', 'employee_id');
+        $this->index('consents_emp', 'consents', 'employee_id');
+        $this->index('payroll_emp', 'payroll', 'employee_id, month');
         $this->index('tasks_assignee', 'tasks', 'assignee_id, status');
         $this->index('tasks_author', 'tasks', 'author_id, status');
         $this->index('comments_task', 'task_comments', 'task_id');

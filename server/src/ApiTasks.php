@@ -244,6 +244,7 @@ trait ApiTasks
         $f = $this->db->one('SELECT * FROM files WHERE id = ?', [(int)($req['id'] ?? 0)]);
         if (!$f) throw new ApiError('Файл не найден');
         if ($f['task_id'] !== null) $this->taskFor((int)$f['task_id']);
+        else $this->fileAccess($f);
         $raw = @file_get_contents($this->filesDir() . '/' . $f['path']);
         $bytes = $raw === false ? '' : $this->crypto->decrypt($raw);
         if ($bytes === '') throw new ApiError('Файл повреждён');

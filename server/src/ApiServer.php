@@ -14,6 +14,7 @@ final class Api
     use ApiWork;
     use ApiOrders;
     use ApiTasks;
+    use ApiProfile;
 
     /** Действия после входа (имя → метод); всё остальное — «Неизвестное действие». */
     private const ACTIONS = [
@@ -23,6 +24,8 @@ final class Api
         'rating', 'audit', 'ping', 'event', 'activity',
         'msOrders', 'msOrder', 'msOrderSave', 'msDoc', 'msDocSave', 'msTemplates', 'msPrint', 'msAssortment',
         'tasks', 'task', 'taskSave', 'taskStatus', 'taskCheck', 'taskComment', 'fileUpload', 'fileGet', 'notifications', 'notificationsRead',
+        'profile', 'profileSave', 'profileConfirm', 'profilePhoto', 'profileDoc', 'profileDocDelete', 'legal', 'legalAccept',
+        'payroll', 'payrollSave', 'payrollDelete', 'payVisible',
     ];
     /** Виды действий для учёта активности. */
     private const EVENT_KINDS = ['quote', 'quoteSend', 'client', 'product', 'order', 'payment', 'ship', 'receive', 'inventory', 'label', 'call', 'other'];
@@ -241,6 +244,8 @@ final class Api
                 array_keys(Rules::STAGES), array_values(Rules::STAGES)),
             // Учёт активности: телефон отмечается раз в минуту (только офис и только в рабочее время).
             'tracked' => in_array($this->me['role'], Rules::OFFICE, true),
+            // Соглашения приняты (иначе приложение покажет их перед работой).
+            'legalOk' => count($this->db->all('SELECT doc FROM consents WHERE employee_id = ? AND version = ?', [$this->me['id'], Legal::VERSION])) >= count(Legal::keys()),
             'serverTime' => $this->now(),
         ];
     }

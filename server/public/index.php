@@ -4,7 +4,7 @@ declare(strict_types=1);
 // Точка входа API «ФАБРИКА» (staff.fabrika-ks.ru). Код и config.php лежат выше папки сайта — снаружи их не открыть.
 ini_set('display_errors', '0');
 $base = is_dir(__DIR__ . '/../ks') ? __DIR__ . '/../ks' : __DIR__ . '/..';
-foreach (['Db', 'Crypto', 'Rules', 'ApiPeople', 'ApiWork', 'ApiOrders', 'ApiTasks', 'ApiServer'] as $f) require_once "$base/src/$f.php";
+foreach (['Db', 'Crypto', 'Rules', 'Legal', 'ApiPeople', 'ApiWork', 'ApiOrders', 'ApiTasks', 'ApiProfile', 'ApiServer'] as $f) require_once "$base/src/$f.php";
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');

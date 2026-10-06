@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 // Тесты сервера: SQLite в памяти (в CI ещё и MySQL — DB_DSN), МойСклад — имитация.
-foreach (['Db', 'Crypto', 'Rules', 'ApiPeople', 'ApiWork', 'ApiOrders', 'ApiTasks', 'ApiServer'] as $f) require_once __DIR__ . "/../src/$f.php";
+foreach (['Db', 'Crypto', 'Rules', 'Legal', 'ApiPeople', 'ApiWork', 'ApiOrders', 'ApiTasks', 'ApiProfile', 'ApiServer'] as $f) require_once __DIR__ . "/../src/$f.php";
 
 $checks = 0;
 function ok(bool $cond, string $what): void
@@ -18,7 +18,7 @@ function ok(bool $cond, string $what): void
 $dsn = getenv('DB_DSN') ?: 'sqlite::memory:';
 $pdo = new PDO($dsn, getenv('DB_USER') ?: null, getenv('DB_PASSWORD') ?: null);
 if (str_starts_with($dsn, 'mysql')) {
-    foreach (['settings', 'employees', 'sessions', 'shifts', 'jobs', 'stages', 'audit', 'login_fails', 'activity', 'events', 'tasks', 'task_comments', 'files', 'notifications'] as $t) $pdo->exec("DROP TABLE IF EXISTS $t");
+    foreach (['settings', 'employees', 'sessions', 'shifts', 'jobs', 'stages', 'audit', 'login_fails', 'activity', 'events', 'tasks', 'task_comments', 'files', 'notifications', 'profiles', 'employee_docs', 'consents', 'payroll', 'screen_stats'] as $t) $pdo->exec("DROP TABLE IF EXISTS $t");
 }
 $db = new Ks\Db($pdo);
 $db->migrate();
@@ -239,6 +239,31 @@ ok(in_array('Просрочено: Отчёт', array_column($hn, 'title'), true
 ok(in_array('Просрочена задача: Отчёт', array_column($G(['action' => 'notifications'])['notifications'], 'title'), true), 'просрочка автору');
 $stranger = $D(['action' => 'employeeSave', 'employee' => ['name' => 'Пётр', 'role' => 'operator']]);
 ok($call(['action' => 'task', 'id' => $late['task']['id'], 'token' => $call(['action' => 'login', 'key' => $stranger['key']])['token']])['error'] === 'Нет доступа', 'чужую задачу не открыть');
+
+// Профиль: сотрудник заполняет сам, директор подтверждает; сканы видят только кадры; соглашения; выплаты.
+ok($H(['action' => 'me'])['legalOk'] === false, 'соглашения ещё не приняты');
+ok(count($H(['action' => 'legal'])['docs']) === 3, 'три документа');
+ok($H(['action' => 'legalAccept'])['allAccepted'] === true && $H(['action' => 'me'])['legalOk'] === true, 'соглашения приняты');
+ok(str_contains($H(['action' => 'profileSave', 'fields' => ['inn' => '123']])['error'], '12 цифр'), 'проверка ИНН');
+$pr = $H(['action' => 'profileSave', 'fields' => ['birthday' => '01.02.1990', 'inn' => '500100732259', 'passportNumber' => '123456', 'card' => '2202 0000 0000 0000']]);
+ok($pr['profile']['fields']['passportNumber'] === '123456' && $pr['profile']['confirmed'] === false, 'профиль заполнен');
+$rawP = $db->one('SELECT data_enc FROM profiles WHERE employee_id = ?', [$hw['employee']['id']])['data_enc'];
+ok(!str_contains((string)$rawP, '123456'), 'паспорт в базе зашифрован');
+ok($D(['action' => 'profileConfirm', 'id' => $hw['employee']['id']])['profile']['confirmed'] === true, 'директор подтвердил');
+$dc = $H(['action' => 'profileDoc', 'kind' => 'passport', 'name' => 'паспорт.jpg', 'data' => base64_encode('SCAN')]);
+$docFile = $dc['docs'][0]['fileId'];
+ok($G(['action' => 'fileGet', 'id' => $docFile])['error'] === 'Нет доступа', 'скан паспорта коллега не видит');
+ok($G(['action' => 'profile', 'id' => $hw['employee']['id']])['error'] === 'Нет доступа', 'чужой профиль не открыть');
+ok(base64_decode($D(['action' => 'fileGet', 'id' => $docFile])['data']) === 'SCAN', 'директор видит скан');
+ok($D(['action' => 'audit', 'from' => 0])['audit'][0]['action'] === 'docView', 'просмотр скана — в журнале');
+ok(str_contains($H(['action' => 'payroll'])['error'], 'директор'), 'выплаты закрыты, пока директор не откроет');
+$D(['action' => 'payrollSave', 'id' => $hw['employee']['id'], 'month' => '2026-10', 'kind' => 'salary', 'amount' => 40000]);
+$D(['action' => 'payrollSave', 'id' => $hw['employee']['id'], 'month' => '2026-10', 'kind' => 'fine', 'amount' => 1000]);
+$pay = $D(['action' => 'payrollSave', 'id' => $hw['employee']['id'], 'month' => '2026-10', 'kind' => 'advance', 'amount' => 15000]);
+ok($pay['accrued'] === 39000.0 && $pay['paid'] === 15000.0 && $pay['balance'] === 24000.0, 'расчёт за месяц');
+$D(['action' => 'payVisible', 'id' => $hw['employee']['id'], 'visible' => true]);
+ok($H(['action' => 'payroll', 'month' => '2026-10'])['balance'] === 24000.0, 'сотрудник видит свои выплаты');
+ok($H(['action' => 'payrollSave', 'id' => $hw['employee']['id'], 'month' => '2026-10', 'kind' => 'bonus', 'amount' => 99999])['error'] === 'Нет доступа', 'себе начислить нельзя');
 
 // Изменение сотрудника — только переданные поля (телефон не стирается).
 $D(['action' => 'employeeSave', 'employee' => ['id' => $hw['employee']['id'], 'phone' => '+7 911 000-00-00']]);

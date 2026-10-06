@@ -163,6 +163,12 @@ trait ApiWork
         $now = (new \DateTimeImmutable('@' . intdiv($this->now(), 1000)))->setTimezone($tz);
         if (!$this->inWorkTime($this->me, $now)) return ['tracked' => false];
         $day = $now->format('Y-m-d');
+        // Какой экран открыт — статистика экранов (минута на отметку).
+        $screen = preg_replace('/[^a-z_]/', '', strtolower((string)($req['screen'] ?? '')));
+        if ($screen !== '') {
+            $n = $this->db->run('UPDATE screen_stats SET minutes = minutes + 1 WHERE employee_id = ? AND day = ? AND screen = ?', [$this->me['id'], $day, mb_substr($screen, 0, 32)]);
+            if ($n === 0) $this->db->insert('screen_stats', ['employee_id' => $this->me['id'], 'day' => $day, 'screen' => mb_substr($screen, 0, 32), 'minutes' => 1]);
+        }
         $this->db->tx(function () use ($day, $now, $tz) {
             $row = $this->db->one('SELECT * FROM activity WHERE employee_id = ? AND day = ?' . ($this->db->sqlite ? '' : ' FOR UPDATE'), [$this->me['id'], $day]);
             if (!$row) {
@@ -241,7 +247,9 @@ trait ApiWork
         usort($rows, fn($a, $b) => $b['minutes'] <=> $a['minutes']);
         $feed = $this->db->all('SELECT v.kind, v.detail, v.created_at, e.name FROM events v JOIN employees e ON e.id = v.employee_id
             WHERE v.created_at >= ? ORDER BY v.id DESC LIMIT 200', [$fromMs]);
+        $screens = $this->db->all('SELECT screen, SUM(minutes) AS m FROM screen_stats WHERE day >= ? GROUP BY screen ORDER BY m DESC LIMIT 20', [$fromDay]);
         return [
+            'screens' => array_map(fn($x) => ['screen' => $x['screen'], 'minutes' => (int)$x['m']], $screens),
             'people' => $rows, 'idleMinutes' => intdiv($idle, 60000),
             'feed' => array_map(fn($f) => ['who' => $f['name'], 'kind' => $f['kind'], 'detail' => $f['detail'], 'time' => (int)$f['created_at']], $feed),
         ];
