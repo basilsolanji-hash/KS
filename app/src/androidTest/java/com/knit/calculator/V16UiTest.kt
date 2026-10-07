@@ -49,6 +49,7 @@ class V16UiTest {
 
     @Test fun ownPinCode() {
         compose.onNodeWithContentDescription("Настройки").performClick()
+        compose.onNodeWithText("Безопасность").performScrollTo().performClick()
         compose.onNodeWithText("Свой PIN-код (4 цифры)").performScrollTo()
         compose.onNodeWithContentDescription("PIN-код приложения").performClick()
         compose.onNodeWithText("Новый PIN-код").assertExists()
@@ -83,8 +84,10 @@ class V16UiTest {
 
         compose.onNodeWithContentDescription("Реквизиты фабрики").performClick()
         compose.onNodeWithText("Подключить по QR-коду").assertExists()
+        compose.onNodeWithText("Ежедневная сводка в 9:00").assertDoesNotExist()
+        compose.onNodeWithText("Безопасность").performScrollTo().performClick()
         compose.onNodeWithText("Ежедневная сводка в 9:00").assertExists()
-        compose.onNodeWithText("Реквизиты").performClick()
+        compose.onNodeWithText("Реквизиты").performScrollTo().performClick()
         compose.onNodeWithText("Подключить по QR-коду").assertDoesNotExist()
         Shots.take("64_settings_tabs", compose)
     }
@@ -158,7 +161,7 @@ class V16UiTest {
         compose.onNodeWithText("Первый вход директора").assertExists()
         Shots.take("71_staff_server", compose)
         compose.onNodeWithContentDescription("Назад").performClick()
-        compose.openMenu("Этапы производства")
+        compose.openMenu("Производственный процесс")
         compose.onNodeWithText("Подключитесь к серверу фабрики: меню ☰ → «Сервер фабрики».").assertExists()
     }
 

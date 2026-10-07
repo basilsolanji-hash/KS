@@ -53,9 +53,9 @@ import kotlinx.coroutines.launch
 
 /** ИИ-помощники (веб-версии). Названия совпадают со значениями строки «ИИ для менеджеров». */
 val AI_CHANNELS = listOf(
+    Channel("ai-deepseek", "DeepSeek", "https://chat.deepseek.com", "ai"),
     Channel("ai-chatgpt", "ChatGPT", "https://chatgpt.com", "ai"),
     Channel("ai-claude", "Claude", "https://claude.ai", "ai"),
-    Channel("ai-deepseek", "DeepSeek", "https://chat.deepseek.com", "ai"),
 )
 
 const val AI_SETTING = "ИИ для менеджеров"
