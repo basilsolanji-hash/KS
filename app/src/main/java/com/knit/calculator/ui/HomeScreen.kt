@@ -132,7 +132,6 @@ fun menuGroups(director: Boolean, msEnabled: Boolean, staffRole: String? = null)
     return listOf(
         R.string.menu_group_work to listOf(
             MenuItem(HomeAction.QUOTE, R.string.menu_quote, R.drawable.ic_add),
-            MenuItem(HomeAction.HISTORY, R.string.home_history, R.drawable.ic_history),
             MenuItem(HomeAction.MS_ORDERS, R.string.orders_title, R.drawable.ic_list),
             MenuItem(HomeAction.TASKS, R.string.tasks_title, R.drawable.ic_list),
             MenuItem(HomeAction.PRODUCTS, R.string.home_products, R.drawable.ic_inventory),
@@ -350,7 +349,7 @@ fun HomeScreen(
     ) {
         // Шапка: ☰, логотип и «ФАБРИКА», свои кнопки (настраиваются в меню).
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            HeaderButton(R.drawable.ic_list, stringResource(R.string.menu_open)) { scope.launch { drawer.open() } }
+            HeaderButton(R.drawable.ic_list, stringResource(R.string.menu_open), large = true) { scope.launch { drawer.open() } }
             Image(
                 painter = painterResource(R.drawable.ic_ks_logo),
                 contentDescription = null,
@@ -362,7 +361,6 @@ fun HomeScreen(
                 HeaderButton(item.icon, stringResource(item.label)) { onAction(item.action) }
             }
         }
-        SyncLine(sync)
         ConnectCard(sync, staffRole != null, onAction, onMsRetry)
 
         // Блоки главного экрана — в выбранном порядке (меню → «Блоки главного экрана»).
@@ -483,7 +481,7 @@ fun HomeScreen(
         shape = androidx.compose.foundation.shape.CircleShape,
         containerColor = colors.equalsKey,
         contentColor = colors.equalsKeyText,
-        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
+        modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 12.dp),
     ) {
         Icon(painterResource(R.drawable.ic_add), stringResource(R.string.menu_quote), Modifier.size(40.dp))
     }
@@ -501,16 +499,16 @@ fun HomeScreen(
 
 /** Компактная кнопка шапки (40 dp — помещается больше кнопок). */
 @Composable
-private fun HeaderButton(icon: Int, description: String, onClick: () -> Unit) {
+private fun HeaderButton(icon: Int, description: String, large: Boolean = false, onClick: () -> Unit) {
     val colors = LocalKnitColors.current
-    androidx.compose.material3.IconButton(onClick = onClick, modifier = Modifier.size(40.dp)) {
-        Icon(painterResource(icon), description, Modifier.size(22.dp), tint = colors.textSecondary)
+    androidx.compose.material3.IconButton(onClick = onClick, modifier = Modifier.size(if (large) 48.dp else 40.dp)) {
+        Icon(painterResource(icon), description, Modifier.size(if (large) 28.dp else 22.dp), tint = colors.textSecondary)
     }
 }
 
 /** Нижняя панель: фото (нажмите, чтобы сменить), имя, смена; справа — время и дата. */
 @Composable
-private fun WorkBarView(work: WorkBar, onShift: (Boolean) -> Unit, onPhoto: (android.net.Uri) -> Unit) {
+fun WorkBarView(work: WorkBar, onShift: (Boolean) -> Unit, onPhoto: (android.net.Uri) -> Unit) {
     val colors = LocalKnitColors.current
     var now by androidx.compose.runtime.remember { androidx.compose.runtime.mutableLongStateOf(System.currentTimeMillis()) }
     androidx.compose.runtime.LaunchedEffect(Unit) {

@@ -149,7 +149,7 @@ jobs:
   # Публикация — только после всех проверок: APK с непрошедшими тестами пользователям не выдаётся.
   publish:
     needs: [build, ui-tests]
-    if: always() && github.event_name != 'pull_request' && needs.build.result == 'success' && needs.ui-tests.result != 'cancelled'
+    if: always() && github.event_name != 'pull_request' && (github.ref == 'refs/heads/claude/android-calculator-knit-erp-n3j1ya' || github.ref == 'refs/heads/main') && needs.build.result == 'success' && needs.ui-tests.result != 'cancelled'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

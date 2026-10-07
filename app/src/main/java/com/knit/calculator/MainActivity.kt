@@ -10,6 +10,8 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -269,31 +271,32 @@ class MainActivity : FragmentActivity() {
                     com.knit.calculator.staff.LegalScreen(profileViewModel, onAccepted = { staffViewModel.refreshMe() }, onLater = { legalLater = true })
                     return@KnitTheme
                 }
+                val onWorkShift: (Boolean) -> Unit = { start -> if (start) workViewModel.start() else workViewModel.close(); tick = System.currentTimeMillis() }
+                val onWorkPhoto: (android.net.Uri) -> Unit = { uri ->
+                    // Фото профиля — уменьшенной копией (до 320 px), только на этом телефоне.
+                    runCatching {
+                        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, bounds) }
+                        var sample = 1
+                        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 320) sample *= 2
+                        val bmp = contentResolver.openInputStream(uri)?.use {
+                            android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
+                        }
+                        bmp?.let { b -> avatar.outputStream().use { b.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, it) } }
+                    }
+                    avatarVersion++
+                }
+                androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.fillMaxSize()) {
+                androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.weight(1f)) {
                 when (screen) {
                     Screen.HOME -> HomeScreen(sync, themeMode, director, onTheme = viewModel::cycleTheme, day = day, version = version, myPay = myPay, charts = charts,
                         shortcuts = shortcuts,
                         onShortcuts = { list -> shortcuts = list; store.homeShortcuts = list.map { it.name } },
-                        work = work,
                         widgets = widgets,
                         staffRole = staffMe?.role,
                         onMsRetry = { quoteViewModel.refreshMs(force = true) },
                         team = if (staffMe?.full == true) staffRating else null,
                         onWidgets = { list -> widgets = list; store.homeWidgets = list.map { it.name } },
-                        onShift = { start -> if (start) workViewModel.start() else workViewModel.close(); tick = System.currentTimeMillis() },
-                        onPhoto = { uri ->
-                            // Фото профиля — уменьшенной копией (до 320 px), только на этом телефоне.
-                            runCatching {
-                                val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                                contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, bounds) }
-                                var sample = 1
-                                while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 320) sample *= 2
-                                val bmp = contentResolver.openInputStream(uri)?.use {
-                                    android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
-                                }
-                                bmp?.let { b -> avatar.outputStream().use { b.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, it) } }
-                            }
-                            avatarVersion++
-                        },
                         refreshing = refreshing,
                         onRefresh = {
                             // Свайп вниз: заново всё — каталог, КП, учёт, финансы.
@@ -420,6 +423,11 @@ class MainActivity : FragmentActivity() {
                         val config by quoteViewModel.syncConfig.collectAsStateWithLifecycle()
                         com.knit.calculator.ui.AboutScreen(version, sync, msProducts.size, director, config.manager, printer.name, onBack = ::back)
                     }
+                }
+                }
+                androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.navigationBarsPadding()) {
+                    com.knit.calculator.ui.WorkBarView(work, onWorkShift, onWorkPhoto)
+                }
                 }
                 notice?.let { text ->
                     androidx.compose.material3.AlertDialog(
