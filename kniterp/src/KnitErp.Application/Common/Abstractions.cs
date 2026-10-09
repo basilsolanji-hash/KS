@@ -28,6 +28,9 @@ public interface ICurrentUser
     long? UserId { get; }
     long? OrganizationId { get; }
     string? CorrelationId { get; }
+
+    /// <summary>IP-адрес клиента обычного HTTP-запроса (страницы входа) — для журнала входов. В Blazor-цепи и тестах — null.</summary>
+    string? ClientAddress => null;
 }
 
 /// <summary>
@@ -79,8 +82,12 @@ public interface IKnitErpDbContext : IAsyncDisposable
     Task LockAsync(string resource, CancellationToken cancellationToken = default);
 }
 
-/// <summary>Лист таблицы для выгрузки: заголовок и строки как текст.</summary>
-public sealed record SheetData(string Name, IReadOnlyList<string> Header, IReadOnlyList<IReadOnlyList<string>> Rows);
+/// <summary>
+/// Лист таблицы для выгрузки: заголовок и строки как текст. NumericColumns — номера столбцов (с 0) с числами
+/// в инвариантной записи «1250.5»: в Excel они станут числами, и их можно суммировать; остальные — текст.
+/// </summary>
+public sealed record SheetData(
+    string Name, IReadOnlyList<string> Header, IReadOnlyList<IReadOnlyList<string>> Rows, IReadOnlySet<int>? NumericColumns = null);
 
 /// <summary>Чтение и запись таблиц Excel (.xlsx). Реализация — в Infrastructure, сценарии от библиотеки не зависят.</summary>
 public interface ISpreadsheetFormat

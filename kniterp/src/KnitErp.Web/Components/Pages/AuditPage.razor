@@ -15,7 +15,13 @@ else if (_rows is null)
 }
 else
 {
-    <h1>Журнал аудита</h1>
+    <div class="page-head">
+        <h1>Журнал аудита</h1>
+        <div class="actions">
+            <a class="button secondary" href="signins">Журнал входов</a>
+            <a class="button secondary" href="audit.xlsx" download data-enhance-nav="false" title="Последние 1000 записей">Excel</a>
+        </div>
+    </div>
     <p class="muted">
         @(CurrentAccess.Has(Permissions.AuditLogView) ? "Все события организации" : "Только ваши действия и входы"),
         последние @_rows.Count. Время — @TimeZones.Label(CurrentAccess.TimeZoneId).

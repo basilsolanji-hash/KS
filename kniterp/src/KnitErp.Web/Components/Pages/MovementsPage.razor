@@ -39,6 +39,7 @@ else
         <label>По <input type="date" @bind="_to" /></label>
         <label>Позиция <input @bind="_search" placeholder="Код или наименование" /></label>
         <button type="submit" class="secondary" disabled="@_busy">Показать</button>
+        <a class="button secondary" href="@ExportHref" download data-enhance-nav="false" title="Выгрузить с текущими фильтрами">Excel</a>
     </form>
 
     @if (_report.Truncated)
@@ -95,6 +96,9 @@ else
             _denied = ex.Message;
         }
     }
+
+    private string ExportHref => KnitErp.Web.Exports.ExportLink.Build("reports/movements.xlsx", ("warehouse", _warehouse),
+        ("from", KnitErp.Web.Exports.ExportLink.Date(_from)), ("to", KnitErp.Web.Exports.ExportLink.Date(_to)), ("search", _search));
 
     private async Task LoadAsync() =>
         _report = await Reports.MovementsAsync(new MovementFilter(

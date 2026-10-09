@@ -80,7 +80,8 @@ builder.Services.AddAuthentication(AuthSchemes.Session)
 builder.Services.AddAuthorizationBuilder()
     .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
 
-builder.Services.AddHealthChecks();
+builder.Services.AddScoped<KnitErp.Web.Exports.ReportExports>();
+builder.Services.AddHealthChecks().AddCheck<KnitErp.Web.Security.DatabaseHealthCheck>("database");
 
 // Ключи cookie и антиподделки — в базе, зашифрованные мастер-ключом: сессии переживают перезапуск и несколько серверов,
 // а копия базы ключей не раскрывает.
@@ -164,6 +165,19 @@ app.MapGet("/opening-balances/template.xlsx", (OpeningBalanceService balances, C
     FileOrForbid(() => balances.LinesTemplateAsync(ct), "shablon-nachalnyh-ostatkov.xlsx"));
 app.MapGet("/stock-documents/template.xlsx", (StockDocumentService documents, CancellationToken ct) =>
     FileOrForbid(() => documents.LinesTemplateAsync(ct), "shablon-strok-dokumenta.xlsx"));
+// Отчёты и журналы в Excel — те же фильтры, что на экране; права и область складов проверяют сервисы.
+app.MapGet("/reports/stock.xlsx", (long? warehouse, byte? type, string? search, KnitErp.Web.Exports.ReportExports export, CancellationToken ct) =>
+    FileOrForbid(() => export.StockAsync(new StockFilter(warehouse, (KnitErp.Domain.Catalog.ItemType?)type, search), ct),
+        $"ostatki-{DateTime.UtcNow:yyyy-MM-dd}.xlsx"));
+app.MapGet("/reports/movements.xlsx", (long? warehouse, DateOnly? from, DateOnly? to, string? search, KnitErp.Web.Exports.ReportExports export, CancellationToken ct) =>
+    FileOrForbid(() => export.MovementsAsync(new MovementFilter(warehouse, from, to, search), ct), $"dvizheniya-{DateTime.UtcNow:yyyy-MM-dd}.xlsx"));
+app.MapGet("/reports/turnover.xlsx", (long? warehouse, DateOnly from, DateOnly to, byte? type, string? search, KnitErp.Web.Exports.ReportExports export, CancellationToken ct) =>
+    FileOrForbid(() => export.TurnoverAsync(new TurnoverFilter(warehouse, from, to, (KnitErp.Domain.Catalog.ItemType?)type, search), ct),
+        $"oboroty-{from:yyyy-MM-dd}-{to:yyyy-MM-dd}.xlsx"));
+app.MapGet("/audit.xlsx", (KnitErp.Web.Exports.ReportExports export, CancellationToken ct) =>
+    FileOrForbid(() => export.AuditAsync(ct), $"zhurnal-audita-{DateTime.UtcNow:yyyy-MM-dd}.xlsx"));
+app.MapGet("/signins.xlsx", (DateOnly? from, DateOnly? to, bool? failures, KnitErp.Web.Exports.ReportExports export, CancellationToken ct) =>
+    FileOrForbid(() => export.SignInsAsync(from, to, failures == true, ct), $"zhurnal-vhodov-{DateTime.UtcNow:yyyy-MM-dd}.xlsx"));
 app.MapGet("/inventory/{id:long}/sheet.xlsx", (long id, InventoryService inventory, CancellationToken ct) =>
     FileOrForbid(() => inventory.CountSheetAsync(id, ct), $"blank-inventarizacii-{id}.xlsx"));
 
@@ -185,6 +199,10 @@ static async Task<IResult> FileOrForbid(Func<Task<byte[]>> build, string fileNam
     catch (NotFoundException)
     {
         return Results.NotFound();
+    }
+    catch (KnitErp.Domain.Common.BusinessRuleException ex)
+    {
+        return Results.BadRequest(ex.Message);
     }
 }
 

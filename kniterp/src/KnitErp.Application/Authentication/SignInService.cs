@@ -70,7 +70,7 @@ public sealed class SignInService(
             else
             {
                 db.AuditEntries.Add(AuditEntry.Create(now, null, null, AuditActions.SignInFailed, nameof(UserAccount), null,
-                    reason: "неизвестный email", correlationId: currentUser.CorrelationId));
+                    reason: WithAddress("неизвестный email"), correlationId: currentUser.CorrelationId));
             }
 
             await db.SaveChangesAsync(ct);
@@ -289,7 +289,7 @@ public sealed class SignInService(
     {
         user.RegisterSuccessfulSignIn();
         db.AuditEntries.Add(AuditEntry.Create(clock.UtcNow, organizationId, user.Id, AuditActions.SignedIn, nameof(UserAccount),
-            user.Id.ToString(), after: usedTwoFactor ? "пароль и 2FA" : "пароль", correlationId: currentUser.CorrelationId));
+            user.Id.ToString(), after: usedTwoFactor ? "пароль и 2FA" : "пароль", reason: WithAddress(null), correlationId: currentUser.CorrelationId));
         await db.SaveChangesAsync(ct);
         return new SignInResult(SignInStatus.Succeeded,
             new SessionIdentity(user.Id, user.DisplayName, user.SecurityStamp, organizationId, usedTwoFactor));
@@ -348,7 +348,12 @@ public sealed class SignInService(
         foreach (var orgId in orgIds)
         {
             db.AuditEntries.Add(AuditEntry.Create(clock.UtcNow, orgId, user.Id, action, nameof(UserAccount),
-                user.Id.ToString(), reason: reason, correlationId: currentUser.CorrelationId));
+                user.Id.ToString(), reason: WithAddress(reason), correlationId: currentUser.CorrelationId));
         }
     }
+
+    /// <summary>Адрес, с которого пришёл запрос, — в причину записи журнала входов (поля журнала не меняются, D56).</summary>
+    private string? WithAddress(string? reason) => currentUser.ClientAddress is { } ip
+        ? reason is null ? $"адрес {ip}" : $"{reason} · адрес {ip}"
+        : reason;
 }

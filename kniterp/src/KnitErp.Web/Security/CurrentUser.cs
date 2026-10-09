@@ -15,6 +15,8 @@ public sealed class ClaimsCurrentUser(AuthenticationStateProvider authentication
     public long? OrganizationId => SessionClaims.OrganizationId(Principal);
     public string? CorrelationId { get; } = Guid.NewGuid().ToString("N");
 
+    public string? ClientAddress => httpContext.HttpContext?.Connection.RemoteIpAddress?.ToString();
+
     private ClaimsPrincipal Principal
     {
         get

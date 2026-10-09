@@ -91,10 +91,12 @@
         ("stock", "Остатки", a => a.Has(Permissions.WarehouseReportView)),
         ("reports/movements", "Движения", a => a.Has(Permissions.WarehouseReportView)),
         ("reports/turnover", "Обороты", a => a.Has(Permissions.WarehouseReportView)),
+        ("reconciliation", "Сверка", a => a.Has(Permissions.WarehouseReportView)),
         ("period", "Закрытие периода", a => a.Has(Permissions.ClosedPeriodReopen) || a.Has(Permissions.WarehouseReportView)),
         ("users", "Пользователи", a => a.Has(Permissions.UserView)),
         ("roles", "Роли и права", a => a.Has(Permissions.UserView)),
         ("audit", "Журнал аудита", a => a.HasOwnOnly(Permissions.AuditLogView)),
+        ("signins", "Журнал входов", a => a.HasOwnOnly(Permissions.AuditLogView)),
         ("integrity", "Проверка целостности", a => a.Has(Permissions.AuditLogView)),
     ];
 

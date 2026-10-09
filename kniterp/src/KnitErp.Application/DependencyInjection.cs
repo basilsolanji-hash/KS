@@ -40,6 +40,7 @@ public static class DependencyInjection
         services.AddScoped<Workspace.QuickSearchService>();
         services.AddScoped<Workspace.AssistantService>();
         services.AddScoped<Security.IntegrityService>();
+        services.AddScoped<ReconciliationService>();
         services.AddScoped<StockService>();
         services.TryAddSingleton<IPasswordHasher<UserAccount>, PasswordHasher<UserAccount>>();
         services.AddScoped<SignInService>();

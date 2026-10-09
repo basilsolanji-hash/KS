@@ -18,6 +18,9 @@ public sealed record AuditRowDto(
     string? After,
     string? Reason);
 
+public sealed record SignInRowDto(
+    DateTime OccurredAtUtc, string? UserName, string Action, string? Method, string? Detail, string? Address, bool Failed);
+
 /// <summary>Чтение журнала аудита: полный — по праву, «только свои» — для роли «Сотрудник» (ТЗ §4.8 KA3644).</summary>
 public sealed class AuditQueryService(IKnitErpDbContext db, IAccessGuard guard)
 {
@@ -54,6 +57,55 @@ public sealed class AuditQueryService(IKnitErpDbContext db, IAccessGuard guard)
             e.ActorUserId,
             e.ActorUserId is { } id && names.TryGetValue(id, out var n) ? n : null,
             e.Action, e.EntityType, e.EntityId, DescribeObject(e, names, orgName), e.Before, e.After, e.Reason)).ToList();
+    }
+
+    public static readonly IReadOnlyList<string> SignInActions =
+        [AuditActions.SignedIn, AuditActions.SignInFailed, AuditActions.LockedOut, AuditActions.SignedOut, AuditActions.TwoFactorEnabled];
+
+    /// <summary>
+    /// Журнал входов: входы, неудачные попытки, блокировки, выходы, подключение 2FA — с адресом, откуда пришёл запрос.
+    /// Полный журнал — по праву просмотра журнала аудита; без него пользователь видит только свои входы.
+    /// </summary>
+    public async Task<IReadOnlyList<SignInRowDto>> ListSignInsAsync(DateTime? fromUtc, DateTime? toUtc, bool failuresOnly, int take = 500, CancellationToken ct = default)
+    {
+        var ctx = await guard.CurrentAsync(ct);
+        var actions = failuresOnly ? [AuditActions.SignInFailed, AuditActions.LockedOut] : SignInActions.ToList();
+        var query = db.AuditEntries.AsNoTracking()
+            .Where(a => a.OrganizationId == ctx.OrganizationId && actions.Contains(a.Action));
+        if (!ctx.Permissions.Has(Permissions.AuditLogView))
+        {
+            if (!ctx.Permissions.HasOwnOnly(Permissions.AuditLogView))
+            {
+                await guard.DenyAsync(ctx, Permissions.AuditLogView, ct);
+            }
+
+            var own = ctx.UserId.ToString();
+            query = query.Where(a => a.ActorUserId == ctx.UserId || (a.EntityType == nameof(UserAccount) && a.EntityId == own));
+        }
+
+        if (fromUtc is { } from)
+        {
+            query = query.Where(a => a.OccurredAtUtc >= from);
+        }
+
+        if (toUtc is { } to)
+        {
+            query = query.Where(a => a.OccurredAtUtc < to);
+        }
+
+        var entries = await query.OrderByDescending(a => a.OccurredAtUtc).ThenByDescending(a => a.Id).Take(Math.Clamp(take, 1, 5000)).ToListAsync(ct);
+        var ids = entries.Select(e => e.ActorUserId ?? (long.TryParse(e.EntityId, out var id) ? id : 0)).Where(id => id > 0).Distinct().ToList();
+        var names = await db.Users.AsNoTracking().Where(u => ids.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.DisplayName, ct);
+        return entries.Select(e =>
+        {
+            var userId = e.ActorUserId ?? (long.TryParse(e.EntityId, out var id) ? id : 0);
+            var reason = e.Reason ?? string.Empty;
+            var at = reason.LastIndexOf("адрес ", StringComparison.Ordinal);
+            var address = at >= 0 ? reason[(at + 6)..].Trim() : null;
+            var detail = at >= 0 ? reason[..at].TrimEnd(' ', '·') : reason;
+            return new SignInRowDto(e.OccurredAtUtc, names.GetValueOrDefault(userId), e.Action, e.After,
+                detail.Length == 0 ? null : detail, address, e.Action is AuditActions.SignInFailed or AuditActions.LockedOut);
+        }).ToList();
     }
 
     /// <summary>Объект записи по-человечески: имя пользователя или название организации вместо «UserAccount 2».</summary>

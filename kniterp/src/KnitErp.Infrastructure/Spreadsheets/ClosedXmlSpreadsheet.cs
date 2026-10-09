@@ -59,10 +59,11 @@ public sealed class ClosedXmlSpreadsheet : ISpreadsheetFormat
         foreach (var data in sheets)
         {
             var sheet = workbook.Worksheets.Add(data.Name);
+            var numeric = data.NumericColumns ?? new HashSet<int>();
             for (var c = 0; c < data.Header.Count; c++)
             {
                 // Текстовый формат на весь столбец: и новые строки, которые впишет пользователь, не станут числами.
-                sheet.Column(c + 1).Style.NumberFormat.Format = "@";
+                sheet.Column(c + 1).Style.NumberFormat.Format = numeric.Contains(c) ? "#,##0.######" : "@";
                 var cell = sheet.Cell(1, c + 1);
                 cell.Value = data.Header[c];
                 cell.Style.Font.Bold = true;
@@ -72,10 +73,19 @@ public sealed class ClosedXmlSpreadsheet : ISpreadsheetFormat
             {
                 for (var c = 0; c < data.Rows[r].Count; c++)
                 {
-                    // Всё как текст: коды вида «0042» не должны превращаться в число 42.
                     var cell = sheet.Cell(r + 2, c + 1);
+                    var text = data.Rows[r][c];
+                    if (numeric.Contains(c) && decimal.TryParse(text, System.Globalization.NumberStyles.Number,
+                            System.Globalization.CultureInfo.InvariantCulture, out var number))
+                    {
+                        cell.SetValue(number);
+                        cell.Style.NumberFormat.Format = "#,##0.######";
+                        continue;
+                    }
+
+                    // Остальное как текст: коды вида «0042» не должны превращаться в число 42.
                     cell.Style.NumberFormat.Format = "@";
-                    cell.SetValue(data.Rows[r][c]);
+                    cell.SetValue(text);
                 }
             }
 

@@ -42,6 +42,7 @@ else
         </label>
         <label>Поиск <input @bind="_search" placeholder="Код или наименование" /></label>
         <button type="submit" class="secondary" disabled="@_busy">Показать</button>
+        <a class="button secondary" href="@ExportHref" download data-enhance-nav="false" title="Выгрузить с текущими фильтрами">Excel</a>
     </form>
 
     <div class="scroll">
@@ -94,6 +95,8 @@ else
             _denied = ex.Message;
         }
     }
+
+    private string ExportHref => KnitErp.Web.Exports.ExportLink.Build("reports/stock.xlsx", ("warehouse", _warehouse), ("type", _type), ("search", _search));
 
     private async Task LoadAsync() =>
         _rows = await Stock.BalancesAsync(new StockFilter(

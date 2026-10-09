@@ -37,6 +37,7 @@ public sealed class TestUser : ICurrentUser
     public long? UserId { get; set; }
     public long? OrganizationId { get; set; }
     public string? CorrelationId => "test";
+    public string? ClientAddress { get; set; }
 }
 
 /// <summary>Отдельная база на каждый тест-класс; создаётся с нуля теми же миграциями, что и рабочая, и удаляется после.</summary>
@@ -64,6 +65,9 @@ public sealed class SqlTestHost : IAsyncLifetime
 
     public TestClock Clock { get; } = new();
 
+    /// <summary>Адрес клиента для журнала входов (как у HTTP-запроса страницы входа).</summary>
+    public string? ClientAddress { get; set; }
+
     /// <summary>Модель ИИ-помощника для тестов: по умолчанию не подключена.</summary>
     public IAssistantModel AssistantModel { get; set; } = new DisabledAssistantModel();
 
@@ -83,7 +87,7 @@ public sealed class SqlTestHost : IAsyncLifetime
     public Services As(long? userId, long? organizationId)
     {
         var db = NewDb();
-        var user = new TestUser { UserId = userId, OrganizationId = organizationId };
+        var user = new TestUser { UserId = userId, OrganizationId = organizationId, ClientAddress = ClientAddress };
         var guard = new AccessGuard(db, user, Clock);
         var access = new UserAccessService(db, guard, user, Clock);
         return new Services(db,
@@ -109,7 +113,8 @@ public sealed class SqlTestHost : IAsyncLifetime
             new NotificationService(Factory, new PersonalToolsService(Factory, user, Clock), user, Clock),
             new QuickSearchService(Factory, user, Clock),
             new AssistantService(AssistantModel, Factory, user, Clock),
-            new KnitErp.Application.Security.IntegrityService(db, guard, new KnitErp.Infrastructure.Security.IntegrityVerifier(Factory), user, Clock));
+            new KnitErp.Application.Security.IntegrityService(db, guard, new KnitErp.Infrastructure.Security.IntegrityVerifier(Factory), user, Clock),
+            new ReconciliationService(db, guard));
     }
 
     private static readonly IPasswordHasher<UserAccount> Hasher = new PasswordHasher<UserAccount>();
@@ -164,7 +169,8 @@ public sealed record Services(
     NotificationService Notifications,
     QuickSearchService Search,
     AssistantService Assistant,
-    KnitErp.Application.Security.IntegrityService Integrity) : IAsyncDisposable
+    KnitErp.Application.Security.IntegrityService Integrity,
+    ReconciliationService Reconciliation) : IAsyncDisposable
 {
     public ValueTask DisposeAsync() => Db.DisposeAsync();
 }
