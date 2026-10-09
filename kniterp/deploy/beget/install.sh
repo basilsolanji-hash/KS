@@ -11,8 +11,11 @@ DOMAIN="${1:-}"
 
 echo "== 1/8 Пакеты: Docker, Caddy, openssl"
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -q
-apt-get install -y -q docker.io docker-compose-v2 caddy openssl cron ufw >/dev/null
+# На новом сервере в первые минуты работает автоматическое обновление Ubuntu и держит блокировку пакетов —
+# ждём её до 15 минут, а не падаем.
+APT=(apt-get -o DPkg::Lock::Timeout=900)
+"${APT[@]}" update -q
+"${APT[@]}" install -y -q docker.io docker-compose-v2 caddy openssl cron ufw >/dev/null
 systemctl enable --now docker cron >/dev/null
 
 echo "== 2/8 Секреты (.env, ключ резервных копий)"
