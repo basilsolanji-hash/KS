@@ -59,7 +59,7 @@ else
             {
                 <dt>@L("Поставщик")</dt><dd>@(_doc.CounterpartyName ?? "—")</dd>
             }
-            <dt>@L("Причина")</dt><dd>@(_doc.ReasonName ?? L("не указана"))@(_doc.ReasonRequiresComment ? " " + L("(нужно пояснение)") : "")</dd>
+            <dt>@L("Причина")</dt><dd>@(_doc.ReasonName is { } reason ? L(reason) : L("не указана"))@(_doc.ReasonRequiresComment ? " " + L("(нужно пояснение)") : "")</dd>
             @if (_doc.Comment is not null)
             {
                 <dt>@L("Комментарий")</dt><dd>@_doc.Comment</dd>

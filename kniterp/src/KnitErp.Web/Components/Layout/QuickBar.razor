@@ -61,13 +61,13 @@
 
     <div class="menu-anchor">
         <button type="button" class="profile" aria-haspopup="menu" aria-expanded="@Expanded("profile")" @onclick="@(() => Toggle("profile"))"
-                title="@($"{Access.DisplayName} — {Access.Subtitle}")">
+                title="@($"{Access.DisplayName} — {L(Access.Subtitle)}")">
             <span class="avatar" aria-hidden="true">@Access.Initials</span>
             @if (!Compact)
             {
                 <span class="profile-text">
                     <span class="profile-name">@Access.DisplayName</span>
-                    <span class="profile-sub">@Access.Subtitle</span>
+                    <span class="profile-sub">@L(Access.Subtitle)</span>
                 </span>
             }
             <span class="sr-only">@L("Профиль")</span>
@@ -77,8 +77,8 @@
             <div class="menu menu-right" role="menu" aria-label="@L("Профиль")">
                 <div class="menu-info">
                     <b>@Access.DisplayName</b>
-                    <span class="muted">@Access.Subtitle</span>
-                    <span class="muted">@string.Join(", ", Access.RoleNames) · @Access.OrganizationName</span>
+                    <span class="muted">@L(Access.Subtitle)</span>
+                    <span class="muted">@string.Join(", ", Access.RoleNames.Select(n => L(n))) · @Access.OrganizationName</span>
                 </div>
                 <a role="menuitem" href="account/organizations" data-enhance-nav="false">@L("Сменить организацию")</a>
                 <a role="menuitem" href="security">@L("Вход и резервные коды")</a>

@@ -2,7 +2,7 @@
 @using KnitErp.Web.Components.Shared
 @inject OrganizationService Organizations
 
-<PageTitle>Организация — knitERP</PageTitle>
+<PageTitle>@L("Организация") — knitERP</PageTitle>
 
 @if (_denied is not null)
 {
@@ -10,15 +10,15 @@
 }
 else if (_org is null)
 {
-    <p class="muted">Загрузка…</p>
+    <p class="muted">@L("Загрузка…")</p>
 }
 else
 {
     <div class="page-head">
-        <h1>Организация</h1>
+        <h1>@L("Организация")</h1>
         @if (_org.CanEdit && !_editing)
         {
-            <button type="button" @onclick="StartEdit">Изменить</button>
+            <button type="button" @onclick="StartEdit">@L("Изменить")</button>
         }
     </div>
 
@@ -29,18 +29,18 @@ else
 
     <EditForm Model="_draft" OnValidSubmit="SaveAsync" FormName="organization">
         <table>
-            <tr><td class="muted">Полное наименование</td><td>@_org.FullName</td></tr>
-            <tr><td class="muted">Страна</td><td>@_org.Country.Name</td></tr>
+            <tr><td class="muted">@L("Полное наименование")</td><td>@_org.FullName</td></tr>
+            <tr><td class="muted">@L("Страна")</td><td>@_org.Country.Name</td></tr>
             <tr><td class="muted">@_org.Country.TaxIdName</td><td>@_org.Inn</td></tr>
             @if (_org.Country.HasKpp)
             {
             <tr>
-                <td class="muted">КПП</td>
-                <td>@(_org.Kpp ?? "—") @if (_org.Kpp is not null && !_org.KppVerified) { <span class="tag">требует сверки · D15</span><div class="muted">До сверки по документу организации КПП не выводится в печатные формы.</div> }</td>
+                <td class="muted">@L("КПП")</td>
+                <td>@(_org.Kpp ?? "—") @if (_org.Kpp is not null && !_org.KppVerified) { <span class="tag">@L("требует сверки · D15")</span><div class="muted">@L("До сверки по документу организации КПП не выводится в печатные формы.")</div> }</td>
             </tr>
             }
             <tr>
-                <td class="muted"><label for="org-address">Фактический адрес</label></td>
+                <td class="muted"><label for="org-address">@L("Фактический адрес")</label></td>
                 <td>
                     @if (_editing)
                     {
@@ -53,12 +53,12 @@ else
                 </td>
             </tr>
             <tr>
-                <td class="muted"><label for="org-site">Сайт фабрики</label></td>
+                <td class="muted"><label for="org-site">@L("Сайт фабрики")</label></td>
                 <td>
                     @if (_editing)
                     {
                         <InputText id="org-site" @bind-Value="_draft.Website" maxlength="300" style="width: 100%" placeholder="https://fabrika.ru" />
-                        <div class="muted">Открывается ярлыком «Сайт фабрики» на панели быстрого доступа.</div>
+                        <div class="muted">@L("Открывается ярлыком «Сайт фабрики» на панели быстрого доступа.")</div>
                     }
                     else if (_org.WebsiteUrl is { } site)
                     {
@@ -71,7 +71,7 @@ else
                 </td>
             </tr>
             <tr>
-                <td class="muted"><label for="org-tz">Часовой пояс учёта</label></td>
+                <td class="muted"><label for="org-tz">@L("Часовой пояс учёта")</label></td>
                 <td>
                     @if (_editing)
                     {
@@ -88,21 +88,21 @@ else
                     }
                 </td>
             </tr>
-            <tr><td class="muted">Валюта учёта</td><td>@_org.CurrencyCode — @_org.Country.CurrencyName</td></tr>
+            <tr><td class="muted">@L("Валюта учёта")</td><td>@_org.CurrencyCode — @_org.Country.CurrencyName</td></tr>
         </table>
 
         @if (_editing)
         {
             <div class="actions">
-                <button type="submit" disabled="@_busy">Сохранить</button>
-                <button type="button" class="secondary" @onclick="CancelEdit" disabled="@_busy">Отмена</button>
+                <button type="submit" disabled="@_busy">@L("Сохранить")</button>
+                <button type="button" class="secondary" @onclick="CancelEdit" disabled="@_busy">@L("Отмена")</button>
             </div>
         }
     </EditForm>
 
     @if (!_org.CanEdit)
     {
-        <p class="muted">У вашей роли только просмотр реквизитов.</p>
+        <p class="muted">@L("У вашей роли только просмотр реквизитов.")</p>
     }
 }
 

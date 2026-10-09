@@ -61,7 +61,7 @@ else
         }
         catch (BusinessRuleException ex)
         {
-            _message = ex.Message;
+            _message = KnitErp.Web.Components.Shared.UiErrors.Message(ex);
             Input = new PasswordInput();
         }
     }

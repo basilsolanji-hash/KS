@@ -13,13 +13,13 @@ public static class UiErrors
 
     /// <summary>
     /// Текст ошибки на языке пользователя (D60): отказ в доступе, «не найдено» и конфликт правки переводятся;
-    /// сообщения правил сервисов пока выводятся по-русски.
+    /// сообщения правил сервисов — по шаблонам перевода.
     /// </summary>
     public static string Message(Exception ex) => ex switch
     {
         AccessDeniedException denied => L("Недостаточно прав: {0}. Обратитесь к администратору.", L(Permissions.Describe(denied.PermissionCode))),
         NotFoundException notFound => L("{0}: не найдено.", L(notFound.Entity)),
         ConcurrencyConflictException => L("Данные изменены другим пользователем. Обновите страницу и повторите."),
-        _ => ex.Message,
+        _ => KnitErp.Web.Localization.Text.Message(ex.Message),
     };
 }

@@ -8,7 +8,7 @@
 @inject WarehouseService Warehouses
 @inject NavigationManager Navigation
 
-<PageTitle>Пользователи — knitERP</PageTitle>
+<PageTitle>@L("Пользователи") — knitERP</PageTitle>
 
 @if (_denied is not null)
 {
@@ -16,15 +16,15 @@
 }
 else if (_users is null)
 {
-    <p class="muted">Загрузка…</p>
+    <p class="muted">@L("Загрузка…")</p>
 }
 else
 {
     <div class="page-head">
-        <h1>Пользователи</h1>
+        <h1>@L("Пользователи")</h1>
         @if (CanManage && _mode == Mode.None)
         {
-            <button type="button" @onclick="OpenAddAsync">Добавить пользователя</button>
+            <button type="button" @onclick="OpenAddAsync">@L("Добавить пользователя")</button>
         }
     </div>
 
@@ -32,63 +32,62 @@ else
     {
         <div class="@(_flashIsError ? "flash error" : "flash")" role="@(_flashIsError ? "alert" : "status")">
             <span>@_flash</span>
-            <button type="button" class="link" aria-label="Закрыть сообщение" @onclick="() => _flash = null">×</button>
+            <button type="button" class="link" aria-label="@L("Закрыть сообщение")" @onclick="() => _flash = null">×</button>
         </div>
     }
 
     @if (_invitation is not null)
     {
         <div class="panel" role="status">
-            <h2>Ссылка приглашения для @_invitation.Name</h2>
+            <h2>@L("Ссылка приглашения для {0}", _invitation.Name)</h2>
             <p class="muted">
-                Передайте её пользователю сами: письма система пока не отправляет. Ссылка показывается один раз
-                и действует до @_invitation.ExpiresAt.
+                @L("Передайте её пользователю сами: письма система пока не отправляет. Ссылка показывается один раз и действует до {0}.", _invitation.ExpiresAt)
             </p>
-            <label for="invite-link">Ссылка</label>
+            <label for="invite-link">@L("Ссылка")</label>
             <input id="invite-link" readonly value="@_invitation.Link" style="width: 100%" onfocus="this.select()" />
-            <div class="actions"><button type="button" class="secondary" @onclick="() => _invitation = null">Готово</button></div>
+            <div class="actions"><button type="button" class="secondary" @onclick="() => _invitation = null">@L("Готово")</button></div>
         </div>
     }
 
     @if (_mode is Mode.Add or Mode.ChangeRole)
     {
         <div class="panel">
-            <h2>@(_mode == Mode.Add ? "Добавить пользователя" : $"Изменить роль: {_target!.DisplayName}")</h2>
+            <h2>@(_mode == Mode.Add ? L("Добавить пользователя") : L("Изменить роль: {0}", _target!.DisplayName))</h2>
             <EditForm Model="_form" OnValidSubmit="SubmitRoleFormAsync" FormName="user-role">
                 <div class="grid">
                     @if (_mode == Mode.Add)
                     {
                         <label>
-                            Сотрудник
+                            @L("Сотрудник")
                             <InputSelect TValue="long" Value="_form.EmployeeId" ValueChanged="EmployeeChanged" ValueExpression="() => _form.EmployeeId">
-                                <option value="0">— без карточки сотрудника —</option>
+                                <option value="0">@L("— без карточки сотрудника —")</option>
                                 @foreach (var e in _freeEmployees)
                                 {
                                     <option value="@e.Id">@e.Name</option>
                                 }
                             </InputSelect>
                         </label>
-                        <label>Имя и фамилия <InputText @bind-Value="_form.DisplayName" maxlength="200" required="@(_form.EmployeeId == 0)" disabled="@(_form.EmployeeId != 0)" /></label>
-                        <label>Email для приглашения <InputText @bind-Value="_form.Email" type="email" maxlength="254" placeholder="name@example.ru" required /></label>
+                        <label>@L("Имя и фамилия") <InputText @bind-Value="_form.DisplayName" maxlength="200" required="@(_form.EmployeeId == 0)" disabled="@(_form.EmployeeId != 0)" /></label>
+                        <label>@L("Email для приглашения") <InputText @bind-Value="_form.Email" type="email" maxlength="254" placeholder="name@example.ru" required /></label>
                     }
                     <label>
-                        Роль (шаблон)
+                        @L("Роль (шаблон)")
                         <InputSelect TValue="string" Value="_form.RoleCode" ValueChanged="RoleChangedAsync" ValueExpression="() => _form.RoleCode">
                             @foreach (var role in _roles)
                             {
-                                <option value="@role.Code" disabled="@(!role.Allowed)">@role.Name@(role.Allowed ? "" : " — недоступно")</option>
+                                <option value="@role.Code" disabled="@(!role.Allowed)">@L(role.Name)@(role.Allowed ? "" : " — " + L("недоступно"))</option>
                             }
                         </InputSelect>
                     </label>
                     @if (_departments.Count > 0)
                     {
                         <label>
-                            Область данных
+                            @L("Область данных")
                             <InputSelect TValue="long" Value="_form.DepartmentId" ValueChanged="DepartmentChangedAsync" ValueExpression="() => _form.DepartmentId">
-                                <option value="0">Вся организация</option>
+                                <option value="0">@L("Вся организация")</option>
                                 @foreach (var d in _departments)
                                 {
-                                    <option value="@d.Id">@d.Path и вложенные</option>
+                                    <option value="@d.Id">@L("{0} и вложенные", d.Path)</option>
                                 }
                             </InputSelect>
                         </label>
@@ -96,9 +95,9 @@ else
                     @if (_warehouses.Count > 0)
                     {
                         <label>
-                            Склад (для кладовщиков)
+                            @L("Склад (для кладовщиков)")
                             <InputSelect TValue="long" Value="_form.WarehouseId" ValueChanged="WarehouseChangedAsync" ValueExpression="() => _form.WarehouseId">
-                                <option value="0">— не ограничено складом —</option>
+                                <option value="0">@L("— не ограничено складом —")</option>
                                 @foreach (var w in _warehouses)
                                 {
                                     <option value="@w.Id">@w.Name</option>
@@ -107,8 +106,8 @@ else
                         </label>
                     }
                     <label>
-                        Причина@(_preview?.ReasonRequired == true ? " (обязательна для административной роли)" : "")
-                        <InputText @bind-Value="_form.Reason" maxlength="500" placeholder="Например: приём на должность" />
+                        @L("Причина")@(_preview?.ReasonRequired == true ? " (" + L("обязательна для административной роли") + ")" : "")
+                        <InputText @bind-Value="_form.Reason" maxlength="500" placeholder="@L("Например: приём на должность")" />
                     </label>
                 </div>
 
@@ -116,10 +115,10 @@ else
                 {
                     <div class="diff">
                         <div>
-                            <div class="muted">Было</div>
+                            <div class="muted">@L("Было")</div>
                             @if (_preview.Before.Count == 0)
                             {
-                                <span class="chip">Нет доступа</span>
+                                <span class="chip">@L("Нет доступа")</span>
                             }
                             @foreach (var line in _preview.Before)
                             {
@@ -127,16 +126,16 @@ else
                             }
                         </div>
                         <div>
-                            <div class="muted">Станет · итоговые права</div>
+                            <div class="muted">@L("Станет · итоговые права")</div>
                             @if (_preview.After.Count == 0)
                             {
-                                <span class="chip">Нет прав — только собственный профиль</span>
+                                <span class="chip">@L("Нет прав — только собственный профиль")</span>
                             }
                             @foreach (var line in _preview.After)
                             {
                                 <span class="chip added">@line.Text</span>
                             }
-                            <div class="muted">Область данных: @_preview.ScopeText</div>
+                            <div class="muted">@L("Область данных:") @L(_preview.ScopeText)</div>
                         </div>
                     </div>
                 }
@@ -147,8 +146,8 @@ else
                 }
 
                 <div class="actions">
-                    <button type="submit" disabled="@_busy">@(_mode == Mode.Add ? "Пригласить" : "Сохранить роль")</button>
-                    <button type="button" class="secondary" @onclick="CloseForm" disabled="@_busy">Отмена</button>
+                    <button type="submit" disabled="@_busy">@(_mode == Mode.Add ? L("Пригласить") : L("Сохранить роль"))</button>
+                    <button type="button" class="secondary" @onclick="CloseForm" disabled="@_busy">@L("Отмена")</button>
                 </div>
             </EditForm>
         </div>
@@ -161,7 +160,7 @@ else
             <p class="muted">@ConfirmHint</p>
             <EditForm Model="_form" OnValidSubmit="SubmitConfirmAsync" FormName="user-confirm">
                 <label>
-                    Причина@(_mode == Mode.Unblock ? "" : " (обязательна)")
+                    @L("Причина")@(_mode == Mode.Unblock ? "" : " (" + L("обязательна") + ")")
                     <InputText @bind-Value="_form.Reason" maxlength="500" required="@(_mode != Mode.Unblock)" />
                 </label>
                 @if (_formError is not null)
@@ -171,7 +170,7 @@ else
 
                 <div class="actions">
                     <button type="submit" disabled="@_busy">@ConfirmButton</button>
-                    <button type="button" class="secondary" @onclick="CloseForm" disabled="@_busy">Отмена</button>
+                    <button type="button" class="secondary" @onclick="CloseForm" disabled="@_busy">@L("Отмена")</button>
                 </div>
             </EditForm>
         </div>
@@ -181,10 +180,10 @@ else
         <table>
             <thead>
                 <tr>
-                    <th>Пользователь</th><th>Роль</th><th class="opt">Область данных</th><th>Статус</th>
+                    <th>@L("Пользователь")</th><th>@L("Роль")</th><th class="opt">@L("Область данных")</th><th>@L("Статус")</th>
                     @if (CanManage)
                     {
-                        <th>Действия</th>
+                        <th>@L("Действия")</th>
                     }
                 </tr>
             </thead>
@@ -193,8 +192,8 @@ else
                 {
                     <tr>
                         <td>@u.DisplayName<div class="muted">@u.Email</div></td>
-                        <td>@(u.RoleNames.Count == 0 ? "—" : string.Join(", ", u.RoleNames))</td>
-                        <td>@u.ScopeText</td>
+                        <td>@(u.RoleNames.Count == 0 ? "—" : string.Join(", ", u.RoleNames.Select(n => L(n))))</td>
+                        <td>@L(u.ScopeText)</td>
                         <td>
                             <span class="tag @StatusClass(u)">@StatusText(u)</span>
                             @if (u.TwoFactorEnabled)
@@ -207,27 +206,27 @@ else
                             <td>
                                 @if (u.IsCurrentUser)
                                 {
-                                    <span class="muted">это вы</span>
+                                    <span class="muted">@L("это вы")</span>
                                 }
                                 else
                                 {
                                     <div class="row-actions">
-                                        <button type="button" class="secondary" @onclick="() => OpenChangeRoleAsync(u)" disabled="@(_mode != Mode.None)">Изменить роль</button>
+                                        <button type="button" class="secondary" @onclick="() => OpenChangeRoleAsync(u)" disabled="@(_mode != Mode.None)">@L("Изменить роль")</button>
                                         @if (u.MembershipStatus == MembershipStatus.Active)
                                         {
-                                            <button type="button" class="secondary" @onclick="() => Open(Mode.Block, u)" disabled="@(_mode != Mode.None)">Заблокировать</button>
+                                            <button type="button" class="secondary" @onclick="() => Open(Mode.Block, u)" disabled="@(_mode != Mode.None)">@L("Заблокировать")</button>
                                         }
                                         else
                                         {
-                                            <button type="button" class="secondary" @onclick="() => Open(Mode.Unblock, u)" disabled="@(_mode != Mode.None)">Разблокировать</button>
+                                            <button type="button" class="secondary" @onclick="() => Open(Mode.Unblock, u)" disabled="@(_mode != Mode.None)">@L("Разблокировать")</button>
                                         }
                                         @if (!u.HasPassword)
                                         {
-                                            <button type="button" class="secondary" @onclick="() => ReissueAsync(u)" disabled="@(_mode != Mode.None || _busy)">Новая ссылка</button>
+                                            <button type="button" class="secondary" @onclick="() => ReissueAsync(u)" disabled="@(_mode != Mode.None || _busy)">@L("Новая ссылка")</button>
                                         }
                                         @if (u.TwoFactorEnabled)
                                         {
-                                            <button type="button" class="secondary" @onclick="() => Open(Mode.ResetTwoFactor, u)" disabled="@(_mode != Mode.None)">Сбросить 2FA</button>
+                                            <button type="button" class="secondary" @onclick="() => Open(Mode.ResetTwoFactor, u)" disabled="@(_mode != Mode.None)">@L("Сбросить 2FA")</button>
                                         }
                                     </div>
                                 }
@@ -238,7 +237,7 @@ else
             </tbody>
         </table>
     </div>
-    <p class="muted">Удаления пользователей нет — только блокировка. Блокировка закрывает сессии пользователя не позднее чем через 60 секунд.</p>
+    <p class="muted">@L("Удаления пользователей нет — только блокировка. Блокировка закрывает сессии пользователя не позднее чем через 60 секунд.")</p>
 }
 
 @code {
@@ -397,13 +396,13 @@ else
                     ScopeId, _form.EmployeeId == 0 ? null : _form.EmployeeId, WarehouseScopeId));
                 ShowInvitation(_form.DisplayName, result);
                 _flash = result.SetupToken is null
-                    ? $"Пользователь «{_form.DisplayName}» добавлен в организацию. Пароль у него уже есть — вход под своей учётной записью."
-                    : $"Пользователь «{_form.DisplayName}» приглашён.";
+                    ? L("Пользователь «{0}» добавлен в организацию. Пароль у него уже есть — вход под своей учётной записью.", _form.DisplayName)
+                    : L("Пользователь «{0}» приглашён.", _form.DisplayName);
             }
             else
             {
                 await Access.ChangeRoleAsync(new ChangeRoleCommand(_target!.UserId, _form.RoleCode, _form.Reason, ScopeId, WarehouseScopeId));
-                _flash = $"Роль пользователя «{_target.DisplayName}» изменена. Его сессии закрыты — новые права действуют с нового входа.";
+                _flash = L("Роль пользователя «{0}» изменена. Его сессии закрыты — новые права действуют с нового входа.", _target.DisplayName);
             }
         });
 
@@ -424,15 +423,15 @@ else
             {
                 case Mode.Block:
                     await Access.BlockAsync(target.UserId, _form.Reason);
-                    _flash = $"Пользователь «{target.DisplayName}» заблокирован. Открытые сессии закроются в течение минуты.";
+                    _flash = L("Пользователь «{0}» заблокирован. Открытые сессии закроются в течение минуты.", target.DisplayName);
                     break;
                 case Mode.Unblock:
                     await Access.UnblockAsync(target.UserId, _form.Reason);
-                    _flash = $"Пользователь «{target.DisplayName}» разблокирован.";
+                    _flash = L("Пользователь «{0}» разблокирован.", target.DisplayName);
                     break;
                 case Mode.ResetTwoFactor:
                     await Access.ResetTwoFactorAsync(target.UserId, _form.Reason);
-                    _flash = $"2FA пользователя «{target.DisplayName}» сброшена. Приложение-аутентификатор подключается заново при следующем входе.";
+                    _flash = L("2FA пользователя «{0}» сброшена. Приложение-аутентификатор подключается заново при следующем входе.", target.DisplayName);
                     break;
             }
         });
@@ -449,7 +448,7 @@ else
         await RunAsync(async () =>
         {
             ShowInvitation(user.DisplayName, await Access.ReissueInvitationAsync(user.UserId));
-            _flash = "Выдана новая ссылка. Прежняя больше не действует.";
+            _flash = L("Выдана новая ссылка. Прежняя больше не действует.");
         });
     }
 
@@ -499,29 +498,29 @@ else
 
     private string ConfirmTitle => _mode switch
     {
-        Mode.Block => $"Заблокировать: {_target!.DisplayName}",
-        Mode.Unblock => $"Разблокировать: {_target!.DisplayName}",
-        _ => $"Сбросить 2FA: {_target!.DisplayName}",
+        Mode.Block => L("Заблокировать: {0}", _target!.DisplayName),
+        Mode.Unblock => L("Разблокировать: {0}", _target!.DisplayName),
+        _ => L("Сбросить 2FA: {0}", _target!.DisplayName),
     };
 
     private string ConfirmHint => _mode switch
     {
-        Mode.Block => "Пользователь потеряет доступ к этой организации, открытые сессии закроются в течение минуты. Данные и история сохраняются.",
-        Mode.Unblock => "Доступ вернётся с прежней ролью.",
-        _ => "Например, если потерян телефон. Пользователь подключит приложение-аутентификатор при следующем входе.",
+        Mode.Block => L("Пользователь потеряет доступ к этой организации, открытые сессии закроются в течение минуты. Данные и история сохраняются."),
+        Mode.Unblock => L("Доступ вернётся с прежней ролью."),
+        _ => L("Например, если потерян телефон. Пользователь подключит приложение-аутентификатор при следующем входе."),
     };
 
     private string ConfirmButton => _mode switch
     {
-        Mode.Block => "Заблокировать",
-        Mode.Unblock => "Разблокировать",
-        _ => "Сбросить 2FA",
+        Mode.Block => L("Заблокировать"),
+        Mode.Unblock => L("Разблокировать"),
+        _ => L("Сбросить 2FA"),
     };
 
     private static string StatusText(UserRowDto u) =>
-        u.MembershipStatus == MembershipStatus.Blocked ? "Заблокирован"
-        : !u.HasPassword ? "Приглашён"
-        : "Активен";
+        u.MembershipStatus == MembershipStatus.Blocked ? L("Заблокирован")
+        : !u.HasPassword ? L("Приглашён")
+        : L("Активен");
 
     private static string StatusClass(UserRowDto u) =>
         u.MembershipStatus == MembershipStatus.Blocked ? "bad" : !u.HasPassword ? "warn" : "ok";

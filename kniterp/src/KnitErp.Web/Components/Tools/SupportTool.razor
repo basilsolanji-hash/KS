@@ -6,64 +6,64 @@
 }
 
 <form class="tool-form" @onsubmit="CreateAsync">
-    <h3>Новое обращение</h3>
-    <label>Тема <input @bind="_subject" maxlength="200" required /></label>
-    <label>Что случилось <textarea @bind="_text" rows="4" maxlength="4000" required placeholder="Что делали, что ожидали, что получилось"></textarea></label>
-    <p class="muted">Раздел подставится сам: @Context.RouteTitle</p>
-    <button type="submit" disabled="@_busy">Отправить</button>
+    <h3>@L("Новое обращение")</h3>
+    <label>@L("Тема") <input @bind="_subject" maxlength="200" required /></label>
+    <label>@L("Что случилось") <textarea @bind="_text" rows="4" maxlength="4000" required placeholder="@L("Что делали, что ожидали, что получилось")"></textarea></label>
+    <p class="muted">@L("Раздел подставится сам:") @L(Context.RouteTitle)</p>
+    <button type="submit" disabled="@_busy">@L("Отправить")</button>
 </form>
 
 @if (_list is not null)
 {
     @if (_list.CanHandle)
     {
-        <h3>Очередь организации (@_list.Queue.Count)</h3>
+        <h3>@L("Очередь организации ({0})", _list.Queue.Count)</h3>
         @foreach (var t in _list.Queue)
         {
             <div class="ticket">
-                <div><b>@t.Number</b> · @t.Subject <span class="tag">@t.StatusName</span></div>
+                <div><b>@t.Number</b> · @t.Subject <span class="tag">@L(t.StatusName)</span></div>
                 <div class="muted">@t.Author · @Local(t.CreatedAtUtc)@(t.Section is null ? "" : " · " + t.Section)</div>
                 <div class="ticket-text">@t.Text</div>
                 @if (t.Answer is not null)
                 {
-                    <div class="ticket-answer">Ответ: @t.Answer</div>
+                    <div class="ticket-answer">@L("Ответ:") @t.Answer</div>
                 }
                 <div class="row-actions">
                     @if (t.Status == KnitErp.Domain.Workspace.SupportTicketStatus.Open)
                     {
-                        <button type="button" class="secondary" @onclick="() => RunAsync(() => Support.TakeAsync(t.Id, t.RowVersion), null)" disabled="@_busy">В работу</button>
+                        <button type="button" class="secondary" @onclick="() => RunAsync(() => Support.TakeAsync(t.Id, t.RowVersion), null)" disabled="@_busy">@L("В работу")</button>
                     }
-                    <button type="button" class="secondary" @onclick="() => _replyTo = t.Id" disabled="@_busy">Ответить</button>
-                    <button type="button" class="secondary" @onclick="() => RunAsync(() => Support.CloseAsync(t.Id, t.RowVersion), null)" disabled="@_busy">Закрыть</button>
+                    <button type="button" class="secondary" @onclick="() => _replyTo = t.Id" disabled="@_busy">@L("Ответить")</button>
+                    <button type="button" class="secondary" @onclick="() => RunAsync(() => Support.CloseAsync(t.Id, t.RowVersion), null)" disabled="@_busy">@L("Закрыть")</button>
                 </div>
                 @if (_replyTo == t.Id)
                 {
                     <form class="tool-form" @onsubmit="() => ReplyAsync(t)">
-                        <label>Ответ <textarea @bind="_answer" rows="3" maxlength="4000"></textarea></label>
-                        <button type="submit" disabled="@_busy">Отправить ответ</button>
+                        <label>@L("Ответ") <textarea @bind="_answer" rows="3" maxlength="4000"></textarea></label>
+                        <button type="submit" disabled="@_busy">@L("Отправить ответ")</button>
                     </form>
                 }
             </div>
         }
     }
 
-    <h3>Мои обращения</h3>
+    <h3>@L("Мои обращения")</h3>
     @if (_list.Mine.Count == 0)
     {
-        <p class="muted">Обращений пока нет.</p>
+        <p class="muted">@L("Обращений пока нет.")</p>
     }
     @foreach (var t in _list.Mine)
     {
         <div class="ticket">
-            <div><b>@t.Number</b> · @t.Subject <span class="tag @(t.Status == KnitErp.Domain.Workspace.SupportTicketStatus.Answered ? "ok" : "")">@t.StatusName</span></div>
+            <div><b>@t.Number</b> · @t.Subject <span class="tag @(t.Status == KnitErp.Domain.Workspace.SupportTicketStatus.Answered ? "ok" : "")">@L(t.StatusName)</span></div>
             <div class="muted">@Local(t.CreatedAtUtc)</div>
             @if (t.Answer is not null)
             {
-                <div class="ticket-answer">Ответ: @t.Answer</div>
+                <div class="ticket-answer">@L("Ответ:") @t.Answer</div>
             }
             @if (t.Status != KnitErp.Domain.Workspace.SupportTicketStatus.Closed)
             {
-                <button type="button" class="link" @onclick="() => RunAsync(() => Support.CloseAsync(t.Id, t.RowVersion), null)" disabled="@_busy">Вопрос решён — закрыть</button>
+                <button type="button" class="link" @onclick="() => RunAsync(() => Support.CloseAsync(t.Id, t.RowVersion), null)" disabled="@_busy">@L("Вопрос решён — закрыть")</button>
             }
         </div>
     }
@@ -101,7 +101,7 @@
         var number = await Support.CreateAsync(_subject, _text, Context.RouteTitle);
         _subject = string.Empty;
         _text = string.Empty;
-        _flash = $"Обращение {number} отправлено. Об ответе придёт уведомление.";
+        _flash = L("Обращение {0} отправлено. Об ответе придёт уведомление.", number);
     }, "");
 
     private Task ReplyAsync(SupportTicketDto t) => RunAsync(async () =>
@@ -109,7 +109,7 @@
         await Support.ReplyAsync(t.Id, _answer, t.RowVersion);
         _answer = string.Empty;
         _replyTo = null;
-    }, "Ответ отправлен.");
+    }, L("Ответ отправлен."));
 
     /// <summary>Действие, затем свежий список. success = "" — сообщение задаёт само действие.</summary>
     private async Task RunAsync(Func<Task> action, string? success)

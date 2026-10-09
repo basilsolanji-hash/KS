@@ -7,27 +7,27 @@
 
 @if (_items is null)
 {
-    <p class="muted">Загрузка…</p>
+    <p class="muted">@L("Загрузка…")</p>
 }
 else
 {
     var current = Context.Route.Split('?')[0];
     var isFavorite = _items.Any(f => f.Href == current);
     <button type="button" class="@(isFavorite ? "secondary" : "")" @onclick="ToggleCurrentAsync" disabled="@_busy">
-        @(isFavorite ? "☆ Убрать из избранного" : "★ Добавить текущий раздел")
+        @(isFavorite ? L("☆ Убрать из избранного") : L("★ Добавить текущий раздел"))
     </button>
-    <p class="muted">Текущий раздел: @Context.RouteTitle</p>
+    <p class="muted">@L("Текущий раздел:") @L(Context.RouteTitle)</p>
 
     @if (_items.Count == 0)
     {
-        <p class="muted">Избранных разделов пока нет.</p>
+        <p class="muted">@L("Избранных разделов пока нет.")</p>
     }
     <ul class="plain link-list">
         @foreach (var f in _items)
         {
             <li>
                 <button type="button" class="link" @onclick="() => Context.Navigate(f.Href)">@f.Title</button>
-                <button type="button" class="link" @onclick="() => RemoveAsync(f)" aria-label="Убрать из избранного: @f.Title">Убрать</button>
+                <button type="button" class="link" @onclick="() => RemoveAsync(f)" aria-label="@L("Убрать из избранного: {0}", L(f.Title))">@L("Убрать")</button>
             </li>
         }
     </ul>

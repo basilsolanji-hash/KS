@@ -10,17 +10,17 @@
 
 @if (_items is null)
 {
-    <p class="muted">Загрузка…</p>
+    <p class="muted">@L("Загрузка…")</p>
 }
 else if (CalendarView)
 {
     <div class="cal-head">
-        <button type="button" class="secondary" @onclick="() => Shift(-1)" aria-label="Предыдущий месяц">‹</button>
+        <button type="button" class="secondary" @onclick="() => Shift(-1)" aria-label="@L("Предыдущий месяц")">‹</button>
         <b>@_month.ToString("MMMM yyyy", Ru)</b>
-        <button type="button" class="secondary" @onclick="() => Shift(1)" aria-label="Следующий месяц">›</button>
+        <button type="button" class="secondary" @onclick="() => Shift(1)" aria-label="@L("Следующий месяц")">›</button>
     </div>
-    <div class="cal-grid" role="grid" aria-label="Календарь">
-        @foreach (var d in new[] { "Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс" })
+    <div class="cal-grid" role="grid" aria-label="@L("Календарь")">
+        @foreach (var d in new[] { L("Пн"), L("Вт"), L("Ср"), L("Чт"), L("Пт"), L("Сб"), L("Вс") })
         {
             <div class="cal-dow" role="columnheader">@d</div>
         }
@@ -29,7 +29,7 @@ else if (CalendarView)
             var count = _items.Count(t => t.Date == day && !t.Done);
             <button type="button" role="gridcell"
                     class="cal-day @(day.Month != _month.Month ? "other" : "") @(day == _today ? "today" : "") @(day == _selected ? "selected" : "")"
-                    aria-label="@($"{day.ToString("d MMMM", Ru)}{(count > 0 ? $", дел: {count}" : "")}")"
+                    aria-label="@($"{day.ToString("d MMMM", Ru)}{(count > 0 ? ", " + L("дел: {0}", count) : "")}")"
                     aria-pressed="@(day == _selected ? "true" : "false")" @onclick="() => _selected = day">
                 @day.Day
                 @if (count > 0)
@@ -40,34 +40,35 @@ else if (CalendarView)
         }
     </div>
     <h3>@_selected.ToString("dddd, d MMMM", Ru)</h3>
-    @RenderList(_items.Where(t => t.Date == _selected).OrderBy(t => t.Time).ToList(), "На этот день ничего нет.")
+    @RenderList(_items.Where(t => t.Date == _selected).OrderBy(t => t.Time).ToList(), L("На этот день ничего нет."))
 }
 else
 {
     <div class="tabs" role="tablist">
-        <button type="button" role="tab" aria-selected="@(!_showDone ? "true" : "false")" class="@(!_showDone ? "" : "secondary")" @onclick="() => _showDone = false">Активные</button>
-        <button type="button" role="tab" aria-selected="@(_showDone ? "true" : "false")" class="@(_showDone ? "" : "secondary")" @onclick="() => _showDone = true">Выполненные</button>
+        <button type="button" role="tab" aria-selected="@(!_showDone ? "true" : "false")" class="@(!_showDone ? "" : "secondary")" @onclick="() => _showDone = false">@L("Активные")</button>
+        <button type="button" role="tab" aria-selected="@(_showDone ? "true" : "false")" class="@(_showDone ? "" : "secondary")" @onclick="() => _showDone = true">@L("Выполненные")</button>
     </div>
     @RenderList(_items.Where(t => t.Done == _showDone).OrderBy(t => t.Date ?? DateOnly.MaxValue).ThenBy(t => t.Time).ToList(),
-        _showDone ? "Выполненных задач нет." : "Задач нет — добавьте первую.")
+        _showDone ? L("Выполненных задач нет.") : L("Задач нет — добавьте первую."))
 }
 
 @if (_items is not null)
 {
     <form class="tool-form" @onsubmit="AddAsync">
-        <h3>@(CalendarView ? "Новое событие" : "Новая задача")</h3>
-        <label>Что сделать <input @bind="_title" maxlength="200" required /></label>
+        <h3>@(CalendarView ? L("Новое событие") : L("Новая задача"))</h3>
+        <label>@L("Что сделать") <input @bind="_title" maxlength="200" required /></label>
         <div class="tool-row">
-            <label>Дата <input type="date" @bind="_date" /></label>
-            <label>Время <input type="time" @bind="_time" /></label>
+            <label>@L("Дата") <input type="date" @bind="_date" /></label>
+            <label>@L("Время") <input type="time" @bind="_time" /></label>
         </div>
-        <label class="inline"><input type="checkbox" @bind="_remind" /> Напомнить в уведомлениях</label>
-        <button type="submit" disabled="@_busy">Добавить</button>
+        <label class="inline"><input type="checkbox" @bind="_remind" /> @L("Напомнить в уведомлениях")</label>
+        <button type="submit" disabled="@_busy">@L("Добавить")</button>
     </form>
 }
 
 @code {
-    private static readonly CultureInfo Ru = CultureInfo.GetCultureInfo("ru-RU");
+    // Названия месяцев и дней — на языке интерфейса (D60).
+    private static CultureInfo Ru => CultureInfo.CurrentUICulture;
 
     [Parameter, EditorRequired]
     public ToolContext Context { get; set; } = default!;
@@ -126,13 +127,13 @@ else
             {
                 <li class="@(t.Done ? "done" : "")">
                     <label class="inline">
-                        <input type="checkbox" checked="@t.Done" disabled="@_busy" @onchange="e => SetDoneAsync(t, e.Value is true)" aria-label="Выполнено: @t.Title" />
+                        <input type="checkbox" checked="@t.Done" disabled="@_busy" @onchange="e => SetDoneAsync(t, e.Value is true)" aria-label="@L("Выполнено: {0}", t.Title)" />
                         <span>@t.Title</span>
                     </label>
                     <span class="muted">
-                        @(t.Date is { } d ? d.ToString("d MMM", Ru) : "")@(t.Time is { } tm ? " " + tm.ToString("HH:mm") : "")@(t.Remind ? " · напомнить" : "")
+                        @(t.Date is { } d ? d.ToString("d MMM", Ru) : "")@(t.Time is { } tm ? " " + tm.ToString("HH:mm") : "")@(t.Remind ? " · " + L("напомнить") : "")
                     </span>
-                    <button type="button" class="link" @onclick="() => DeleteAsync(t)" aria-label="Удалить: @t.Title">Удалить</button>
+                    <button type="button" class="link" @onclick="() => DeleteAsync(t)" aria-label="@L("Удалить: {0}", t.Title)">@L("Удалить")</button>
                 </li>
             }
         </ul>

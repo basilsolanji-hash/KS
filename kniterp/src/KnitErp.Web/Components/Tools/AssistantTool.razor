@@ -2,8 +2,8 @@
 
 <p class="muted">
     @(Assistant.ModelConfigured
-        ? "Помощник отвечает по работе в knitERP с учётом ваших прав и текущего раздела. Не пишите сюда пароли и персональные данные."
-        : "ИИ-модель не подключена — помощник подбирает ответы из справочного центра. Подключение — в настройках сервера.")
+        ? L("Помощник отвечает по работе в knitERP с учётом ваших прав и текущего раздела. Не пишите сюда пароли и персональные данные.")
+        : L("ИИ-модель не подключена — помощник подбирает ответы из справочного центра. Подключение — в настройках сервера."))
 </p>
 
 <div class="chat" aria-live="polite">
@@ -24,7 +24,7 @@
     }
     @if (_busy)
     {
-        <div class="chat-msg bot"><div class="chat-text muted">Думаю…</div></div>
+        <div class="chat-msg bot"><div class="chat-text muted">@L("Думаю…")</div></div>
     }
 </div>
 
@@ -35,14 +35,14 @@
 
 <form class="tool-form" @onsubmit="AskAsync">
     <label>
-        Вопрос
-        <textarea @bind="_question" rows="3" maxlength="1000" placeholder="Например: как исправить проведённое списание?"></textarea>
+        @L("Вопрос")
+        <textarea @bind="_question" rows="3" maxlength="1000" placeholder="@L("Например: как исправить проведённое списание?")"></textarea>
     </label>
     <div class="actions">
-        <button type="submit" disabled="@_busy">Спросить</button>
+        <button type="submit" disabled="@_busy">@L("Спросить")</button>
         @if (_messages.Count > 0)
         {
-            <button type="button" class="secondary" @onclick="() => _messages.Clear()" disabled="@_busy">Новый разговор</button>
+            <button type="button" class="secondary" @onclick="() => _messages.Clear()" disabled="@_busy">@L("Новый разговор")</button>
         }
     </div>
 </form>

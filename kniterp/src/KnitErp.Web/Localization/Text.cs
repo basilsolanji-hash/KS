@@ -2,6 +2,7 @@ using System.Collections.Frozen;
 using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using KnitErp.Domain.Access;
 using Microsoft.AspNetCore.Localization;
 
@@ -27,6 +28,51 @@ public static class Text
 
     /// <summary>Текст с подстановками {0}, {1}… — как в string.Format.</summary>
     public static string L(string russian, params object?[] args) => string.Format(CultureInfo.CurrentCulture, L(russian), args);
+
+    /// <summary>
+    /// Сообщение сервиса на языке пользователя (D60). Сообщения правил собираются в коде с подстановками
+    /// («Позиция «ПР-1» в архиве»), поэтому ищется шаблон перевода «Позиция «{0}» в архиве»; подставленные значения
+    /// тоже переводятся, если для них есть перевод. Нет шаблона — сообщение остаётся по-русски.
+    /// </summary>
+    public static string Message(string russian)
+    {
+        var code = CurrentCode;
+        if (code == UiLanguages.Default || !Translations.TryGetValue(code, out var dict))
+        {
+            return russian;
+        }
+
+        if (dict.TryGetValue(russian, out var exact))
+        {
+            return exact;
+        }
+
+        foreach (var (template, regex) in Templates[code])
+        {
+            var match = regex.Match(russian);
+            if (match.Success)
+            {
+                var args = new object?[match.Groups.Count - 1];
+                for (var i = 0; i < args.Length; i++)
+                {
+                    args[i] = L(match.Groups["g" + i].Value);
+                }
+
+                return string.Format(CultureInfo.CurrentCulture, dict[template], args);
+            }
+        }
+
+        return russian;
+    }
+
+    private static readonly Regex Placeholder = new(@"\{(\d+)(?::[^}]*)?\}", RegexOptions.Compiled);
+
+    private static readonly FrozenDictionary<string, (string Template, Regex Pattern)[]> Templates = Translations.ToFrozenDictionary(
+        t => t.Key,
+        t => t.Value.Keys.Where(k => Placeholder.IsMatch(k)).OrderByDescending(k => k.Length)
+            .Select(k => (k, new Regex("^" + Placeholder.Replace(Regex.Escape(k).Replace(@"\{", "{"), m => $"(?<g{m.Groups[1].Value}>.+?)") + "$",
+                RegexOptions.Singleline | RegexOptions.CultureInvariant)))
+            .ToArray());
 
     /// <summary>Код языка текущего запроса: ru, uz, kk, be.</summary>
     public static string CurrentCode =>

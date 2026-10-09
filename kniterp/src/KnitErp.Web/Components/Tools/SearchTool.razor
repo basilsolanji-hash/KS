@@ -3,12 +3,12 @@
 
 <form class="tool-form" @onsubmit="OpenFirstAsync" role="search">
     <label>
-        Что найти
+        @L("Что найти")
         <input id="quick-search-input" @bind="_query" @bind:event="oninput" @bind:after="Schedule" autocomplete="off"
-               placeholder="Раздел, код позиции, номер документа" aria-describedby="search-hint" />
+               placeholder="@L("Раздел, код позиции, номер документа")" aria-describedby="search-hint" />
     </label>
 </form>
-<p class="muted" id="search-hint">Ctrl+K — открыть поиск с любого экрана, Enter — перейти к первому результату.</p>
+<p class="muted" id="search-hint">@L("Ctrl+K — открыть поиск с любого экрана, Enter — перейти к первому результату.")</p>
 
 @if (_error is not null)
 {
@@ -20,12 +20,12 @@
     var sections = Sections();
     @if (sections.Count == 0 && _hits.Count == 0 && !_busy)
     {
-        <p class="muted">Ничего не найдено.</p>
+        <p class="muted">@L("Ничего не найдено.")</p>
     }
 
     @if (sections.Count > 0)
     {
-        <h3>Разделы</h3>
+        <h3>@L("Разделы")</h3>
         <ul class="plain link-list">
             @foreach (var s in sections)
             {
@@ -134,10 +134,10 @@
 
     private static string GroupTitle(SearchHitKind kind) => kind switch
     {
-        SearchHitKind.Item => "Номенклатура",
-        SearchHitKind.Document => "Документы",
-        SearchHitKind.Help => "Справка",
-        _ => "Разделы",
+        SearchHitKind.Item => L("Номенклатура"),
+        SearchHitKind.Document => L("Документы"),
+        SearchHitKind.Help => L("Справка"),
+        _ => L("Разделы"),
     };
 
     public void Dispose() => _debounce?.Cancel();

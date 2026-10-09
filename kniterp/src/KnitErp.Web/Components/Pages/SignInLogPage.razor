@@ -3,7 +3,7 @@
 @using KnitErp.Web.Exports
 @inject AuditQueryService Audit
 
-<PageTitle>Журнал входов — knitERP</PageTitle>
+<PageTitle>@L("Журнал входов") — knitERP</PageTitle>
 
 @if (_denied is not null)
 {
@@ -11,41 +11,40 @@
 }
 else if (_rows is null)
 {
-    <p class="muted">Загрузка…</p>
+    <p class="muted">@L("Загрузка…")</p>
 }
 else
 {
     <div class="page-head">
-        <h1>Журнал входов</h1>
-        <a class="button secondary" href="@ExportHref" download data-enhance-nav="false" title="Выгрузить с текущими фильтрами">Excel</a>
+        <h1>@L("Журнал входов")</h1>
+        <a class="button secondary" href="@ExportHref" download data-enhance-nav="false" title="@L("Выгрузить с текущими фильтрами")">Excel</a>
     </div>
     <p class="muted">
-        @(CurrentAccess.Has(Permissions.AuditLogView) ? "Входы, неудачные попытки и блокировки всех пользователей организации" : "Ваши входы и попытки входа")
-        с адресом, откуда пришёл запрос. Время — @TimeZones.Label(CurrentAccess.TimeZoneId). Много неудачных попыток с одного адреса — повод
-        проверить, не подбирают ли пароль.
+        @(CurrentAccess.Has(Permissions.AuditLogView) ? L("Входы, неудачные попытки и блокировки всех пользователей организации") : L("Ваши входы и попытки входа"))
+        @L("с адресом, откуда пришёл запрос. Время — {0}. Много неудачных попыток с одного адреса — повод проверить, не подбирают ли пароль.", TimeZones.Label(CurrentAccess.TimeZoneId))
     </p>
 
     <form class="inline-form" @onsubmit="ReloadAsync">
-        <label>С <input type="date" @bind="_from" /></label>
-        <label>По <input type="date" @bind="_to" /></label>
-        <label class="inline"><input type="checkbox" @bind="_failures" /> Только неудачные и блокировки</label>
-        <button type="submit" class="secondary" disabled="@_busy">Показать</button>
+        <label>@L("С") <input type="date" @bind="_from" /></label>
+        <label>@L("По") <input type="date" @bind="_to" /></label>
+        <label class="inline"><input type="checkbox" @bind="_failures" /> @L("Только неудачные и блокировки")</label>
+        <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
     </form>
 
     <div class="scroll">
         <table>
-            <thead><tr><th>Время</th><th>Пользователь</th><th>Событие</th><th class="opt">Способ / подробности</th><th>Адрес</th></tr></thead>
+            <thead><tr><th>@L("Время")</th><th>@L("Пользователь")</th><th>@L("Событие")</th><th class="opt">@L("Способ / подробности")</th><th>@L("Адрес")</th></tr></thead>
             <tbody>
                 @if (_rows.Count == 0)
                 {
-                    <tr><td colspan="5" class="muted">Записей нет.</td></tr>
+                    <tr><td colspan="5" class="muted">@L("Записей нет.")</td></tr>
                 }
                 @foreach (var r in _rows)
                 {
                     <tr class="@(r.Failed ? "short" : "")">
                         <td>@TimeZones.ToLocal(r.OccurredAtUtc, CurrentAccess.TimeZoneId).ToString("dd.MM.yyyy HH:mm:ss")</td>
                         <td>@(r.UserName ?? "—")</td>
-                        <td><span class="tag @(r.Failed ? "bad" : "")">@AuditLabels.Action(r.Action)</span></td>
+                        <td><span class="tag @(r.Failed ? "bad" : "")">@L(AuditLabels.Action(r.Action))</span></td>
                         <td>@string.Join(" · ", new[] { r.Method, r.Detail }.Where(x => !string.IsNullOrEmpty(x)))</td>
                         <td>@(r.Address ?? "—")</td>
                     </tr>

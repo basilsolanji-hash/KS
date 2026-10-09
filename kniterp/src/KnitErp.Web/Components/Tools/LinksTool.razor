@@ -7,28 +7,28 @@
 
 @if (_links is null)
 {
-    <p class="muted">Загрузка…</p>
+    <p class="muted">@L("Загрузка…")</p>
 }
 else
 {
     @if (_links.Count == 0)
     {
-        <p class="muted">Своих ссылок пока нет: добавьте сайт поставщика, таблицу или инструкцию.</p>
+        <p class="muted">@L("Своих ссылок пока нет: добавьте сайт поставщика, таблицу или инструкцию.")</p>
     }
     <ul class="plain link-list">
         @foreach (var l in _links)
         {
             <li>
                 <a href="@l.Url" target="_blank" rel="noopener noreferrer" title="@l.Url">@l.Title ↗</a>
-                <button type="button" class="link" @onclick="() => DeleteAsync(l)" aria-label="Удалить ссылку @l.Title">Удалить</button>
+                <button type="button" class="link" @onclick="() => DeleteAsync(l)" aria-label="@L("Удалить ссылку {0}", l.Title)">@L("Удалить")</button>
             </li>
         }
     </ul>
     <form class="tool-form" @onsubmit="AddAsync">
-        <h3>Новая ссылка</h3>
-        <label>Название <input @bind="_title" maxlength="200" placeholder="Необязательно" /></label>
-        <label>Адрес <input @bind="_url" maxlength="300" inputmode="url" placeholder="https://…" required /></label>
-        <button type="submit" disabled="@_busy">Добавить</button>
+        <h3>@L("Новая ссылка")</h3>
+        <label>@L("Название") <input @bind="_title" maxlength="200" placeholder="@L("Необязательно")" /></label>
+        <label>@L("Адрес") <input @bind="_url" maxlength="300" inputmode="url" placeholder="https://…" required /></label>
+        <button type="submit" disabled="@_busy">@L("Добавить")</button>
     </form>
 }
 

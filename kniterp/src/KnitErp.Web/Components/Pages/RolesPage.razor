@@ -2,7 +2,7 @@
 @using KnitErp.Web.Components.Shared
 @inject UserAccessService Access
 
-<PageTitle>Роли и права — knitERP</PageTitle>
+<PageTitle>@L("Роли и права") — knitERP</PageTitle>
 
 @if (_denied is not null)
 {
@@ -10,24 +10,24 @@
 }
 else if (_matrix is null)
 {
-    <p class="muted">Загрузка…</p>
+    <p class="muted">@L("Загрузка…")</p>
 }
 else
 {
-    <h1>Роли и права · матрица P0</h1>
-    <p class="muted">Столбец вашей роли подсвечен. Права проверяются на сервере, запрет сильнее разрешения.</p>
+    <h1>@L("Роли и права · матрица P0")</h1>
+    <p class="muted">@L("Столбец вашей роли подсвечен. Права проверяются на сервере, запрет сильнее разрешения.")</p>
     <div class="legend">
-        <span><b>Д</b> да</span><span><b>О</b> только своя область</span><span><b>Ч</b> только чтение</span>
-        <span><b>П</b> по отдельному праву</span><span><b>С</b> только своё</span><span><b>—</b> нет</span>
+        <span><b>@L("Д")</b> @L("да")</span><span><b>@L("О")</b> @L("только своя область")</span><span><b>@L("Ч")</b> @L("только чтение")</span>
+        <span><b>@L("П")</b> @L("по отдельному праву")</span><span><b>@L("С")</b> @L("только своё")</span><span><b>—</b> @L("нет")</span>
     </div>
     <div class="scroll">
         <table class="matrix">
             <thead>
                 <tr>
-                    <th>Действие</th>
+                    <th>@L("Действие")</th>
                     @foreach (var r in _matrix.Roles)
                     {
-                        <th class="@Mine(r.Code)">@r.Name</th>
+                        <th class="@Mine(r.Code)">@L(r.Name)</th>
                     }
                 </tr>
             </thead>
@@ -35,7 +35,7 @@ else
                 @foreach (var row in _matrix.Rows)
                 {
                     <tr>
-                        <td>@row.Label<div class="muted">@row.PermissionCode</div></td>
+                        <td>@L(row.Label)<div class="muted">@row.PermissionCode</div></td>
                         @for (var i = 0; i < row.Levels.Count; i++)
                         {
                             <td class="@Mine(_matrix.Roles[i].Code)">@row.Levels[i].Symbol()</td>

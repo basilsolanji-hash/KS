@@ -8,7 +8,7 @@
         <h2 id="drawer-title" tabindex="-1">
             <Icon Name="@(Active ?? "")" Size="20" /> @Title(Active)
         </h2>
-        <button type="button" class="secondary icon" @onclick="() => OnClose.InvokeAsync()" aria-label="Закрыть панель инструмента" title="Закрыть (Esc)"><Icon Name="close" /></button>
+        <button type="button" class="secondary icon" @onclick="() => OnClose.InvokeAsync()" aria-label="@L("Закрыть панель инструмента")" title="@L("Закрыть (Esc)")"><Icon Name="close" /></button>
     </div>
     <div class="drawer-body">
         @foreach (var id in Opened)

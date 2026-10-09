@@ -76,40 +76,40 @@
     // Пункты без доступа видны и кликабельны: сервер ответит отказом и запишет попытку в журнал.
     private static readonly (string Href, string Label, Func<CurrentAccessDto, bool> Allowed)[] Items =
     [
-        ("", "Организация", a => a.Has(Permissions.OrganizationView)),
-        ("launch", "Готовность к запуску", a => a.Has(Permissions.OrganizationEdit)),
-        ("structure", "Структура", a => a.Has(Permissions.DepartmentView)),
-        ("employees", "Сотрудники", a => a.HasOwnOnly(Permissions.EmployeeView)),
-        ("catalog", "Номенклатура", a => a.Has(Permissions.CatalogView)),
-        ("warehouses", "Склады", a => a.Has(Permissions.CatalogView)),
-        ("counterparties", "Контрагенты", a => a.Has(Permissions.CatalogView)),
-        ("vat-rates", "Ставки НДС", a => a.Has(Permissions.CatalogView)),
-        ("opening-balances", "Начальные остатки", a => a.Has(Permissions.OpeningBalanceCreate) || a.Has(Permissions.OpeningBalanceApprove)
+        ("", L("Организация"), a => a.Has(Permissions.OrganizationView)),
+        ("launch", L("Готовность к запуску"), a => a.Has(Permissions.OrganizationEdit)),
+        ("structure", L("Структура"), a => a.Has(Permissions.DepartmentView)),
+        ("employees", L("Сотрудники"), a => a.HasOwnOnly(Permissions.EmployeeView)),
+        ("catalog", L("Номенклатура"), a => a.Has(Permissions.CatalogView)),
+        ("warehouses", L("Склады"), a => a.Has(Permissions.CatalogView)),
+        ("counterparties", L("Контрагенты"), a => a.Has(Permissions.CatalogView)),
+        ("vat-rates", L("Ставки НДС"), a => a.Has(Permissions.CatalogView)),
+        ("opening-balances", L("Начальные остатки"), a => a.Has(Permissions.OpeningBalanceCreate) || a.Has(Permissions.OpeningBalanceApprove)
                                                    || a.Has(Permissions.WarehouseReportView)),
-        ("stock-documents", "Складские документы", a => a.Has(Permissions.WarehouseDocumentCreate) || a.Has(Permissions.WarehouseDocumentPost)
+        ("stock-documents", L("Складские документы"), a => a.Has(Permissions.WarehouseDocumentCreate) || a.Has(Permissions.WarehouseDocumentPost)
                                                      || a.Has(Permissions.WarehouseReportView)),
-        ("inventory", "Инвентаризация", a => a.Has(Permissions.WarehouseDocumentCreate) || a.Has(Permissions.WarehouseDocumentPost)
+        ("inventory", L("Инвентаризация"), a => a.Has(Permissions.WarehouseDocumentCreate) || a.Has(Permissions.WarehouseDocumentPost)
                                           || a.Has(Permissions.WarehouseReportView)),
-        ("stock", "Остатки", a => a.Has(Permissions.WarehouseReportView)),
-        ("reports/movements", "Движения", a => a.Has(Permissions.WarehouseReportView)),
-        ("reports/turnover", "Обороты", a => a.Has(Permissions.WarehouseReportView)),
-        ("reconciliation", "Сверка", a => a.Has(Permissions.WarehouseReportView)),
-        ("period", "Закрытие периода", a => a.Has(Permissions.ClosedPeriodReopen) || a.Has(Permissions.WarehouseReportView)),
-        ("users", "Пользователи", a => a.Has(Permissions.UserView)),
-        ("roles", "Роли и права", a => a.Has(Permissions.UserView)),
-        ("audit", "Журнал аудита", a => a.HasOwnOnly(Permissions.AuditLogView)),
-        ("signins", "Журнал входов", a => a.HasOwnOnly(Permissions.AuditLogView)),
-        ("integrity", "Проверка целостности", a => a.Has(Permissions.AuditLogView)),
+        ("stock", L("Остатки"), a => a.Has(Permissions.WarehouseReportView)),
+        ("reports/movements", L("Движения"), a => a.Has(Permissions.WarehouseReportView)),
+        ("reports/turnover", L("Обороты"), a => a.Has(Permissions.WarehouseReportView)),
+        ("reconciliation", L("Сверка"), a => a.Has(Permissions.WarehouseReportView)),
+        ("period", L("Закрытие периода"), a => a.Has(Permissions.ClosedPeriodReopen) || a.Has(Permissions.WarehouseReportView)),
+        ("users", L("Пользователи"), a => a.Has(Permissions.UserView)),
+        ("roles", L("Роли и права"), a => a.Has(Permissions.UserView)),
+        ("audit", L("Журнал аудита"), a => a.HasOwnOnly(Permissions.AuditLogView)),
+        ("signins", L("Журнал входов"), a => a.HasOwnOnly(Permissions.AuditLogView)),
+        ("integrity", L("Проверка целостности"), a => a.Has(Permissions.AuditLogView)),
     ];
 
     /// <summary>Заголовки групп меню: ставятся перед пунктом с этим адресом.</summary>
     private static readonly Dictionary<string, string> Sections = new()
     {
-        [""] = "Предприятие",
-        ["catalog"] = "Справочники",
-        ["opening-balances"] = "Склад",
-        ["stock"] = "Отчёты",
-        ["users"] = "Доступ",
+        [""] = L("Предприятие"),
+        ["catalog"] = L("Справочники"),
+        ["opening-balances"] = L("Склад"),
+        ["stock"] = L("Отчёты"),
+        ["users"] = L("Доступ"),
     };
 
     private bool _menuOpen;

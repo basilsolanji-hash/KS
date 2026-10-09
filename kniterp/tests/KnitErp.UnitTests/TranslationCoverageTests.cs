@@ -83,9 +83,59 @@ public sealed partial class TranslationCoverageTests
         keys.UnionWith(Enum.GetValues<KnitErp.Domain.Warehousing.InventoryStatus>().Select(KnitErp.Domain.Warehousing.InventoryCount.StatusName));
         keys.UnionWith(KnitErp.Domain.Catalog.ItemTypes.All.Select(KnitErp.Domain.Catalog.ItemTypes.Name));
 
+        // Прочие названия, которые экраны переводят при выводе.
+        keys.UnionWith(Enum.GetValues<KnitErp.Domain.Structure.EmploymentStatus>().Select(KnitErp.Domain.Structure.Employee.StatusName));
+        keys.UnionWith(Enum.GetValues<KnitErp.Domain.Catalog.VatRateKind>().Select(KnitErp.Domain.Catalog.VatRate.KindName));
+        keys.UnionWith(Enum.GetValues<KnitErp.Domain.Workspace.SupportTicketStatus>().Select(KnitErp.Domain.Workspace.SupportTicket.StatusName));
+        keys.UnionWith(new[] { (true, true), (true, false), (false, true) }.Select(r => KnitErp.Domain.Catalog.Counterparty.RolesText(r.Item1, r.Item2)));
+        keys.UnionWith(SystemRoles.Ordered.Select(SystemRoles.NameOf));
+        keys.UnionWith(KnitErp.Domain.Warehousing.OperationReason.Defaults.Select(d => d.Name));
+        keys.UnionWith(KnitErp.Domain.Organizations.Countries.All.Select(c => c.Name));
+        keys.UnionWith(["без НДС", "ещё не действует", "Без роли", "Вся организация"]);
+        keys.UnionWith(KnitErp.Domain.Organizations.Countries.All.SelectMany(c => KnitErp.Domain.Catalog.VatRate.DefaultsFor(1, c.Code)).Select(r => r.Name));
+        var labels = File.ReadAllText(Path.Combine(WebDir, "Components", "Shared", "Labels.cs"));
+        foreach (Match m in AuditLabel().Matches(labels))
+        {
+            keys.Add(m.Groups[1].Value);
+        }
+
         // Названия прав — в сообщении «Недостаточно прав: …».
         keys.UnionWith(typeof(Permissions).GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
             .Where(f => f.IsLiteral && f.FieldType == typeof(string)).Select(f => Permissions.Describe((string)f.GetRawConstantValue()!)));
+
+        // Сообщения правил сервисов — шаблонами с {0} (Text.Message сопоставляет их с готовым сообщением),
+        // названия сущностей для «… не найдено» и правила налоговых номеров стран.
+        foreach (var dir in new[] { "KnitErp.Domain", "KnitErp.Application" })
+        {
+            foreach (var file in Directory.EnumerateFiles(Path.Combine(FindRoot(), "src", dir), "*.cs", SearchOption.AllDirectories)
+                         .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")))
+            {
+                var text = File.ReadAllText(file);
+                foreach (Match m in RuleMessage().Matches(text))
+                {
+                    var body = Regex.Unescape(m.Groups[2].Value);
+                    if (m.Groups[1].Value != "$")
+                    {
+                        keys.Add(body);
+                    }
+                    else if (Template(body) is { } template)
+                    {
+                        keys.Add(template);
+                    }
+                }
+
+                foreach (Match m in NotFoundEntity().Matches(text))
+                {
+                    keys.Add(m.Groups[1].Value);
+                }
+            }
+        }
+
+        foreach (var country in KnitErp.Domain.Organizations.Countries.All)
+        {
+            keys.Add(KnitErp.Domain.Organizations.Countries.TaxIdRule(country.Code, organization: true));
+            keys.Add(KnitErp.Domain.Organizations.Countries.TaxIdRule(country.Code, organization: false));
+        }
 
         // Пункты «Готовности к запуску».
         var readiness = File.ReadAllText(Path.Combine(FindRoot(), "src", "KnitErp.Application", "Organizations", "LaunchReadinessService.cs"));
@@ -95,6 +145,34 @@ public sealed partial class TranslationCoverageTests
         }
 
         return keys;
+    }
+
+    /// <summary>$"…{expr}…" → «…{0}…» (формат {x:dd.MM.yyyy} → {0:dd.MM.yyyy}); null — если внутри подстановки кавычки.</summary>
+    private static string? Template(string body)
+    {
+        var result = new System.Text.StringBuilder();
+        var index = 0;
+        for (var i = 0; i < body.Length; i++)
+        {
+            if (body[i] != '{')
+            {
+                result.Append(body[i]);
+                continue;
+            }
+
+            var end = body.IndexOf('}', i);
+            var hole = body[(i + 1)..end];
+            if (hole.Contains('"') || hole.Contains('{'))
+            {
+                return null;
+            }
+
+            var format = Format().Match(hole);
+            result.Append('{').Append(index++).Append(format.Success && !hole.Contains('?') ? ":" + format.Groups[1].Value : "").Append('}');
+            i = end;
+        }
+
+        return result.ToString();
     }
 
     private static Dictionary<string, string> Load(string code) =>
@@ -119,6 +197,18 @@ public sealed partial class TranslationCoverageTests
 
     [GeneratedRegex("""\["[\w/-]*"\] = "([^"]+)",""")]
     private static partial Regex MenuSection();
+
+    [GeneratedRegex("""BusinessRuleException\(\s*"[^"]+",\s*(\$?)"((?:[^"\\]|\\.)*)"\s*\)""")]
+    private static partial Regex RuleMessage();
+
+    [GeneratedRegex("""NotFoundException\("([^"]+)"\)""")]
+    private static partial Regex NotFoundEntity();
+
+    [GeneratedRegex(@":([0-9A-Za-z.#,%\-]+)$")]
+    private static partial Regex Format();
+
+    [GeneratedRegex("""\[AuditActions\.\w+\] = "([^"]+)",""")]
+    private static partial Regex AuditLabel();
 
     [GeneratedRegex("""items\.Add\(new\("\w+", "([^"]+)",""")]
     private static partial Regex ReadinessTitle();

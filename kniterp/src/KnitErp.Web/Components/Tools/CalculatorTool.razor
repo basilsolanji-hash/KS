@@ -2,10 +2,10 @@
 
 <form class="tool-form" @onsubmit="Calculate">
     <label>
-        Выражение
+        @L("Выражение")
         <input @bind="_expression" @bind:event="oninput" inputmode="decimal" autocomplete="off" placeholder="1250 + 20%" aria-describedby="calc-hint" />
     </label>
-    <div class="calc-keys" role="group" aria-label="Кнопки калькулятора">
+    <div class="calc-keys" role="group" aria-label="@L("Кнопки калькулятора")">
         @foreach (var key in Keys)
         {
             <button type="button" class="secondary" @onclick="() => Press(key)" aria-label="@KeyLabel(key)">@key</button>
@@ -13,7 +13,7 @@
     </div>
     <div class="actions">
         <button type="submit">=</button>
-        <button type="button" class="secondary" @onclick="Clear">Очистить</button>
+        <button type="button" class="secondary" @onclick="Clear">@L("Очистить")</button>
     </div>
 </form>
 
@@ -26,22 +26,22 @@
     <div class="calc-result" aria-live="polite">
         <span class="muted">@_shown =</span>
         <b>@_result</b>
-        <button type="button" class="secondary" @onclick="CopyAsync" title="Скопировать результат">@(_copied ? "Скопировано" : "Копировать")</button>
+        <button type="button" class="secondary" @onclick="CopyAsync" title="@L("Скопировать результат")">@(_copied ? L("Скопировано") : L("Копировать"))</button>
     </div>
 }
 
 @if (_history.Count > 0)
 {
-    <h3>Последние расчёты</h3>
+    <h3>@L("Последние расчёты")</h3>
     <ul class="plain">
         @foreach (var h in _history)
         {
-            <li><button type="button" class="link" @onclick="() => _expression = h.Result" title="Подставить результат">@h.Expression = @h.Result</button></li>
+            <li><button type="button" class="link" @onclick="() => _expression = h.Result" title="@L("Подставить результат")">@h.Expression = @h.Result</button></li>
         }
     </ul>
 }
 
-<p class="muted" id="calc-hint">Проценты: «1250 + 20%» — прибавить 20 %, «15% от 400» — 60, «400 × 15%» — тоже 60. Десятичная запятая или точка.</p>
+<p class="muted" id="calc-hint">@L("Проценты: «1250 + 20%» — прибавить 20 %, «15% от 400» — 60, «400 × 15%» — тоже 60. Десятичная запятая или точка.")</p>
 
 @code {
     private static readonly string[] Keys = ["7", "8", "9", "÷", "4", "5", "6", "×", "1", "2", "3", "−", "0", ",", "%", "+", "(", ")", "⌫"];
@@ -100,13 +100,13 @@
 
     private static string KeyLabel(string key) => key switch
     {
-        "÷" => "Разделить",
-        "×" => "Умножить",
-        "−" => "Минус",
-        "+" => "Плюс",
-        "%" => "Процент",
-        "⌫" => "Стереть символ",
-        "," => "Запятая",
+        "÷" => L("Разделить"),
+        "×" => L("Умножить"),
+        "−" => L("Минус"),
+        "+" => L("Плюс"),
+        "%" => L("Процент"),
+        "⌫" => L("Стереть символ"),
+        "," => L("Запятая"),
         _ => key,
     };
 }

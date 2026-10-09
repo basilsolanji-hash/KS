@@ -1,11 +1,11 @@
 @* Настройка панели: какие ярлыки закреплены, их порядок и сколько видно сразу. Хранится в профиле пользователя. *@
 
-<p class="muted">Закреплённые ярлыки показываются рядом с профилем по порядку. Первые @_visible видно сразу, остальные — в меню «Ещё». На телефоне все ярлыки — в одном меню «Инструменты».</p>
+<p class="muted">@L("Закреплённые ярлыки показываются рядом с профилем по порядку. Первые {0} видно сразу, остальные — в меню «Ещё». На телефоне все ярлыки — в одном меню «Инструменты».", _visible)</p>
 
-<h3>Закреплённые</h3>
+<h3>@L("Закреплённые")</h3>
 @if (_pinned.Count == 0)
 {
-    <p class="muted">Ничего не закреплено — инструменты доступны через «Все инструменты».</p>
+    <p class="muted">@L("Ничего не закреплено — инструменты доступны через «Все инструменты».")</p>
 }
 <ol class="pin-list">
     @for (var i = 0; i < _pinned.Count; i++)
@@ -14,27 +14,27 @@
         var tool = ToolCatalog.Find(_pinned[index])!;
         <li class="@(index < _visible ? "" : "pin-more")">
             <span class="pin-icon"><Icon Name="@tool.Id" /></span>
-            <span class="pin-title">@tool.Title @if (index >= _visible) { <span class="tag">в «Ещё»</span> }</span>
-            <button type="button" class="secondary icon" @onclick="() => Move(index, -1)" disabled="@(index == 0)" aria-label="Выше: @tool.Title" title="Выше">↑</button>
-            <button type="button" class="secondary icon" @onclick="() => Move(index, 1)" disabled="@(index == _pinned.Count - 1)" aria-label="Ниже: @tool.Title" title="Ниже">↓</button>
-            <button type="button" class="secondary icon" @onclick="() => _pinned.RemoveAt(index)" aria-label="Открепить: @tool.Title" title="Открепить">✕</button>
+            <span class="pin-title">@tool.Title @if (index >= _visible) { <span class="tag">@L("в «Ещё»")</span> }</span>
+            <button type="button" class="secondary icon" @onclick="() => Move(index, -1)" disabled="@(index == 0)" aria-label="@L("Выше: {0}", L(tool.Title))" title="@L("Выше")">↑</button>
+            <button type="button" class="secondary icon" @onclick="() => Move(index, 1)" disabled="@(index == _pinned.Count - 1)" aria-label="@L("Ниже: {0}", L(tool.Title))" title="@L("Ниже")">↓</button>
+            <button type="button" class="secondary icon" @onclick="() => _pinned.RemoveAt(index)" aria-label="@L("Открепить: {0}", L(tool.Title))" title="@L("Открепить")">✕</button>
         </li>
     }
 </ol>
 
 <label class="tool-row">
-    Видно сразу
+    @L("Видно сразу")
     <input type="number" min="0" max="@ToolCatalog.MaxVisible" @bind="_visible" style="width: 6em" />
 </label>
 
-<h3>Можно добавить</h3>
+<h3>@L("Можно добавить")</h3>
 <ul class="plain pin-list">
     @foreach (var tool in ToolCatalog.All.Where(t => !_pinned.Contains(t.Id)))
     {
         <li>
             <span class="pin-icon"><Icon Name="@tool.Id" /></span>
             <span class="pin-title">@tool.Title <span class="muted">— @tool.Hint</span></span>
-            <button type="button" class="secondary icon" @onclick="() => _pinned.Add(tool.Id)" aria-label="Закрепить: @tool.Title" title="Закрепить">+</button>
+            <button type="button" class="secondary icon" @onclick="() => _pinned.Add(tool.Id)" aria-label="@L("Закрепить: {0}", L(tool.Title))" title="@L("Закрепить")">+</button>
         </li>
     }
 </ul>
@@ -44,8 +44,8 @@
     <div class="@(_isError ? "flash error" : "flash")" role="status">@_message</div>
 }
 <div class="actions">
-    <button type="button" @onclick="SaveAsync" disabled="@_busy">Сохранить</button>
-    <button type="button" class="secondary" @onclick="Reset" disabled="@_busy">Как было по умолчанию</button>
+    <button type="button" @onclick="SaveAsync" disabled="@_busy">@L("Сохранить")</button>
+    <button type="button" class="secondary" @onclick="Reset" disabled="@_busy">@L("Как было по умолчанию")</button>
 </div>
 
 @code {
@@ -90,7 +90,7 @@
         try
         {
             await OnSave.InvokeAsync(new PanelSettings(_pinned.ToList(), _visible));
-            _message = "Панель сохранена — она будет такой же на других устройствах.";
+            _message = L("Панель сохранена — она будет такой же на других устройствах.");
             _isError = false;
         }
         catch (Exception ex) when (UiErrors.IsUserFacing(ex))

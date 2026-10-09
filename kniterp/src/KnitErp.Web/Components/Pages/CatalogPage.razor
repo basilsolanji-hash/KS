@@ -6,7 +6,7 @@
 @inject ItemExchangeService Exchange
 @inject VatRateService VatRates
 
-<PageTitle>Номенклатура — knitERP</PageTitle>
+<PageTitle>@L("Номенклатура") — knitERP</PageTitle>
 
 @if (_denied is not null)
 {
@@ -14,44 +14,44 @@
 }
 else if (_list is null)
 {
-    <p class="muted">Загрузка…</p>
+    <p class="muted">@L("Загрузка…")</p>
 }
 else
 {
     <div class="page-head">
-        <h1>Номенклатура</h1>
+        <h1>@L("Номенклатура")</h1>
         @if (_list.CanEdit && _mode == Mode.None)
         {
-            <button type="button" @onclick="OpenCreate" disabled="@_busy">Добавить позицию</button>
+            <button type="button" @onclick="OpenCreate" disabled="@_busy">@L("Добавить позицию")</button>
         }
     </div>
 
     @if (_flash is not null)
     {
-        <div class="@(_flashIsError ? "flash error" : "flash")" role="@(_flashIsError ? "alert" : "status")"><span>@_flash</span><button type="button" class="link" aria-label="Закрыть сообщение" @onclick="() => _flash = null">×</button></div>
+        <div class="@(_flashIsError ? "flash error" : "flash")" role="@(_flashIsError ? "alert" : "status")"><span>@_flash</span><button type="button" class="link" aria-label="@L("Закрыть сообщение")" @onclick="() => _flash = null">×</button></div>
     }
 
     @if (_mode is Mode.Create or Mode.Edit)
     {
         <div class="panel">
-            <h2>@(_mode == Mode.Create ? "Новая позиция" : $"Позиция {_target!.Code}")</h2>
+            <h2>@(_mode == Mode.Create ? L("Новая позиция") : L("Позиция {0}", _target!.Code))</h2>
             <EditForm Model="_form" OnValidSubmit="SaveItemAsync" FormName="item">
                 <div class="grid">
-                    <label>Код (артикул) <InputText @bind-Value="_form.Code" maxlength="40" required /></label>
-                    <label>Наименование <InputText @bind-Value="_form.Name" maxlength="300" required /></label>
+                    <label>@L("Код (артикул)") <InputText @bind-Value="_form.Code" maxlength="40" required /></label>
+                    <label>@L("Наименование") <InputText @bind-Value="_form.Name" maxlength="300" required /></label>
                     <label>
-                        Тип
+                        @L("Тип")
                         <InputSelect @bind-Value="_form.Type">
                             @foreach (var t in ItemTypes.All)
                             {
-                                <option value="@t">@ItemTypes.Name(t)</option>
+                                <option value="@t">@L(ItemTypes.Name(t))</option>
                             }
                         </InputSelect>
                     </label>
                     <label>
-                        Единица
+                        @L("Единица")
                         <InputSelect @bind-Value="_form.UnitId">
-                            <option value="0">— выберите —</option>
+                            <option value="0">@L("— выберите —")</option>
                             @foreach (var u in _units.Where(u => !u.IsArchived))
                             {
                                 <option value="@u.Id">@u.Name (@u.Symbol)</option>
@@ -59,24 +59,24 @@ else
                         </InputSelect>
                     </label>
                     <label>
-                        Ставка НДС
+                        @L("Ставка НДС")
                         <InputSelect @bind-Value="_form.VatRateId">
-                            <option value="">не указана</option>
+                            <option value="">@L("не указана")</option>
                             @foreach (var r in _vatRates)
                             {
-                                <option value="@r.Id">@r.Name — @r.CurrentText</option>
+                                <option value="@r.Id">@L(r.Name) — @L(r.CurrentText)</option>
                             }
                         </InputSelect>
                     </label>
-                    <label>Описание <InputText @bind-Value="_form.Description" maxlength="1000" placeholder="Состав, цвет, размер…" /></label>
+                    <label>@L("Описание") <InputText @bind-Value="_form.Description" maxlength="1000" placeholder="@L("Состав, цвет, размер…")" /></label>
                 </div>
                 @if (_formError is not null)
                 {
                     <div class="error" role="alert">@_formError</div>
                 }
                 <div class="actions">
-                    <button type="submit" disabled="@_busy">Сохранить</button>
-                    <button type="button" class="secondary" @onclick="Close" disabled="@_busy">Отмена</button>
+                    <button type="submit" disabled="@_busy">@L("Сохранить")</button>
+                    <button type="button" class="secondary" @onclick="Close" disabled="@_busy">@L("Отмена")</button>
                 </div>
             </EditForm>
         </div>
@@ -84,44 +84,45 @@ else
 
     <div class="actions" style="margin-bottom: 12px">
         <button type="button" class="secondary" @onclick="() => _showExchange = !_showExchange" aria-expanded="@(_showExchange ? "true" : "false")">
-            Excel: выгрузка и загрузка @(_showExchange ? "▲" : "▼")
+            @L("Excel: выгрузка и загрузка") @(_showExchange ? "▲" : "▼")
         </button>
     </div>
     @if (_showExchange)
     {
     <div class="panel exchange">
         <div class="actions">
-            <a class="button secondary" href="catalog/items.xlsx" download data-enhance-nav="false">Выгрузить номенклатуру</a>
+            <a class="button secondary" href="catalog/items.xlsx" download data-enhance-nav="false">@L("Выгрузить номенклатуру")</a>
             @if (CurrentAccess.Has(Permissions.CatalogImport))
             {
-                <a class="button secondary" href="catalog/items-template.xlsx" download data-enhance-nav="false">Скачать шаблон</a>
+                <a class="button secondary" href="catalog/items-template.xlsx" download data-enhance-nav="false">@L("Скачать шаблон")</a>
             }
         </div>
         @if (CurrentAccess.Has(Permissions.CatalogImport))
         {
             <p class="muted">
-                Загрузка создаёт новые позиции и обновляет существующие по коду. Сначала файл проверяется целиком;
-                если в нём есть ошибки, не загружается ничего. До @ItemExchangeService.MaxRows строк, файл до 5 МБ.
+                @L("Загрузка создаёт новые позиции и обновляет существующие по коду.")
+                @L("Сначала файл проверяется целиком; если в нём есть ошибки, не загружается ничего.")
+                @L("До {0} строк, файл до 5 МБ.", ItemExchangeService.MaxRows)
             </p>
-            <label>Файл .xlsx <InputFile OnChange="PreviewImportAsync" accept=".xlsx" disabled="@_busy" /></label>
+            <label>@L("Файл .xlsx") <InputFile OnChange="PreviewImportAsync" accept=".xlsx" disabled="@_busy" /></label>
         }
 
         @if (_plan is not null)
         {
             <div class="totals" role="status">
-                <span>Строк: <b>@_plan.Total</b></span>
-                <span>Создать: <b>@_plan.ToCreate</b></span>
-                <span>Обновить: <b>@_plan.ToUpdate</b></span>
-                <span>Без изменений: <b>@_plan.Unchanged</b></span>
-                <span class="@(_plan.ErrorRows > 0 ? "bad" : null)">С ошибками: <b>@_plan.ErrorRows</b></span>
+                <span>@L("Строк:") <b>@_plan.Total</b></span>
+                <span>@L("Создать:") <b>@_plan.ToCreate</b></span>
+                <span>@L("Обновить:") <b>@_plan.ToUpdate</b></span>
+                <span>@L("Без изменений:") <b>@_plan.Unchanged</b></span>
+                <span class="@(_plan.ErrorRows > 0 ? "bad" : null)">@L("С ошибками:") <b>@_plan.ErrorRows</b></span>
             </div>
             @if (_plan.ErrorRows > 0)
             {
-                <div class="error" role="alert">В файле есть ошибки — ничего не будет загружено. Исправьте строки ниже и загрузите файл снова.</div>
+                <div class="error" role="alert">@L("В файле есть ошибки — ничего не будет загружено. Исправьте строки ниже и загрузите файл снова.")</div>
             }
             <div class="scroll" style="max-height: 360px; overflow-y: auto">
                 <table>
-                    <thead><tr><th>Строка</th><th>Код</th><th>Наименование</th><th>Действие</th><th>Ошибки</th></tr></thead>
+                    <thead><tr><th>@L("Строка")</th><th>@L("Код")</th><th>@L("Наименование")</th><th>@L("Действие")</th><th>@L("Ошибки")</th></tr></thead>
                     <tbody>
                         @foreach (var r in _plan.Rows.OrderBy(r => r.Action == ImportAction.Error ? 0 : 1).ThenBy(r => r.RowNumber).Take(500))
                         {
@@ -139,9 +140,9 @@ else
             <div class="actions">
                 @if (_plan.CanApply)
                 {
-                    <button type="button" @onclick="ApplyImportAsync" disabled="@_busy">Загрузить: создать @_plan.ToCreate, обновить @_plan.ToUpdate</button>
+                    <button type="button" @onclick="ApplyImportAsync" disabled="@_busy">@L("Загрузить: создать {0}, обновить {1}", _plan.ToCreate, _plan.ToUpdate)</button>
                 }
-                <button type="button" class="secondary" @onclick="() => _plan = null" disabled="@_busy">Закрыть протокол</button>
+                <button type="button" class="secondary" @onclick="() => _plan = null" disabled="@_busy">@L("Закрыть протокол")</button>
             </div>
         }
     </div>
@@ -149,61 +150,61 @@ else
 
     <form class="inline-form" @onsubmit="ReloadAsync">
         <label>
-            Тип
+            @L("Тип")
             <select @bind="_typeFilter">
-                <option value="">Все типы</option>
+                <option value="">@L("Все типы")</option>
                 @foreach (var t in ItemTypes.All)
                 {
-                    <option value="@((byte)t)">@ItemTypes.Name(t)</option>
+                    <option value="@((byte)t)">@L(ItemTypes.Name(t))</option>
                 }
             </select>
         </label>
-        <label>Поиск <input @bind="_search" placeholder="Код или наименование" /></label>
-        <label class="inline"><input type="checkbox" @bind="_includeArchived" /> Показать архив</label>
-        <button type="submit" class="secondary" disabled="@_busy">Найти</button>
+        <label>@L("Поиск") <input @bind="_search" placeholder="@L("Код или наименование")" /></label>
+        <label class="inline"><input type="checkbox" @bind="_includeArchived" /> @L("Показать архив")</label>
+        <button type="submit" class="secondary" disabled="@_busy">@L("Найти")</button>
     </form>
 
     <div class="scroll">
         <table>
             <thead>
                 <tr>
-                    <th>Код</th><th>Наименование</th><th class="opt">Тип</th><th>Ед.</th><th class="opt">НДС</th>
+                    <th>@L("Код")</th><th>@L("Наименование")</th><th class="opt">@L("Тип")</th><th>@L("Ед.")</th><th class="opt">@L("НДС")</th>
                     @if (_list.CanEdit || _list.CanArchive)
                     {
-                        <th>Действия</th>
+                        <th>@L("Действия")</th>
                     }
                 </tr>
             </thead>
             <tbody>
                 @if (_list.Items.Count == 0)
                 {
-                    <tr><td colspan="6" class="muted">Позиций не найдено.</td></tr>
+                    <tr><td colspan="6" class="muted">@L("Позиций не найдено.")</td></tr>
                 }
                 @foreach (var i in _list.Items)
                 {
                     <tr class="@(i.IsArchived ? "archived" : null)">
                         <td>@i.Code</td>
-                        <td>@i.Name @if (i.IsArchived) { <span class="tag">архив</span> }@if (i.Description is not null) { <div class="muted">@i.Description</div> }</td>
-                        <td>@i.TypeName</td>
+                        <td>@i.Name @if (i.IsArchived) { <span class="tag">@L("архив")</span> }@if (i.Description is not null) { <div class="muted">@i.Description</div> }</td>
+                        <td>@L(i.TypeName)</td>
                         <td>@i.UnitSymbol</td>
-                        <td>@(i.VatRateName ?? "—")</td>
+                        <td>@(i.VatRateName is { } vat ? L(vat) : "—")</td>
                         @if (_list.CanEdit || _list.CanArchive)
                         {
                             <td>
                                 <div class="row-actions">
                                     @if (!i.IsArchived && _list.CanEdit)
                                     {
-                                        <button type="button" class="secondary" @onclick="() => OpenEdit(i)" disabled="@(_busy || _mode != Mode.None)">Изменить</button>
+                                        <button type="button" class="secondary" @onclick="() => OpenEdit(i)" disabled="@(_busy || _mode != Mode.None)">@L("Изменить")</button>
                                     }
                                     @if (_list.CanArchive)
                                     {
                                         @if (i.IsArchived)
                                         {
-                                            <button type="button" class="secondary" @onclick="() => RestoreItemAsync(i)" disabled="@_busy">Вернуть</button>
+                                            <button type="button" class="secondary" @onclick="() => RestoreItemAsync(i)" disabled="@_busy">@L("Вернуть")</button>
                                         }
                                         else
                                         {
-                                            <button type="button" class="secondary" @onclick="() => ArchiveItemAsync(i)" disabled="@(_busy || _mode != Mode.None)">В архив</button>
+                                            <button type="button" class="secondary" @onclick="() => ArchiveItemAsync(i)" disabled="@(_busy || _mode != Mode.None)">@L("В архив")</button>
                                         }
                                     }
                                 </div>
@@ -216,35 +217,35 @@ else
     </div>
     @if (_list.Total > _list.Items.Count)
     {
-        <p class="muted">Показано @_list.Items.Count из @_list.Total. Уточните поиск или тип.</p>
+        <p class="muted">@L("Показано {0} из {1}. Уточните поиск или тип.", _list.Items.Count, _list.Total)</p>
     }
 
-    <h2 style="margin-top: 32px">Единицы измерения</h2>
-    <p class="muted">Знаков после запятой — сколько дробных разрядов допустимо в количестве: штуки целые, килограммы до граммов.</p>
+    <h2 style="margin-top: 32px">@L("Единицы измерения")</h2>
+    <p class="muted">@L("Знаков после запятой — сколько дробных разрядов допустимо в количестве: штуки целые, килограммы до граммов.")</p>
     @if (_list.CanEdit)
     {
         <form class="inline-form" @onsubmit="CreateUnitAsync">
-            <label>Код <input @bind="_unit.Code" maxlength="10" size="6" placeholder="ОКЕИ" /></label>
-            <label>Наименование <input @bind="_unit.Name" maxlength="50" placeholder="Бобина" /></label>
-            <label>Обозначение <input @bind="_unit.Symbol" maxlength="10" size="6" placeholder="боб" /></label>
-            <label>Знаков <input type="number" min="0" max="6" @bind="_unit.Precision" style="width: 70px" /></label>
-            <button type="submit" disabled="@_busy">Добавить</button>
+            <label>@L("Код") <input @bind="_unit.Code" maxlength="10" size="6" placeholder="@L("ОКЕИ")" /></label>
+            <label>@L("Наименование") <input @bind="_unit.Name" maxlength="50" placeholder="@L("Бобина")" /></label>
+            <label>@L("Обозначение") <input @bind="_unit.Symbol" maxlength="10" size="6" placeholder="@L("боб")" /></label>
+            <label>@L("Знаков") <input type="number" min="0" max="6" @bind="_unit.Precision" style="width: 70px" /></label>
+            <button type="submit" disabled="@_busy">@L("Добавить")</button>
         </form>
     }
     <div class="scroll">
         <table>
-            <thead><tr><th>Код</th><th>Наименование</th><th>Обозначение</th><th>Знаков</th><th>Позиций</th>@if (_list.CanArchive) { <th>Действия</th> }</tr></thead>
+            <thead><tr><th>@L("Код")</th><th>@L("Наименование")</th><th>@L("Обозначение")</th><th>@L("Знаков")</th><th>@L("Позиций")</th>@if (_list.CanArchive) { <th>@L("Действия")</th> }</tr></thead>
             <tbody>
                 @foreach (var u in _units)
                 {
                     <tr class="@(u.IsArchived ? "archived" : null)">
-                        <td>@u.Code</td><td>@u.Name @if (u.IsArchived) { <span class="tag">архив</span> }</td><td>@u.Symbol</td><td>@u.Precision</td><td>@u.ItemCount</td>
+                        <td>@u.Code</td><td>@u.Name @if (u.IsArchived) { <span class="tag">@L("архив")</span> }</td><td>@u.Symbol</td><td>@u.Precision</td><td>@u.ItemCount</td>
                         @if (_list.CanArchive)
                         {
                             <td>
                                 @if (!u.IsArchived)
                                 {
-                                    <button type="button" class="secondary" @onclick="() => ArchiveUnitAsync(u)" disabled="@_busy">В архив</button>
+                                    <button type="button" class="secondary" @onclick="() => ArchiveUnitAsync(u)" disabled="@_busy">@L("В архив")</button>
                                 }
                             </td>
                         }
@@ -350,14 +351,14 @@ else
         }
 
         Close();
-    }, "Позиция сохранена.");
+    }, L("Позиция сохранена."));
 
-    private Task ArchiveItemAsync(ItemDto i) => RunAsync(() => Catalog.ArchiveItemAsync(i.Id, i.RowVersion), $"Позиция «{i.Name}» в архиве.");
+    private Task ArchiveItemAsync(ItemDto i) => RunAsync(() => Catalog.ArchiveItemAsync(i.Id, i.RowVersion), L("Позиция «{0}» в архиве.", i.Name));
 
     private Task RestoreItemAsync(ItemDto i) =>
-        RunAsync(() => Catalog.RestoreItemAsync(i.Id, i.RowVersion), $"Позиция «{i.Name}» возвращена из архива.");
+        RunAsync(() => Catalog.RestoreItemAsync(i.Id, i.RowVersion), L("Позиция «{0}» возвращена из архива.", i.Name));
 
-    private Task ArchiveUnitAsync(UnitDto u) => RunAsync(() => Catalog.ArchiveUnitAsync(u.Id, u.RowVersion), $"Единица «{u.Name}» в архиве.");
+    private Task ArchiveUnitAsync(UnitDto u) => RunAsync(() => Catalog.ArchiveUnitAsync(u.Id, u.RowVersion), L("Единица «{0}» в архиве.", u.Name));
 
     /// <summary>Файл читается в память целиком (до 5 МБ) и проверяется; в базе ничего не меняется.</summary>
     private Task PreviewImportAsync(InputFileChangeEventArgs e) => RunAsync(async () =>
@@ -366,7 +367,7 @@ else
         const long maxSize = 5 * 1024 * 1024;
         if (e.File.Size > maxSize)
         {
-            throw new BusinessRuleException("import.file_too_large", "Файл больше 5 МБ. Разбейте его на части.");
+            throw new BusinessRuleException("import.file_too_large", L("Файл больше 5 МБ. Разбейте его на части."));
         }
 
         await using var upload = e.File.OpenReadStream(maxAllowedSize: maxSize);
@@ -380,15 +381,15 @@ else
     {
         var result = await Exchange.ApplyAsync(_plan!.Rows);
         _plan = null;
-        _flash = $"Загружено: создано {result.Created}, обновлено {result.Updated}.";
+        _flash = L("Загружено: создано {0}, обновлено {1}.", result.Created, result.Updated);
     }, null);
 
     private static string ActionText(ImportAction a) => a switch
     {
-        ImportAction.Create => "создать",
-        ImportAction.Update => "обновить",
-        ImportAction.Unchanged => "без изменений",
-        _ => "ошибка",
+        ImportAction.Create => L("создать"),
+        ImportAction.Update => L("обновить"),
+        ImportAction.Unchanged => L("без изменений"),
+        _ => L("ошибка"),
     };
 
     private static string? ActionClass(ImportAction a) => a switch
@@ -402,7 +403,7 @@ else
     {
         await Catalog.CreateUnitAsync(new UnitCommand(_unit.Code, _unit.Name, _unit.Symbol, _unit.Precision));
         _unit = new UnitCommandForm();
-    }, "Единица добавлена.");
+    }, L("Единица добавлена."));
 
     /// <summary>Одна операция за раз, затем свежие данные: у вкладки один DbContext.</summary>
     private async Task RunAsync(Func<Task> action, string? success)

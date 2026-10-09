@@ -2,8 +2,8 @@
 @inject PersonalToolsService Personal
 
 <form class="tool-form" @onsubmit="SaveCityAsync">
-    <label>Город <input @bind="_city" maxlength="100" placeholder="Например: Иваново" /></label>
-    <button type="submit" class="secondary" disabled="@_busy">Показать</button>
+    <label>@L("Город") <input @bind="_city" maxlength="100" placeholder="@L("Например: Иваново")" /></label>
+    <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
 </form>
 
 @if (_message is not null)
@@ -16,10 +16,10 @@
     <div class="weather">
         <div class="weather-temp">@(_weather.TemperatureC > 0 ? "+" : "")@_weather.TemperatureC.ToString("0.#") °C</div>
         <div>@_weather.City · @_weather.Description</div>
-        <div class="muted">Ветер @_weather.WindMs.ToString("0.#") м/с · обновлено @TimeZones.ToLocal(_weather.ObservedAtUtc, Context.Access.TimeZoneId).ToString("HH:mm")</div>
+        <div class="muted">@L("Ветер {0} м/с · обновлено {1}", _weather.WindMs.ToString("0.#"), TimeZones.ToLocal(_weather.ObservedAtUtc, Context.Access.TimeZoneId).ToString("HH:mm"))</div>
     </div>
 }
-<p class="muted">Данные Open-Meteo. Если сервис недоступен, на работу системы это не влияет.</p>
+<p class="muted">@L("Данные Open-Meteo. Если сервис недоступен, на работу системы это не влияет.")</p>
 
 @code {
     [Parameter, EditorRequired]
@@ -47,7 +47,7 @@
         }
         else
         {
-            _message = "Укажите город — он сохранится в вашем профиле.";
+            _message = L("Укажите город — он сохранится в вашем профиле.");
         }
     }
 
@@ -72,11 +72,11 @@
     private async Task LoadAsync()
     {
         _busy = true;
-        _message = "Загрузка…";
+        _message = L("Загрузка…");
         try
         {
             _weather = await Weather.GetAsync(_city);
-            _message = _weather is null ? $"Город «{_city}» не найден." : null;
+            _message = _weather is null ? L("Город «{0}» не найден.", _city) : null;
         }
         catch (ExternalServiceUnavailableException ex)
         {

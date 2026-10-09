@@ -5,7 +5,7 @@
 @inject EmployeeService Employees
 @inject EmployeeExchangeService Exchange
 
-<PageTitle>Сотрудники — knitERP</PageTitle>
+<PageTitle>@L("Сотрудники") — knitERP</PageTitle>
 
 @if (_denied is not null)
 {
@@ -13,47 +13,47 @@
 }
 else if (_list is null)
 {
-    <p class="muted">Загрузка…</p>
+    <p class="muted">@L("Загрузка…")</p>
 }
 else
 {
     <div class="page-head">
-        <h1>@(_list.OwnOnly ? "Моя карточка" : "Сотрудники")</h1>
+        <h1>@(_list.OwnOnly ? L("Моя карточка") : L("Сотрудники"))</h1>
         @if (_list.CanEdit && _mode == Mode.None)
         {
-            <button type="button" @onclick="OpenHireAsync" disabled="@_busy">Принять сотрудника</button>
+            <button type="button" @onclick="OpenHireAsync" disabled="@_busy">@L("Принять сотрудника")</button>
         }
     </div>
 
     @if (_list.IsScoped)
     {
-        <p class="muted">Вы видите сотрудников своего подразделения и вложенных в него.</p>
+        <p class="muted">@L("Вы видите сотрудников своего подразделения и вложенных в него.")</p>
     }
 
     @if (_flash is not null)
     {
-        <div class="@(_flashIsError ? "flash error" : "flash")" role="@(_flashIsError ? "alert" : "status")"><span>@_flash</span><button type="button" class="link" aria-label="Закрыть сообщение" @onclick="() => _flash = null">×</button></div>
+        <div class="@(_flashIsError ? "flash error" : "flash")" role="@(_flashIsError ? "alert" : "status")"><span>@_flash</span><button type="button" class="link" aria-label="@L("Закрыть сообщение")" @onclick="() => _flash = null">×</button></div>
     }
 
     @if (_mode is Mode.Hire or Mode.Edit)
     {
         <div class="panel">
-            <h2>@(_mode == Mode.Hire ? "Приём сотрудника" : $"Карточка: {_target!.FullName}")</h2>
+            <h2>@(_mode == Mode.Hire ? L("Приём сотрудника") : L("Карточка: {0}", _target!.FullName))</h2>
             @if (_options is { Departments.Count: 0 } or { Positions.Count: 0 })
             {
-                <p class="muted">Сначала заведите подразделения и должности в разделе «Структура».</p>
+                <p class="muted">@L("Сначала заведите подразделения и должности в разделе «Структура».")</p>
             }
             <EditForm Model="_form" OnValidSubmit="SaveAsync" FormName="employee">
                 <div class="grid">
-                    <label>Табельный номер <InputText @bind-Value="_form.PersonnelNumber" maxlength="20" required /></label>
-                    <label>Дата приёма <InputDate @bind-Value="_form.HiredOn" disabled="@(_mode == Mode.Edit)" /></label>
-                    <label>Фамилия <InputText @bind-Value="_form.LastName" maxlength="100" required /></label>
-                    <label>Имя <InputText @bind-Value="_form.FirstName" maxlength="100" required /></label>
-                    <label>Отчество <InputText @bind-Value="_form.MiddleName" maxlength="100" /></label>
+                    <label>@L("Табельный номер") <InputText @bind-Value="_form.PersonnelNumber" maxlength="20" required /></label>
+                    <label>@L("Дата приёма") <InputDate @bind-Value="_form.HiredOn" disabled="@(_mode == Mode.Edit)" /></label>
+                    <label>@L("Фамилия") <InputText @bind-Value="_form.LastName" maxlength="100" required /></label>
+                    <label>@L("Имя") <InputText @bind-Value="_form.FirstName" maxlength="100" required /></label>
+                    <label>@L("Отчество") <InputText @bind-Value="_form.MiddleName" maxlength="100" /></label>
                     <label>
-                        Подразделение
+                        @L("Подразделение")
                         <InputSelect @bind-Value="_form.DepartmentId" required>
-                            <option value="0">— выберите —</option>
+                            <option value="0">@L("— выберите —")</option>
                             @foreach (var d in _options?.Departments ?? [])
                             {
                                 <option value="@d.Id">@d.Name</option>
@@ -61,9 +61,9 @@ else
                         </InputSelect>
                     </label>
                     <label>
-                        Должность
+                        @L("Должность")
                         <InputSelect @bind-Value="_form.PositionId" required>
-                            <option value="0">— выберите —</option>
+                            <option value="0">@L("— выберите —")</option>
                             @foreach (var p in _options?.Positions ?? [])
                             {
                                 <option value="@p.Id">@p.Name</option>
@@ -76,8 +76,8 @@ else
                     <div class="error" role="alert">@_formError</div>
                 }
                 <div class="actions">
-                    <button type="submit" disabled="@_busy">@(_mode == Mode.Hire ? "Принять" : "Сохранить")</button>
-                    <button type="button" class="secondary" @onclick="Close" disabled="@_busy">Отмена</button>
+                    <button type="submit" disabled="@_busy">@(_mode == Mode.Hire ? L("Принять") : L("Сохранить"))</button>
+                    <button type="button" class="secondary" @onclick="Close" disabled="@_busy">@L("Отмена")</button>
                 </div>
             </EditForm>
         </div>
@@ -86,26 +86,26 @@ else
     @if (_mode == Mode.Dismiss)
     {
         <div class="panel">
-            <h2>Увольнение: @_target!.FullName</h2>
+            <h2>@L("Увольнение:") @_target!.FullName</h2>
             <p class="muted">
-                Карточка закрывается для изменений, история сохраняется.
+                @L("Карточка закрывается для изменений, история сохраняется.")
                 @if (_target.UserId is not null)
                 {
-                    <text>У сотрудника есть учётная запись — доступ к организации будет заблокирован в той же операции.</text>
+                    <text>@L("У сотрудника есть учётная запись — доступ к организации будет заблокирован в той же операции.")</text>
                 }
             </p>
             <EditForm Model="_form" OnValidSubmit="DismissAsync" FormName="dismiss">
                 <div class="grid">
-                    <label>Дата увольнения <InputDate @bind-Value="_form.DismissedOn" required /></label>
-                    <label>Причина (обязательна) <InputText @bind-Value="_form.Reason" maxlength="500" required /></label>
+                    <label>@L("Дата увольнения") <InputDate @bind-Value="_form.DismissedOn" required /></label>
+                    <label>@L("Причина (обязательна)") <InputText @bind-Value="_form.Reason" maxlength="500" required /></label>
                 </div>
                 @if (_formError is not null)
                 {
                     <div class="error" role="alert">@_formError</div>
                 }
                 <div class="actions">
-                    <button type="submit" disabled="@_busy">Уволить</button>
-                    <button type="button" class="secondary" @onclick="Close" disabled="@_busy">Отмена</button>
+                    <button type="submit" disabled="@_busy">@L("Уволить")</button>
+                    <button type="button" class="secondary" @onclick="Close" disabled="@_busy">@L("Отмена")</button>
                 </div>
             </EditForm>
         </div>
@@ -118,9 +118,9 @@ else
                      ShownColumns="@([0, 1, 2, 4])" Preview="s => Exchange.PreviewAsync(s)" Apply="r => Exchange.ApplyAsync(r)" Applied="ReloadAsync" />
 
         <form class="inline-form" @onsubmit="ReloadAsync">
-            <label>Поиск <input @bind="_search" placeholder="Фамилия, имя или табельный номер" /></label>
-            <label class="inline"><input type="checkbox" @bind="_includeDismissed" /> Показать уволенных</label>
-            <button type="submit" class="secondary" disabled="@_busy">Найти</button>
+            <label>@L("Поиск") <input @bind="_search" placeholder="@L("Фамилия, имя или табельный номер")" /></label>
+            <label class="inline"><input type="checkbox" @bind="_includeDismissed" /> @L("Показать уволенных")</label>
+            <button type="submit" class="secondary" disabled="@_busy">@L("Найти")</button>
         </form>
     }
 
@@ -128,27 +128,27 @@ else
         <table>
             <thead>
                 <tr>
-                    <th class="opt">Таб. №</th><th>Сотрудник</th><th>Подразделение</th><th class="opt">Должность</th><th>Статус</th><th class="opt">Учётная запись</th>
+                    <th class="opt">@L("Таб. №")</th><th>@L("Сотрудник")</th><th>@L("Подразделение")</th><th class="opt">@L("Должность")</th><th>@L("Статус")</th><th class="opt">@L("Учётная запись")</th>
                     @if (_list.CanEdit)
                     {
-                        <th>Действия</th>
+                        <th>@L("Действия")</th>
                     }
                 </tr>
             </thead>
             <tbody>
                 @if (_list.Employees.Count == 0)
                 {
-                    <tr><td colspan="7" class="muted">@(_list.OwnOnly ? "Карточка сотрудника не привязана к вашей учётной записи." : "Сотрудников не найдено.")</td></tr>
+                    <tr><td colspan="7" class="muted">@(_list.OwnOnly ? L("Карточка сотрудника не привязана к вашей учётной записи.") : L("Сотрудников не найдено."))</td></tr>
                 }
                 @foreach (var e in _list.Employees)
                 {
                     <tr class="@(e.Status == EmploymentStatus.Dismissed ? "archived" : null)">
                         <td>@e.PersonnelNumber</td>
-                        <td>@e.FullName<div class="muted">с @e.HiredOn.ToString("dd.MM.yyyy")</div></td>
+                        <td>@e.FullName<div class="muted">@L("с {0}", e.HiredOn.ToString("dd.MM.yyyy"))</div></td>
                         <td>@e.DepartmentName</td>
                         <td>@e.PositionName</td>
                         <td>
-                            <span class="tag @StatusClass(e.Status)">@e.StatusName</span>
+                            <span class="tag @StatusClass(e.Status)">@L(e.StatusName)</span>
                             @if (e.DismissedOn is { } d)
                             {
                                 <div class="muted">@d.ToString("dd.MM.yyyy")</div>
@@ -161,11 +161,11 @@ else
                                 @if (e.Status != EmploymentStatus.Dismissed)
                                 {
                                     <div class="row-actions">
-                                        <button type="button" class="secondary" @onclick="() => OpenEditAsync(e)" disabled="@(_busy || _mode != Mode.None)">Изменить</button>
+                                        <button type="button" class="secondary" @onclick="() => OpenEditAsync(e)" disabled="@(_busy || _mode != Mode.None)">@L("Изменить")</button>
                                         <button type="button" class="secondary" @onclick="() => ToggleLeaveAsync(e)" disabled="@(_busy || _mode != Mode.None)">
-                                            @(e.Status == EmploymentStatus.OnLeave ? "Вернуть из отпуска" : "В отпуск")
+                                            @(e.Status == EmploymentStatus.OnLeave ? L("Вернуть из отпуска") : L("В отпуск"))
                                         </button>
-                                        <button type="button" class="secondary" @onclick="() => OpenDismiss(e)" disabled="@(_busy || _mode != Mode.None)">Уволить</button>
+                                        <button type="button" class="secondary" @onclick="() => OpenDismiss(e)" disabled="@(_busy || _mode != Mode.None)">@L("Уволить")</button>
                                     </div>
                                 }
                             </td>
@@ -254,12 +254,12 @@ else
         if (_mode == Mode.Hire)
         {
             await Employees.HireAsync(cmd);
-            _flash = $"Сотрудник «{_form.LastName} {_form.FirstName}» принят.";
+            _flash = L("Сотрудник «{0} {1}» принят.", _form.LastName, _form.FirstName);
         }
         else
         {
             await Employees.UpdateAsync(_target!.Id, cmd, _target.RowVersion);
-            _flash = "Карточка сохранена.";
+            _flash = L("Карточка сохранена.");
         }
 
         Close();
@@ -268,7 +268,7 @@ else
     private Task ToggleLeaveAsync(EmployeeRowDto e) => RunAsync(async () =>
     {
         await Employees.SetOnLeaveAsync(e.Id, e.Status != EmploymentStatus.OnLeave, e.RowVersion);
-        _flash = e.Status == EmploymentStatus.OnLeave ? $"Сотрудник «{e.FullName}» снова работает." : $"Сотрудник «{e.FullName}» в отпуске.";
+        _flash = e.Status == EmploymentStatus.OnLeave ? L("Сотрудник «{0}» снова работает.", e.FullName) : L("Сотрудник «{0}» в отпуске.", e.FullName);
     });
 
     private Task DismissAsync() => RunAsync(async () =>
@@ -276,8 +276,8 @@ else
         var target = _target!;
         await Employees.DismissAsync(target.Id, _form.DismissedOn, _form.Reason, target.RowVersion);
         _flash = target.UserId is null
-            ? $"Сотрудник «{target.FullName}» уволен."
-            : $"Сотрудник «{target.FullName}» уволен, доступ к организации заблокирован.";
+            ? L("Сотрудник «{0}» уволен.", target.FullName)
+            : L("Сотрудник «{0}» уволен, доступ к организации заблокирован.", target.FullName);
         Close();
     });
 

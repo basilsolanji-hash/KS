@@ -7,11 +7,11 @@
 
 @if (_items is null)
 {
-    <p class="muted">Загрузка…</p>
+    <p class="muted">@L("Загрузка…")</p>
 }
 else if (_items.Count == 0)
 {
-    <p class="muted">Новых уведомлений нет.</p>
+    <p class="muted">@L("Новых уведомлений нет.")</p>
 }
 else
 {
@@ -24,7 +24,7 @@ else
         }
     </ul>
 }
-<button type="button" class="secondary" @onclick="LoadAsync" disabled="@_busy">Обновить</button>
+<button type="button" class="secondary" @onclick="LoadAsync" disabled="@_busy">@L("Обновить")</button>
 
 @code {
     [Parameter, EditorRequired]

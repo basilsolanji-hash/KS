@@ -3,7 +3,7 @@
 @using KnitErp.Web.Components.Shared
 @inject StructureService Structure
 
-<PageTitle>Структура — knitERP</PageTitle>
+<PageTitle>@L("Структура") — knitERP</PageTitle>
 
 @if (_denied is not null)
 {
@@ -11,18 +11,18 @@
 }
 else if (_data is null)
 {
-    <p class="muted">Загрузка…</p>
+    <p class="muted">@L("Загрузка…")</p>
 }
 else
 {
     <div class="page-head">
-        <h1>Подразделения и должности</h1>
-        <label class="inline"><input type="checkbox" checked="@_showArchived" @onchange="ToggleArchivedAsync" disabled="@_busy" /> Показать архив</label>
+        <h1>@L("Подразделения и должности")</h1>
+        <label class="inline"><input type="checkbox" checked="@_showArchived" @onchange="ToggleArchivedAsync" disabled="@_busy" /> @L("Показать архив")</label>
     </div>
 
     @if (_data.IsScoped)
     {
-        <p class="muted">Вы видите только своё подразделение и вложенные в него.</p>
+        <p class="muted">@L("Вы видите только своё подразделение и вложенные в него.")</p>
     }
 
     @if (_message is not null)
@@ -30,32 +30,32 @@ else
         <div class="@(_messageIsError ? "error" : "flash")" role="@(_messageIsError ? "alert" : "status")">@_message</div>
     }
 
-    <h2>Подразделения</h2>
+    <h2>@L("Подразделения")</h2>
     @if (_data.CanEdit)
     {
         <form class="inline-form" @onsubmit="CreateDepartmentAsync">
-            <label>Новое подразделение <input @bind="_newDepartment" maxlength="150" placeholder="Например: Вязальный цех" /></label>
+            <label>@L("Новое подразделение") <input @bind="_newDepartment" maxlength="150" placeholder="@L("Например: Вязальный цех")" /></label>
             <label>
-                Входит в
+                @L("Входит в")
                 <select @bind="_newDepartmentParent">
-                    <option value="">— верхний уровень —</option>
+                    <option value="">@L("— верхний уровень —")</option>
                     @foreach (var d in ActiveDepartments)
                     {
                         <option value="@d.Id">@d.Path</option>
                     }
                 </select>
             </label>
-            <button type="submit" disabled="@_busy">Добавить</button>
+            <button type="submit" disabled="@_busy">@L("Добавить")</button>
         </form>
     }
 
     <div class="scroll">
         <table>
-            <thead><tr><th>Подразделение</th><th>Сотрудников</th>@if (_data.CanEdit) { <th>Действия</th> }</tr></thead>
+            <thead><tr><th>@L("Подразделение")</th><th>@L("Сотрудников")</th>@if (_data.CanEdit) { <th>@L("Действия")</th> }</tr></thead>
             <tbody>
                 @if (_data.Departments.Count == 0)
                 {
-                    <tr><td colspan="3" class="muted">Подразделений пока нет.</td></tr>
+                    <tr><td colspan="3" class="muted">@L("Подразделений пока нет.")</td></tr>
                 }
                 @foreach (var d in _data.Departments)
                 {
@@ -64,18 +64,18 @@ else
                             @if (_editDepartment?.Id == d.Id)
                             {
                                 <form class="inline-form" @onsubmit="() => SaveDepartmentAsync(d)">
-                                    <label class="sr-only" for="dep-name-@d.Id">Название</label>
+                                    <label class="sr-only" for="dep-name-@d.Id">@L("Название")</label>
                                     <input id="dep-name-@d.Id" @bind="_editName" maxlength="150" />
-                                    <label class="sr-only" for="dep-parent-@d.Id">Входит в</label>
+                                    <label class="sr-only" for="dep-parent-@d.Id">@L("Входит в")</label>
                                     <select id="dep-parent-@d.Id" @bind="_editParent">
-                                        <option value="">— верхний уровень —</option>
+                                        <option value="">@L("— верхний уровень —")</option>
                                         @foreach (var p in ActiveDepartments.Where(x => x.Id != d.Id))
                                         {
                                             <option value="@p.Id">@p.Path</option>
                                         }
                                     </select>
-                                    <button type="submit" disabled="@_busy">Сохранить</button>
-                                    <button type="button" class="secondary" @onclick="() => _editDepartment = null">Отмена</button>
+                                    <button type="submit" disabled="@_busy">@L("Сохранить")</button>
+                                    <button type="button" class="secondary" @onclick="() => _editDepartment = null">@L("Отмена")</button>
                                 </form>
                             }
                             else
@@ -83,7 +83,7 @@ else
                                 @d.Name
                                 @if (d.IsArchived)
                                 {
-                                    <span class="tag">архив</span>
+                                    <span class="tag">@L("архив")</span>
                                 }
                             }
                         </td>
@@ -94,8 +94,8 @@ else
                                 @if (!d.IsArchived && _editDepartment?.Id != d.Id)
                                 {
                                     <div class="row-actions">
-                                        <button type="button" class="secondary" @onclick="() => StartEditDepartment(d)" disabled="@_busy">Изменить</button>
-                                        <button type="button" class="secondary" @onclick="() => ArchiveDepartmentAsync(d)" disabled="@_busy">В архив</button>
+                                        <button type="button" class="secondary" @onclick="() => StartEditDepartment(d)" disabled="@_busy">@L("Изменить")</button>
+                                        <button type="button" class="secondary" @onclick="() => ArchiveDepartmentAsync(d)" disabled="@_busy">@L("В архив")</button>
                                     </div>
                                 }
                             </td>
@@ -106,22 +106,22 @@ else
         </table>
     </div>
 
-    <h2 style="margin-top: 32px">Должности</h2>
+    <h2 style="margin-top: 32px">@L("Должности")</h2>
     @if (_data.CanEdit)
     {
         <form class="inline-form" @onsubmit="CreatePositionAsync">
-            <label>Новая должность <input @bind="_newPosition" maxlength="150" placeholder="Например: Вязальщица" /></label>
-            <button type="submit" disabled="@_busy">Добавить</button>
+            <label>@L("Новая должность") <input @bind="_newPosition" maxlength="150" placeholder="@L("Например: Вязальщица")" /></label>
+            <button type="submit" disabled="@_busy">@L("Добавить")</button>
         </form>
     }
 
     <div class="scroll">
         <table>
-            <thead><tr><th>Должность</th><th>Сотрудников</th>@if (_data.CanEdit) { <th>Действия</th> }</tr></thead>
+            <thead><tr><th>@L("Должность")</th><th>@L("Сотрудников")</th>@if (_data.CanEdit) { <th>@L("Действия")</th> }</tr></thead>
             <tbody>
                 @if (_data.Positions.Count == 0)
                 {
-                    <tr><td colspan="3" class="muted">Должностей пока нет.</td></tr>
+                    <tr><td colspan="3" class="muted">@L("Должностей пока нет.")</td></tr>
                 }
                 @foreach (var p in _data.Positions)
                 {
@@ -130,10 +130,10 @@ else
                             @if (_editPosition?.Id == p.Id)
                             {
                                 <form class="inline-form" @onsubmit="() => SavePositionAsync(p)">
-                                    <label class="sr-only" for="pos-name-@p.Id">Название</label>
+                                    <label class="sr-only" for="pos-name-@p.Id">@L("Название")</label>
                                     <input id="pos-name-@p.Id" @bind="_editName" maxlength="150" />
-                                    <button type="submit" disabled="@_busy">Сохранить</button>
-                                    <button type="button" class="secondary" @onclick="() => _editPosition = null">Отмена</button>
+                                    <button type="submit" disabled="@_busy">@L("Сохранить")</button>
+                                    <button type="button" class="secondary" @onclick="() => _editPosition = null">@L("Отмена")</button>
                                 </form>
                             }
                             else
@@ -141,7 +141,7 @@ else
                                 @p.Name
                                 @if (p.IsArchived)
                                 {
-                                    <span class="tag">архив</span>
+                                    <span class="tag">@L("архив")</span>
                                 }
                             }
                         </td>
@@ -152,8 +152,8 @@ else
                                 @if (!p.IsArchived && _editPosition?.Id != p.Id)
                                 {
                                     <div class="row-actions">
-                                        <button type="button" class="secondary" @onclick="() => StartEditPosition(p)" disabled="@_busy">Переименовать</button>
-                                        <button type="button" class="secondary" @onclick="() => ArchivePositionAsync(p)" disabled="@_busy">В архив</button>
+                                        <button type="button" class="secondary" @onclick="() => StartEditPosition(p)" disabled="@_busy">@L("Переименовать")</button>
+                                        <button type="button" class="secondary" @onclick="() => ArchivePositionAsync(p)" disabled="@_busy">@L("В архив")</button>
                                     </div>
                                 }
                             </td>
@@ -163,7 +163,7 @@ else
             </tbody>
         </table>
     </div>
-    <p class="muted">Подразделения и должности не удаляются — только в архив, история сохраняется. В архив можно отправить только пустое подразделение.</p>
+    <p class="muted">@L("Подразделения и должности не удаляются — только в архив, история сохраняется. В архив можно отправить только пустое подразделение.")</p>
 }
 
 @code {
@@ -206,7 +206,7 @@ else
     {
         await Structure.CreateDepartmentAsync(_newDepartment, ParseId(_newDepartmentParent));
         _newDepartment = string.Empty;
-    }, "Подразделение добавлено.");
+    }, L("Подразделение добавлено."));
 
     private void StartEditDepartment(DepartmentDto d)
     {
@@ -231,16 +231,16 @@ else
         }
 
         _editDepartment = null;
-    }, "Подразделение сохранено.");
+    }, L("Подразделение сохранено."));
 
     private Task ArchiveDepartmentAsync(DepartmentDto d) =>
-        RunAsync(() => Structure.ArchiveDepartmentAsync(d.Id, d.RowVersion), $"Подразделение «{d.Name}» в архиве.");
+        RunAsync(() => Structure.ArchiveDepartmentAsync(d.Id, d.RowVersion), L("Подразделение «{0}» в архиве.", d.Name));
 
     private Task CreatePositionAsync() => RunAsync(async () =>
     {
         await Structure.CreatePositionAsync(_newPosition);
         _newPosition = string.Empty;
-    }, "Должность добавлена.");
+    }, L("Должность добавлена."));
 
     private void StartEditPosition(PositionDto p)
     {
@@ -253,10 +253,10 @@ else
     {
         await Structure.RenamePositionAsync(p.Id, _editName, p.RowVersion);
         _editPosition = null;
-    }, "Должность переименована.");
+    }, L("Должность переименована."));
 
     private Task ArchivePositionAsync(PositionDto p) =>
-        RunAsync(() => Structure.ArchivePositionAsync(p.Id, p.RowVersion), $"Должность «{p.Name}» в архиве.");
+        RunAsync(() => Structure.ArchivePositionAsync(p.Id, p.RowVersion), L("Должность «{0}» в архиве.", p.Name));
 
     /// <summary>Одна операция за раз, затем свежие данные: у вкладки один DbContext.</summary>
     private async Task RunAsync(Func<Task> action, string? success)

@@ -4,7 +4,7 @@
 @using KnitErp.Web.Components.Shared
 @inject VatRateService VatRates
 
-<PageTitle>Ставки НДС — knitERP</PageTitle>
+<PageTitle>@L("Ставки НДС") — knitERP</PageTitle>
 
 @if (_denied is not null)
 {
@@ -12,21 +12,21 @@
 }
 else if (_list is null)
 {
-    <p class="muted">Загрузка…</p>
+    <p class="muted">@L("Загрузка…")</p>
 }
 else
 {
     <div class="page-head">
-        <h1>Ставки НДС</h1>
+        <h1>@L("Ставки НДС")</h1>
         @if (_list.CanEdit && !_creating)
         {
-            <button type="button" @onclick="() => { _creating = true; _flash = null; }" disabled="@_busy">Добавить ставку</button>
+            <button type="button" @onclick="() => { _creating = true; _flash = null; }" disabled="@_busy">@L("Добавить ставку")</button>
         }
     </div>
     <p class="muted">
-        Ставки страны организации (@_list.CountryName). Номенклатура ссылается на вид ставки, а процент берётся по дате:
-        когда закон меняет ставку, добавьте новый процент с даты — менять номенклатуру не нужно.
-        Льготные перечни товаров у каждой страны свои — сверьте с бухгалтером.
+        @L("Ставки страны организации ({0}).", L(_list.CountryName))
+        @L("Номенклатура ссылается на вид ставки, а процент берётся по дате: когда закон меняет ставку, добавьте новый процент с даты — менять номенклатуру не нужно.")
+        @L("Льготные перечни товаров у каждой страны свои — сверьте с бухгалтером.")
     </p>
 
     @if (_flash is not null)
@@ -37,27 +37,27 @@ else
     @if (_creating)
     {
         <div class="panel">
-            <h2>Новая ставка</h2>
+            <h2>@L("Новая ставка")</h2>
             <div class="grid">
-                <label>Наименование <input @bind="_name" maxlength="100" placeholder="Например: Пониженная 10%" /></label>
+                <label>@L("Наименование") <input @bind="_name" maxlength="100" placeholder="@L("Например: Пониженная 10%")" /></label>
                 <label>
-                    Вид
+                    @L("Вид")
                     <select @bind="_kind">
                         @foreach (var k in Enum.GetValues<VatRateKind>())
                         {
-                            <option value="@k">@VatRate.KindName(k)</option>
+                            <option value="@k">@L(VatRate.KindName(k))</option>
                         }
                     </select>
                 </label>
                 @if (_kind != VatRateKind.Exempt)
                 {
-                    <label>Процент <input type="number" step="0.01" min="0" max="100" @bind="_percent" /></label>
-                    <label>Действует с <input type="date" @bind="_from" /></label>
+                    <label>@L("Процент") <input type="number" step="0.01" min="0" max="100" @bind="_percent" /></label>
+                    <label>@L("Действует с") <input type="date" @bind="_from" /></label>
                 }
             </div>
             <div class="actions" style="margin-top: 12px">
-                <button type="button" @onclick="CreateAsync" disabled="@_busy">Сохранить</button>
-                <button type="button" class="secondary" @onclick="() => _creating = false" disabled="@_busy">Отмена</button>
+                <button type="button" @onclick="CreateAsync" disabled="@_busy">@L("Сохранить")</button>
+                <button type="button" class="secondary" @onclick="() => _creating = false" disabled="@_busy">@L("Отмена")</button>
             </div>
         </div>
     }
@@ -65,33 +65,33 @@ else
     @if (_period is not null)
     {
         <div class="panel">
-            <h2>Новый процент: @_period.Name</h2>
+            <h2>@L("Новый процент:") @L(_period.Name)</h2>
             <div class="grid">
-                <label>Процент <input type="number" step="0.01" min="0" max="100" @bind="_percent" /></label>
-                <label>Действует с <input type="date" @bind="_from" /></label>
+                <label>@L("Процент") <input type="number" step="0.01" min="0" max="100" @bind="_percent" /></label>
+                <label>@L("Действует с") <input type="date" @bind="_from" /></label>
             </div>
             <div class="actions" style="margin-top: 12px">
-                <button type="button" @onclick="AddPeriodAsync" disabled="@_busy">Добавить</button>
-                <button type="button" class="secondary" @onclick="() => _period = null" disabled="@_busy">Отмена</button>
+                <button type="button" @onclick="AddPeriodAsync" disabled="@_busy">@L("Добавить")</button>
+                <button type="button" class="secondary" @onclick="() => _period = null" disabled="@_busy">@L("Отмена")</button>
             </div>
         </div>
     }
 
-    <label class="inline" style="margin: 8px 0"><input type="checkbox" @bind="_includeArchived" @bind:after="ReloadAsync" /> Показать архив</label>
+    <label class="inline" style="margin: 8px 0"><input type="checkbox" @bind="_includeArchived" @bind:after="ReloadAsync" /> @L("Показать архив")</label>
 
     <div class="scroll">
         <table>
-            <thead><tr><th>Ставка</th><th>Сейчас</th><th class="opt">История</th><th class="opt num">Позиций</th>@if (_list.CanEdit) { <th>Действия</th> }</tr></thead>
+            <thead><tr><th>@L("Ставка")</th><th>@L("Сейчас")</th><th class="opt">@L("История")</th><th class="opt num">@L("Позиций")</th>@if (_list.CanEdit) { <th>@L("Действия")</th> }</tr></thead>
             <tbody>
                 @foreach (var r in _list.Rates)
                 {
                     <tr class="@(r.IsArchived ? "archived" : null)">
-                        <td>@r.Name <span class="tag">@r.KindName</span>@if (r.IsArchived) { <span class="tag">архив</span> }</td>
-                        <td><b>@r.CurrentText</b></td>
+                        <td>@L(r.Name) <span class="tag">@L(r.KindName)</span>@if (r.IsArchived) { <span class="tag">@L("архив")</span> }</td>
+                        <td><b>@L(r.CurrentText)</b></td>
                         <td>
                             @foreach (var p in r.Periods)
                             {
-                                <div>@p.Percent.ToString("0.##")% с @p.ValidFrom.ToString("dd.MM.yyyy")@(p.ValidTo is { } to ? $" по {to:dd.MM.yyyy}" : "")</div>
+                                <div>@p.Percent.ToString("0.##")% @L("с {0}", p.ValidFrom.ToString("dd.MM.yyyy"))@(p.ValidTo is { } to ? " " + L("по {0:dd.MM.yyyy}", to) : "")</div>
                             }
                         </td>
                         <td class="num">@r.ItemCount</td>
@@ -101,15 +101,15 @@ else
                                 <div class="row-actions">
                                     @if (!r.IsArchived && r.Kind != VatRateKind.Exempt && r.Kind != VatRateKind.Zero)
                                     {
-                                        <button type="button" class="secondary" @onclick="() => OpenPeriod(r)" disabled="@_busy">Новый процент</button>
+                                        <button type="button" class="secondary" @onclick="() => OpenPeriod(r)" disabled="@_busy">@L("Новый процент")</button>
                                     }
                                     @if (r.IsArchived)
                                     {
-                                        <button type="button" class="secondary" @onclick="() => RestoreAsync(r)" disabled="@_busy">Вернуть</button>
+                                        <button type="button" class="secondary" @onclick="() => RestoreAsync(r)" disabled="@_busy">@L("Вернуть")</button>
                                     }
                                     else
                                     {
-                                        <button type="button" class="secondary" @onclick="() => ArchiveAsync(r)" disabled="@_busy">В архив</button>
+                                        <button type="button" class="secondary" @onclick="() => ArchiveAsync(r)" disabled="@_busy">@L("В архив")</button>
                                     }
                                 </div>
                             </td>
@@ -161,17 +161,17 @@ else
             _kind == VatRateKind.Exempt ? null : _percent);
         _creating = false;
         _name = string.Empty;
-    }, "Ставка добавлена.");
+    }, L("Ставка добавлена."));
 
     private Task AddPeriodAsync() => RunAsync(async () =>
     {
         await VatRates.AddPeriodAsync(_period!.Id, DateOnly.FromDateTime(_from), _percent, _period.RowVersion);
         _period = null;
-    }, "Процент добавлен.");
+    }, L("Процент добавлен."));
 
-    private Task ArchiveAsync(VatRateDto r) => RunAsync(() => VatRates.ArchiveAsync(r.Id, r.RowVersion), $"Ставка «{r.Name}» в архиве.");
+    private Task ArchiveAsync(VatRateDto r) => RunAsync(() => VatRates.ArchiveAsync(r.Id, r.RowVersion), L("Ставка «{0}» в архиве.", r.Name));
 
-    private Task RestoreAsync(VatRateDto r) => RunAsync(() => VatRates.RestoreAsync(r.Id, r.RowVersion), $"Ставка «{r.Name}» возвращена.");
+    private Task RestoreAsync(VatRateDto r) => RunAsync(() => VatRates.RestoreAsync(r.Id, r.RowVersion), L("Ставка «{0}» возвращена.", r.Name));
 
     private Task ReloadAsync() => RunAsync(() => Task.CompletedTask, null);
 

@@ -3,7 +3,7 @@
 @using KnitErp.Web.Components.Shared
 @inject AuditQueryService Audit
 
-<PageTitle>Журнал аудита — knitERP</PageTitle>
+<PageTitle>@L("Журнал аудита") — knitERP</PageTitle>
 
 @if (_denied is not null)
 {
@@ -11,31 +11,31 @@
 }
 else if (_rows is null)
 {
-    <p class="muted">Загрузка…</p>
+    <p class="muted">@L("Загрузка…")</p>
 }
 else
 {
     <div class="page-head">
-        <h1>Журнал аудита</h1>
+        <h1>@L("Журнал аудита")</h1>
         <div class="actions">
-            <a class="button secondary" href="signins">Журнал входов</a>
-            <a class="button secondary" href="audit.xlsx" download data-enhance-nav="false" title="Последние 1000 записей">Excel</a>
+            <a class="button secondary" href="signins">@L("Журнал входов")</a>
+            <a class="button secondary" href="audit.xlsx" download data-enhance-nav="false" title="@L("Последние 1000 записей")">Excel</a>
         </div>
     </div>
     <p class="muted">
-        @(CurrentAccess.Has(Permissions.AuditLogView) ? "Все события организации" : "Только ваши действия и входы"),
-        последние @_rows.Count. Время — @TimeZones.Label(CurrentAccess.TimeZoneId).
+        @(CurrentAccess.Has(Permissions.AuditLogView) ? L("Все события организации") : L("Только ваши действия и входы")),
+        @L("последние {0}. Время — {1}.", _rows.Count, TimeZones.Label(CurrentAccess.TimeZoneId))
     </p>
     <div class="scroll">
         <table>
-            <thead><tr><th>Время</th><th>Кто</th><th>Действие</th><th class="opt">Объект</th><th>Было → стало</th><th class="opt">Причина</th></tr></thead>
+            <thead><tr><th>@L("Время")</th><th>@L("Кто")</th><th>@L("Действие")</th><th class="opt">@L("Объект")</th><th>@L("Было → стало")</th><th class="opt">@L("Причина")</th></tr></thead>
             <tbody>
                 @foreach (var a in _rows)
                 {
                     <tr>
                         <td style="white-space: nowrap">@TimeZones.ToLocal(a.OccurredAtUtc, CurrentAccess.TimeZoneId).ToString("dd.MM.yyyy HH:mm:ss")</td>
-                        <td>@(a.ActorName ?? "система")</td>
-                        <td><span class="tag">@AuditLabels.Action(a.Action)</span></td>
+                        <td>@(a.ActorName ?? L("система"))</td>
+                        <td><span class="tag">@L(AuditLabels.Action(a.Action))</span></td>
                         <td>@a.ObjectName</td>
                         <td>
                             @if (a.Before is not null || a.After is not null)
@@ -49,7 +49,7 @@ else
             </tbody>
         </table>
     </div>
-    <p class="muted">Записи неизменяемы: изменить или удалить их не может никто, включая Владельца.</p>
+    <p class="muted">@L("Записи неизменяемы: изменить или удалить их не может никто, включая Владельца.")</p>
 }
 
 @code {

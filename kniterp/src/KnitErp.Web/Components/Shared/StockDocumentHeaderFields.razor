@@ -43,7 +43,7 @@
         <option value="">@L("— выберите —")</option>
         @foreach (var r in Options.Reasons)
         {
-            <option value="@r.Id">@r.Name@(r.RequiresComment ? " " + L("(нужно пояснение)") : "")</option>
+            <option value="@r.Id">@L(r.Name)@(r.RequiresComment ? " " + L("(нужно пояснение)") : "")</option>
         }
     </select>
 </label>
