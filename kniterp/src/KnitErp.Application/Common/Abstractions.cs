@@ -46,6 +46,7 @@ public interface IKnitErpDbContext : IAsyncDisposable
 {
     DbSet<Organization> Organizations { get; }
     DbSet<UserAccount> Users { get; }
+    DbSet<RecoveryCode> RecoveryCodes { get; }
     DbSet<OrganizationMember> OrganizationMembers { get; }
     DbSet<Role> Roles { get; }
     DbSet<RoleAssignment> RoleAssignments { get; }

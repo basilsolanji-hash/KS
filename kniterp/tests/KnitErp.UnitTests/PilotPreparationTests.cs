@@ -69,3 +69,38 @@ public sealed class PilotPreparationTests
     [InlineData("может", null)]
     public void Import_yes_no(string text, bool? expected) => Assert.Equal(expected, TableImport.ParseYesNo(text));
 }
+
+public sealed class RecoveryCodeTests
+{
+    [Fact]
+    public void Issued_codes_are_unique_readable_and_stored_as_hashes()
+    {
+        var (codes, records) = KnitErp.Domain.Access.RecoveryCode.Issue(7, new DateTime(2026, 10, 9, 0, 0, 0, DateTimeKind.Utc));
+        Assert.Equal(KnitErp.Domain.Access.RecoveryCode.SetSize, codes.Distinct().Count());
+        Assert.All(codes, c => Assert.DoesNotContain(c, ch => "01ILO".Contains(ch)));
+        Assert.All(codes, c => Assert.True(KnitErp.Domain.Access.RecoveryCode.LooksLikeCode(c)));
+        Assert.Equal(records[0].CodeHash, KnitErp.Domain.Access.RecoveryCode.Hash(codes[0].ToLowerInvariant().Replace("-", " ")));
+        Assert.All(records, r => Assert.Equal(32, r.CodeHash.Length));
+    }
+
+    [Theory]
+    [InlineData("123456", false)]
+    [InlineData("123 456", false)]
+    [InlineData("ABCD-EFGH-JKMN", true)]
+    [InlineData("abcdefghjkmn", true)]
+    public void Recovery_code_is_told_apart_from_authenticator_code(string input, bool expected) =>
+        Assert.Equal(expected, KnitErp.Domain.Access.RecoveryCode.LooksLikeCode(input));
+
+    [Fact]
+    public void Emergency_command_requires_email_and_reason()
+    {
+        var (request, errors) = EmergencyCommand.Parse(["--email", "owner@factory.example", "--reason=потерян телефон"]);
+        Assert.Empty(errors);
+        Assert.Equal("потерян телефон", request!.Reason);
+
+        var (bad, problems) = EmergencyCommand.Parse(["--email", "x@y.z", "--force"]);
+        Assert.Null(bad);
+        Assert.Contains(problems, p => p.Contains("--force"));
+        Assert.Contains(problems, p => p.Contains("--reason"));
+    }
+}

@@ -117,7 +117,8 @@ public sealed class SqlTestHost : IAsyncLifetime
             new ReconciliationService(db, guard),
             new CounterpartyExchangeService(db, guard, Spreadsheet, user, Clock),
             new EmployeeExchangeService(db, guard, Spreadsheet, user, Clock),
-            new LaunchReadinessService(db, guard, Clock));
+            new LaunchReadinessService(db, guard, Clock),
+            new RecoveryCodeService(db, user, Clock));
     }
 
     private static readonly IPasswordHasher<UserAccount> Hasher = new PasswordHasher<UserAccount>();
@@ -176,7 +177,8 @@ public sealed record Services(
     ReconciliationService Reconciliation,
     CounterpartyExchangeService CounterpartyExchange,
     EmployeeExchangeService EmployeeExchange,
-    LaunchReadinessService Readiness) : IAsyncDisposable
+    LaunchReadinessService Readiness,
+    RecoveryCodeService Recovery) : IAsyncDisposable
 {
     public ValueTask DisposeAsync() => Db.DisposeAsync();
 }

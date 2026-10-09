@@ -368,6 +368,7 @@ public sealed class UserAccessService(IKnitErpDbContext db, IAccessGuard guard, 
 
         var user = await db.Users.SingleAsync(u => u.Id == userId, ct);
         user.ResetTwoFactor();
+        db.RecoveryCodes.RemoveRange(await db.RecoveryCodes.Where(r => r.UserId == userId).ToListAsync(ct));
         db.AuditEntries.Add(Audit(ctx, AuditActions.TwoFactorReset, userId, "включена", "сброшена", reason));
         await db.SaveChangesAsync(ct);
     }

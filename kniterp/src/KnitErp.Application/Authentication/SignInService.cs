@@ -29,7 +29,8 @@ public sealed record SessionIdentity(long UserId, string DisplayName, Guid Secur
 /// <summary>Состояние между паролем и вторым фактором. Подписано и хранится в отдельной короткой cookie.</summary>
 public sealed record PendingSignIn(long UserId, Guid SecurityStamp);
 
-public sealed record SignInResult(SignInStatus Status, SessionIdentity? Session = null, PendingSignIn? Pending = null)
+/// <summary>RecoveryCodesLeft — сколько резервных кодов осталось, если вход был по резервному коду.</summary>
+public sealed record SignInResult(SignInStatus Status, SessionIdentity? Session = null, PendingSignIn? Pending = null, int? RecoveryCodesLeft = null)
 {
     public static SignInResult Of(SignInStatus status) => new(status);
 }
@@ -118,7 +119,7 @@ public sealed class SignInService(
         return await SucceedAsync(user, organizations[0], usedTwoFactor: false, ct);
     }
 
-    /// <summary>Второй шаг входа: код из приложения-аутентификатора.</summary>
+    /// <summary>Второй шаг входа: код из приложения-аутентификатора или одноразовый резервный код (D06).</summary>
     public async Task<SignInResult> TwoFactorSignInAsync(PendingSignIn pending, string? code, CancellationToken ct = default)
     {
         var user = await LoadPendingAsync(pending, ct);
@@ -132,7 +133,21 @@ public sealed class SignInService(
             return SignInResult.Of(SignInStatus.LockedOut);
         }
 
-        if (!user.VerifyTotp(code, clock.UtcNow))
+        int? recoveryLeft = null;
+        if (RecoveryCode.LooksLikeCode(code))
+        {
+            var hash = RecoveryCode.Hash(code);
+            var recovery = await db.RecoveryCodes.SingleOrDefaultAsync(r => r.UserId == user.Id && r.CodeHash == hash && r.UsedAtUtc == null, ct);
+            if (recovery is null)
+            {
+                return await FailAsync(user, "неверный или использованный резервный код", ct);
+            }
+
+            recovery.MarkUsed(clock.UtcNow);
+            recoveryLeft = await db.RecoveryCodes.CountAsync(r => r.UserId == user.Id && r.UsedAtUtc == null && r.Id != recovery.Id, ct);
+            await AuditAsync(user, AuditActions.RecoveryCodeUsed, $"осталось кодов: {recoveryLeft}", ct);
+        }
+        else if (!user.VerifyTotp(code, clock.UtcNow))
         {
             return await FailAsync(user, "неверный код 2FA", ct);
         }
@@ -144,7 +159,7 @@ public sealed class SignInService(
             return SignInResult.Of(SignInStatus.NoOrganization);
         }
 
-        return await SucceedAsync(user, organizations[0], usedTwoFactor: true, ct);
+        return await SucceedAsync(user, organizations[0], usedTwoFactor: true, ct) with { RecoveryCodesLeft = recoveryLeft };
     }
 
     /// <summary>Секрет для приложения-аутентификатора. Доступно только после верного пароля.</summary>

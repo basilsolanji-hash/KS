@@ -24,9 +24,11 @@ if (args.Contains("new-master-key", StringComparer.OrdinalIgnoreCase))
     return;
 }
 
-// «dotnet KnitErp.Web.dll create-organization --inn …» — создать рабочую организацию с Владельцем и выйти (docs/pilot.md).
-// Параметры команды не передаются в конфигурацию приложения.
-var provisioning = Array.FindIndex(args, a => string.Equals(a, OrganizationProvisioning.CommandName, StringComparison.OrdinalIgnoreCase));
+// Команды сервера с параметрами (их параметры не передаются в конфигурацию приложения):
+// «create-organization --inn …» — создать рабочую организацию с Владельцем (docs/pilot.md);
+// «emergency-access --email … --reason …» — аварийно восстановить вход пользователю (D06, docs/operations.md).
+var provisioning = Array.FindIndex(args, a => a.Equals(OrganizationProvisioning.CommandName, StringComparison.OrdinalIgnoreCase)
+                                              || a.Equals(EmergencyCommand.Name, StringComparison.OrdinalIgnoreCase));
 var builder = WebApplication.CreateBuilder(provisioning >= 0 ? args[..provisioning] : args);
 
 // Мастер-ключ: шифрование секретов 2FA и ключей cookie, подпись журнала аудита и движений склада.
@@ -115,7 +117,9 @@ app.Logger.LogInformation("Защита данных: {Source}", masterKey.Descr
 
 if (provisioning >= 0)
 {
-    Environment.ExitCode = await CreateOrganizationAsync(app, args[(provisioning + 1)..]);
+    Environment.ExitCode = args[provisioning].Equals(EmergencyCommand.Name, StringComparison.OrdinalIgnoreCase)
+        ? await EmergencyAccessAsync(app, args[(provisioning + 1)..])
+        : await CreateOrganizationAsync(app, args[(provisioning + 1)..]);
     return;
 }
 
@@ -303,6 +307,47 @@ static async Task<int> CreateOrganizationAsync(WebApplication app, string[] args
     catch (KnitErp.Domain.Common.BusinessRuleException ex)
     {
         Console.Error.WriteLine($"Не создано: {ex.Message}");
+        return 1;
+    }
+}
+
+// Аварийное восстановление входа (D06): сброс 2FA и резервных кодов, ссылка нового пароля. Ссылка печатается один раз.
+static async Task<int> EmergencyAccessAsync(WebApplication app, string[] args)
+{
+    var (values, errors) = EmergencyCommand.Parse(args);
+    if (values is null)
+    {
+        foreach (var e in errors)
+        {
+            Console.Error.WriteLine(e);
+        }
+
+        Console.Error.WriteLine();
+        Console.Error.WriteLine(EmergencyCommand.Usage);
+        return 2;
+    }
+
+    await EnsureSchemaIsCurrentAsync(app);
+    using var scope = app.Services.CreateScope();
+    try
+    {
+        var result = await scope.ServiceProvider.GetRequiredService<KnitErp.Application.Authentication.RecoveryCodeService>()
+            .EmergencyRestoreAsync(values.Email, values.Reason);
+        app.Logger.LogWarning("Аварийное восстановление входа пользователю {UserId}", result.UserId);
+        Console.WriteLine($"Вход с кодом (2FA) и резервные коды пользователя «{result.DisplayName}» сброшены, блокировка входа снята.");
+        Console.WriteLine("Прежний пароль действует. Ссылка для нового пароля (72 часа, показывается один раз):");
+        Console.WriteLine(OrganizationProvisioning.SetupLink(values.BaseUrl, result.RecoveryToken));
+        Console.WriteLine("При следующем входе Владелец и Администратор подключат приложение-аутентификатор заново и выпустят новые резервные коды.");
+        return 0;
+    }
+    catch (NotFoundException)
+    {
+        Console.Error.WriteLine($"Пользователь {values.Email} не найден. Ничего не изменено.");
+        return 1;
+    }
+    catch (KnitErp.Domain.Common.BusinessRuleException ex)
+    {
+        Console.Error.WriteLine($"Не выполнено: {ex.Message}");
         return 1;
     }
 }

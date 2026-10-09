@@ -83,6 +83,30 @@ public sealed class LaunchReadinessService(IKnitErpDbContext db, IAccessGuard gu
                 : "Утверждает не автор документа (D05): нужен ещё Руководитель подразделения на случай отсутствия Владельца.",
             "users"));
 
+        // D06: если единственный Владелец потеряет телефон, войти будет некому. Нужны второй администратор
+        // и резервные коды у каждого, кто входит с кодом.
+        var admins = activeRoles.Where(a => a.Code is SystemRoles.Owner or SystemRoles.Administrator).Select(a => a.UserId).Distinct().ToList();
+        var withCodes = await db.RecoveryCodes.AsNoTracking().Where(r => admins.Contains(r.UserId) && r.UsedAtUtc == null)
+            .Select(r => r.UserId).Distinct().ToListAsync(ct);
+        var adminNames = await db.Users.AsNoTracking().Where(u => admins.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.DisplayName, ct);
+        var withoutCodes = admins.Where(id => !withCodes.Contains(id)).Select(id => adminNames.GetValueOrDefault(id, $"№{id}")).ToList();
+        var emergencyProblems = new List<string>();
+        if (admins.Count < 2)
+        {
+            emergencyProblems.Add("нужен второй Владелец или Администратор — он сбросит вход с кодом, если телефон потерян");
+        }
+
+        if (withoutCodes.Count > 0)
+        {
+            emergencyProblems.Add($"нет резервных кодов: {string.Join(", ", withoutCodes)} (профиль → «Вход и резервные коды»)");
+        }
+
+        items.Add(new("emergency", "Аварийный доступ", emergencyProblems.Count == 0,
+            emergencyProblems.Count == 0
+                ? $"Администраторов: {admins.Count}, у всех есть резервные коды. Последний рубеж — команда сервера emergency-access."
+                : Capitalize(string.Join("; ", emergencyProblems)) + ".",
+            "users"));
+
         var warehouses = await db.Warehouses.AsNoTracking().Where(w => w.OrganizationId == org && !w.IsArchived)
             .Select(w => new { w.Id, w.Name }).ToListAsync(ct);
         items.Add(new("warehouses", "Склады", warehouses.Count > 0, $"Действующих складов: {warehouses.Count}.", "warehouses"));

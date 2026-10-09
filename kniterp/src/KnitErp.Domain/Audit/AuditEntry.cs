@@ -89,6 +89,9 @@ public static class AuditActions
     public const string SignedOut = "auth.signed_out";
     public const string InvitationAccepted = "auth.invitation.accepted";
     public const string TwoFactorEnabled = "auth.2fa.enabled";
+    public const string RecoveryCodesIssued = "auth.recovery_codes.issued";
+    public const string RecoveryCodeUsed = "auth.recovery_code.used";
+    public const string EmergencyAccess = "access.emergency";
     public const string DepartmentCreated = "structure.department.created";
     public const string DepartmentChanged = "structure.department.changed";
     public const string DepartmentArchived = "structure.department.archived";

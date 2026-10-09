@@ -120,3 +120,53 @@ public static class OrganizationProvisioning
     public static string SetupLink(string? baseUrl, string token) =>
         $"{baseUrl ?? ""}/account/invite?token={Uri.EscapeDataString(token)}";
 }
+
+/// <summary>Параметры команды сервера «emergency-access --email … --reason "…" [--url https://…]».</summary>
+public sealed record EmergencyRequest(string Email, string Reason, string? BaseUrl);
+
+public static class EmergencyCommand
+{
+    public const string Name = "emergency-access";
+
+    public const string Usage =
+        "Пример: dotnet KnitErp.Web.dll emergency-access --email owner@factory.example --reason \"потерян телефон, акт №1\" [--url https://erp.factory.example]";
+
+    public static (EmergencyRequest? Request, IReadOnlyList<string> Errors) Parse(IReadOnlyList<string> args)
+    {
+        var errors = new List<string>();
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < args.Count; i++)
+        {
+            var arg = args[i];
+            var eq = arg.IndexOf('=');
+            var key = arg.StartsWith("--", StringComparison.Ordinal) ? (eq > 0 ? arg[2..eq] : arg[2..]) : "";
+            if (key is not ("email" or "reason" or "url"))
+            {
+                errors.Add($"Непонятный параметр «{arg}».");
+                continue;
+            }
+
+            values[key] = (eq > 0 ? arg[(eq + 1)..] : i + 1 < args.Count ? args[++i] : "").Trim();
+        }
+
+        var email = values.GetValueOrDefault("email") ?? "";
+        var reason = values.GetValueOrDefault("reason") ?? "";
+        if (email.Length == 0)
+        {
+            errors.Add("Не указан параметр --email (почта пользователя).");
+        }
+
+        if (reason.Length < 5)
+        {
+            errors.Add("Не указан параметр --reason (причина для журнала аудита, не короче 5 символов).");
+        }
+
+        var url = values.GetValueOrDefault("url") is { Length: > 0 } u ? u.TrimEnd('/') : null;
+        if (url is not null && !(Uri.TryCreate(url, UriKind.Absolute, out var parsed) && parsed.Scheme == Uri.UriSchemeHttps))
+        {
+            errors.Add("--url: адрес программы должен начинаться с https://.");
+        }
+
+        return errors.Count > 0 ? (null, errors) : (new EmergencyRequest(email, reason, url), errors);
+    }
+}

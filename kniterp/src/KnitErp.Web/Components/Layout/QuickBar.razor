@@ -79,6 +79,7 @@
                     <span class="muted">@string.Join(", ", Access.RoleNames) · @Access.OrganizationName</span>
                 </div>
                 <a role="menuitem" href="account/organizations" data-enhance-nav="false">Сменить организацию</a>
+                <a role="menuitem" href="security">Вход и резервные коды</a>
                 <button type="button" role="menuitem" class="menu-item" @onclick="@(() => Open(SettingsId))">Настроить панель</button>
                 <form method="post" action="account/logout">
                     <AntiforgeryToken />

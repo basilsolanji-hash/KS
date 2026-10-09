@@ -68,6 +68,19 @@ internal sealed class UserAccountConfiguration : IEntityTypeConfiguration<UserAc
     }
 }
 
+internal sealed class RecoveryCodeConfiguration : IEntityTypeConfiguration<RecoveryCode>
+{
+    public void Configure(EntityTypeBuilder<RecoveryCode> b)
+    {
+        b.ToTable("user_recovery_codes");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.CodeHash).HasColumnType("binary(32)").IsRequired();
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasIndex(x => new { x.UserId, x.CodeHash }).IsUnique().HasDatabaseName("ux_user_recovery_codes_user_hash");
+    }
+}
+
 internal sealed class OrganizationMemberConfiguration : IEntityTypeConfiguration<OrganizationMember>
 {
     public void Configure(EntityTypeBuilder<OrganizationMember> b)

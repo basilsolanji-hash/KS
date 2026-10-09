@@ -112,6 +112,25 @@ public sealed class UserAccount
         return token;
     }
 
+    /// <summary>
+    /// Аварийное восстановление (D06): ссылка установки нового пароля даже при заданном пароле. Только команда сервера —
+    /// в интерфейсе её нет. Прежний пароль действует, пока по ссылке не задан новый.
+    /// </summary>
+    public string IssueRecoveryToken(DateTime nowUtc)
+    {
+        if (Status == UserStatus.Archived)
+        {
+            throw new BusinessRuleException("auth.recovery.archived", "Учётная запись в архиве.");
+        }
+
+        var token = SetupTokens.Generate();
+        SetupTokenHash = SetupTokens.Hash(token);
+        SetupTokenExpiresAtUtc = nowUtc + SignInPolicy.InvitationLifetime;
+        FailedSignInCount = 0;
+        LockoutEndUtc = null;
+        return token;
+    }
+
     /// <summary>Установка пароля по ссылке приглашения. Приглашённый пользователь становится активным.</summary>
     public void CompleteSetup(string token, string passwordHash, DateTime nowUtc)
     {

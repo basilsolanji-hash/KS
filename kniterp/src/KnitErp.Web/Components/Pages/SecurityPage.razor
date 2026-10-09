@@ -1,0 +1,121 @@
+@page "/security"
+@using KnitErp.Web.Components.Shared
+@inject RecoveryCodeService Recovery
+
+<PageTitle>Вход и резервные коды — knitERP</PageTitle>
+
+@if (_status is null)
+{
+    <p class="muted">Загрузка…</p>
+}
+else
+{
+    <h1>Вход и резервные коды</h1>
+
+    @if (Left is { } left)
+    {
+        <div class="@(left <= 3 ? "flash error" : "flash")" role="status">
+            <span>
+                Вы вошли по резервному коду, он больше не действует. Осталось кодов: <b>@left</b>.
+                Если телефон потерян — попросите Владельца или Администратора сбросить вход с кодом (2FA) и подключите приложение
+                на новом телефоне. Коды заканчиваются — выпустите новые ниже.
+            </span>
+        </div>
+    }
+
+    @if (_error is not null)
+    {
+        <div class="error" role="alert">@_error</div>
+    }
+
+    @if (!_status.TwoFactorEnabled)
+    {
+        <p>Вход с кодом из приложения (2FA) у вас не подключён. Резервные коды нужны только тем, кто входит с кодом.</p>
+    }
+    else if (_codes is not null)
+    {
+        <div class="panel" role="region" aria-label="Новые резервные коды">
+            <h2>Ваши резервные коды</h2>
+            <p>
+                Перепишите или распечатайте и храните отдельно от телефона — например, в сейфе. <b>Коды показываются один раз.</b>
+                Каждый код действует один раз вместо кода из приложения. Прежние коды больше не действуют.
+            </p>
+            <ol class="codes">
+                @foreach (var c in _codes)
+                {
+                    <li class="key">@c</li>
+                }
+            </ol>
+            <div class="actions">
+                <button type="button" @onclick="() => _codes = null">Я сохранил коды</button>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="totals" role="status">
+            <span>Неиспользованных кодов: <b class="@(_status.Remaining <= 3 ? "bad" : null)">@_status.Remaining из @RecoveryCode.SetSize</b></span>
+            @if (_status.IssuedAtUtc is { } issued)
+            {
+                <span class="muted">выданы @TimeZones.ToLocal(issued, CurrentAccess.TimeZoneId).ToString("dd.MM.yyyy HH:mm")</span>
+            }
+        </div>
+        @if (_status.Remaining == 0)
+        {
+            <div class="flash error" role="alert">
+                <span>@(Setup ? "Вход с кодом подключён. " : "")У вас нет резервных кодов: если телефон потеряется, войти будет нечем. Выпустите их сейчас.</span>
+            </div>
+        }
+        <p class="muted">
+            Резервный код вводится на странице «Код подтверждения» вместо 6 цифр из приложения, если телефона нет под рукой.
+            Новый набор заменяет прежний.
+        </p>
+        <div class="actions">
+            <button type="button" @onclick="IssueAsync" disabled="@_busy">@(_status.Remaining == 0 ? "Выпустить резервные коды" : "Выпустить новые коды")</button>
+        </div>
+    }
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    /// <summary>Сразу после подключения 2FA.</summary>
+    [SupplyParameterFromQuery(Name = "setup")]
+    public bool Setup { get; set; }
+
+    /// <summary>Вход был по резервному коду; сколько осталось.</summary>
+    [SupplyParameterFromQuery(Name = "left")]
+    public int? Left { get; set; }
+
+    private RecoveryCodeStatus? _status;
+    private IReadOnlyList<string>? _codes;
+    private bool _busy;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync() => _status = await Recovery.GetStatusAsync();
+
+    private async Task IssueAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            _codes = await Recovery.IssueAsync();
+            _status = await Recovery.GetStatusAsync();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}
