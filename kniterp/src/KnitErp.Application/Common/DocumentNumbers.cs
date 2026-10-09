@@ -7,10 +7,12 @@ public static class DocumentNumbers
 {
     /// <summary>
     /// Следующий номер документа организации. Вызывается внутри транзакции документа: если документ не сохранится,
-    /// номер не израсходуется. Одновременная выдача решается повтором по конфликту версии.
+    /// номер не израсходуется. Счётчик заблокирован до конца транзакции, поэтому одновременные запросы получают
+    /// номера по очереди; повтор по конфликту версии — запасной путь.
     /// </summary>
     public static async Task<string> NextAsync(IKnitErpDbContext db, long organizationId, string kind, CancellationToken ct)
     {
+        await db.LockAsync($"kniterp.counter.{organizationId}.{kind}", ct);
         for (var attempt = 1; ; attempt++)
         {
             var counter = await db.DocumentCounters.SingleOrDefaultAsync(c => c.OrganizationId == organizationId && c.Kind == kind, ct);

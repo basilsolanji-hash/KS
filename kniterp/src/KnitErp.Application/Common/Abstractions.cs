@@ -61,6 +61,9 @@ public interface IKnitErpDbContext
     /// не перемежаются с другим проведением по тем же складам.
     /// </summary>
     Task LockWarehousesAsync(IEnumerable<long> warehouseIds, CancellationToken cancellationToken = default);
+
+    /// <summary>Исключительная именованная блокировка до конца текущей транзакции (sp_getapplock).</summary>
+    Task LockAsync(string resource, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Лист таблицы для выгрузки: заголовок и строки как текст.</summary>

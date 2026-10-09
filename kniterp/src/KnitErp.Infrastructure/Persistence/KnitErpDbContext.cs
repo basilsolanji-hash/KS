@@ -40,19 +40,26 @@ public sealed class KnitErpDbContext(DbContextOptions<KnitErpDbContext> options)
 
     public async Task LockWarehousesAsync(IEnumerable<long> warehouseIds, CancellationToken cancellationToken = default)
     {
-        if (Database.CurrentTransaction is null)
-        {
-            throw new InvalidOperationException("Блокировка складов действует только внутри транзакции.");
-        }
-
         // Одинаковый порядок захвата у всех запросов — без взаимных блокировок.
         foreach (var id in warehouseIds.Distinct().Order())
         {
-            var resource = $"kniterp.stock.warehouse.{id}";
-            await Database.ExecuteSqlInterpolatedAsync(
-                $"EXEC sp_getapplock @Resource = {resource}, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 15000;",
-                cancellationToken);
+            await LockAsync($"kniterp.stock.warehouse.{id}", cancellationToken);
         }
+    }
+
+    public async Task LockAsync(string resource, CancellationToken cancellationToken = default)
+    {
+        if (Database.CurrentTransaction is null)
+        {
+            throw new InvalidOperationException("Блокировка действует только внутри транзакции.");
+        }
+
+        // sp_getapplock при таймауте не бросает ошибку, а возвращает отрицательный код — превращаем его в ошибку.
+        await Database.ExecuteSqlInterpolatedAsync($"""
+            DECLARE @result int;
+            EXEC @result = sp_getapplock @Resource = {resource}, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 15000;
+            IF @result < 0 THROW 51003, N'Не удалось дождаться блокировки, повторите действие.', 1;
+            """, cancellationToken);
     }
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
