@@ -45,6 +45,8 @@ public static class AuditLabels
         [AuditActions.StockDocumentCancelled] = "Документ отменён",
         [AuditActions.StockDocumentPosted] = "Документ проведён",
         [AuditActions.StockDocumentReversed] = "Документ сторнирован",
+        [AuditActions.PeriodClosed] = "Период закрыт",
+        [AuditActions.PeriodReopened] = "Период открыт",
         [AuditActions.OrganizationCreated] = "Создана организация",
         [AuditActions.OrganizationRequisitesChanged] = "Изменены реквизиты",
     };

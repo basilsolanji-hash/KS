@@ -217,6 +217,7 @@ public sealed class OpeningBalanceService(
     {
         var (ctx, doc) = await LoadForApprovalAsync(id, rowVersion, ct);
         await using var tx = await db.BeginTransactionAsync(ct);
+        await ClosedPeriod.EnsureOpenAsync(db, ctx.OrganizationId, doc.AsOfDate, ct);
 
         var itemIds = doc.Lines.Select(l => l.ItemId).ToList();
         var already = await db.StockMovements.AsNoTracking()
@@ -244,7 +245,7 @@ public sealed class OpeningBalanceService(
         }
 
         Audit(ctx, AuditActions.StockDocumentApproved, doc, "На утверждении", "Утверждён", $"движений: {doc.Lines.Count}");
-        await db.SaveOrConflictAsync(ct);
+        await ClosedPeriod.SaveAsync(db, ct);
         await tx.CommitAsync(ct);
     }
 

@@ -1,0 +1,142 @@
+@page "/reports/turnover"
+@using KnitErp.Application.Warehousing
+@using KnitErp.Domain.Catalog
+@using KnitErp.Web.Components.Shared
+@inject StockReportService Reports
+@inject StockService Stock
+
+<PageTitle>Обороты — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_rows is null)
+{
+    <p class="muted">Загрузка…</p>
+}
+else
+{
+    <h1>Обороты</h1>
+    <p class="muted">Остаток на начало периода, приход, расход и остаток на конец — по складам и позициям. Сторно уменьшает обороты своего документа.</p>
+
+    @if (_error is not null)
+    {
+        <div class="error" role="alert">@_error</div>
+    }
+
+    <form class="inline-form" @onsubmit="ReloadAsync">
+        <label>
+            Склад
+            <select @bind="_warehouse">
+                <option value="">Все доступные</option>
+                @foreach (var w in _warehouses)
+                {
+                    <option value="@w.Id">@w.Name</option>
+                }
+            </select>
+        </label>
+        <label>С <input type="date" @bind="_from" /></label>
+        <label>По <input type="date" @bind="_to" /></label>
+        <label>
+            Тип
+            <select @bind="_type">
+                <option value="">Все типы</option>
+                @foreach (var t in ItemTypes.All)
+                {
+                    <option value="@((byte)t)">@ItemTypes.Name(t)</option>
+                }
+            </select>
+        </label>
+        <label>Поиск <input @bind="_search" placeholder="Код или наименование" /></label>
+        <button type="submit" class="secondary" disabled="@_busy">Показать</button>
+    </form>
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>Склад</th><th>Код</th><th>Наименование</th><th class="num">На начало</th><th class="num">Приход</th><th class="num">Расход</th><th class="num">На конец</th><th>Ед.</th></tr></thead>
+            <tbody>
+                @if (_rows.Count == 0)
+                {
+                    <tr><td colspan="8" class="muted">За период движений и остатков нет.</td></tr>
+                }
+                @foreach (var r in _rows)
+                {
+                    <tr>
+                        <td>@r.WarehouseName</td>
+                        <td>@r.Code</td>
+                        <td>@r.Name</td>
+                        <td class="num">@Quantities.Format(r.Opening)</td>
+                        <td class="num">@Quantities.Format(r.Incoming)</td>
+                        <td class="num">@Quantities.Format(r.Outgoing)</td>
+                        <td class="num"><b>@Quantities.Format(r.Closing)</b></td>
+                        <td>@r.UnitSymbol</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private IReadOnlyList<TurnoverRowDto>? _rows;
+    private IReadOnlyList<LookupWarehouseDto> _warehouses = [];
+    private bool _busy;
+    private string? _denied;
+    private string? _error;
+    private string _warehouse = string.Empty;
+    private string _type = string.Empty;
+    private string _search = string.Empty;
+    private DateTime _from;
+    private DateTime _to;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // По умолчанию — текущий месяц по времени организации.
+        var today = TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId).Date;
+        _from = new DateTime(today.Year, today.Month, 1);
+        _to = _from.AddMonths(1).AddDays(-1);
+        try
+        {
+            _warehouses = await Stock.ListWarehousesAsync();
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = ex.Message;
+        }
+    }
+
+    private async Task LoadAsync() =>
+        _rows = await Reports.TurnoverAsync(new TurnoverFilter(
+            long.TryParse(_warehouse, out var w) ? w : null,
+            DateOnly.FromDateTime(_from), DateOnly.FromDateTime(_to),
+            byte.TryParse(_type, out var t) ? (ItemType)t : null,
+            _search));
+
+    private async Task ReloadAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await LoadAsync();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

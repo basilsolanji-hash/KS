@@ -31,6 +31,9 @@ public static class DependencyInjection
         services.AddScoped<ItemExchangeService>();
         services.AddScoped<OpeningBalanceService>();
         services.AddScoped<StockDocumentService>();
+        services.AddScoped<InventoryService>();
+        services.AddScoped<PeriodService>();
+        services.AddScoped<StockReportService>();
         services.AddScoped<StockService>();
         services.TryAddSingleton<IPasswordHasher<UserAccount>, PasswordHasher<UserAccount>>();
         services.AddScoped<SignInService>();

@@ -201,6 +201,7 @@ public enum StockSource : byte
 
     /// <summary>Сторно складского документа: те же строки с обратным знаком.</summary>
     StockDocumentReversal = 3,
+    Inventory = 4,
 }
 
 /// <summary>

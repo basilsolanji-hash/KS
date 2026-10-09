@@ -267,6 +267,7 @@ public sealed class StockDocumentService(
             throw new BusinessRuleException("stock.document.status", "Провести можно только черновик.");
         }
 
+        await ClosedPeriod.EnsureOpenAsync(db, ctx.OrganizationId, doc.DocumentDate, ct);
         await ValidateHeaderAsync(ctx, doc.Kind, Header(doc), ct);
         var itemIds = doc.Lines.Select(l => l.ItemId).ToList();
         var archived = await db.Items.AsNoTracking().Where(i => itemIds.Contains(i.Id) && i.IsArchived).Select(i => i.Code).ToListAsync(ct);
@@ -280,7 +281,7 @@ public sealed class StockDocumentService(
         doc.Post(ctx.UserId, requiresComment, clock.UtcNow);
         await WriteMovementsAsync(ctx, doc, doc.MovementDeltas(), StockSource.StockDocument, ct);
         Audit(ctx, AuditActions.StockDocumentPosted, doc, "Черновик", "Проведён", $"строк: {doc.Lines.Count}");
-        await db.SaveOrConflictAsync(ct);
+        await ClosedPeriod.SaveAsync(db, ct);
         await tx.CommitAsync(ct);
     }
 
@@ -293,11 +294,12 @@ public sealed class StockDocumentService(
         var ctx = await guard.DemandAsync(Permissions.WarehouseDocumentPost, ct);
         await using var tx = await db.BeginTransactionAsync(ct);
         var doc = await LoadAsync(ctx, id, Permissions.WarehouseDocumentPost, rowVersion, ct);
+        await ClosedPeriod.EnsureOpenAsync(db, ctx.OrganizationId, doc.DocumentDate, ct);
         doc.Reverse(ctx.UserId, reason, clock.UtcNow);
         var deltas = doc.MovementDeltas().Select(d => (d.WarehouseId, d.ItemId, -d.Quantity)).ToList();
         await WriteMovementsAsync(ctx, doc, deltas, StockSource.StockDocumentReversal, ct);
         Audit(ctx, AuditActions.StockDocumentReversed, doc, "Проведён", "Сторнирован", doc.ReversalReason);
-        await db.SaveOrConflictAsync(ct);
+        await ClosedPeriod.SaveAsync(db, ct);
         await tx.CommitAsync(ct);
     }
 

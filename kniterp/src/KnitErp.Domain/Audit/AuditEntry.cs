@@ -103,6 +103,8 @@ public static class AuditActions
     public const string StockDocumentCancelled = "stock.document.cancelled";
     public const string StockDocumentPosted = "stock.document.posted";
     public const string StockDocumentReversed = "stock.document.reversed";
+    public const string PeriodClosed = "period.closed";
+    public const string PeriodReopened = "period.reopened";
     public const string OrganizationCreated = "organization.created";
     public const string OrganizationRequisitesChanged = "organization.requisites.changed";
 }

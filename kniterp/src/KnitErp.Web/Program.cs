@@ -112,6 +112,8 @@ app.MapGet("/opening-balances/template.xlsx", (OpeningBalanceService balances, C
     FileOrForbid(() => balances.LinesTemplateAsync(ct), "shablon-nachalnyh-ostatkov.xlsx"));
 app.MapGet("/stock-documents/template.xlsx", (StockDocumentService documents, CancellationToken ct) =>
     FileOrForbid(() => documents.LinesTemplateAsync(ct), "shablon-strok-dokumenta.xlsx"));
+app.MapGet("/inventory/{id:long}/sheet.xlsx", (long id, InventoryService inventory, CancellationToken ct) =>
+    FileOrForbid(() => inventory.CountSheetAsync(id, ct), $"blank-inventarizacii-{id}.xlsx"));
 
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 
@@ -126,6 +128,10 @@ static async Task<IResult> FileOrForbid(Func<Task<byte[]>> build, string fileNam
     catch (AccessDeniedException)
     {
         return Results.StatusCode(StatusCodes.Status403Forbidden);
+    }
+    catch (NotFoundException)
+    {
+        return Results.NotFound();
     }
 }
 

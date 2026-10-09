@@ -1,0 +1,304 @@
+@page "/inventory/{Id:long}"
+@using KnitErp.Application.Warehousing
+@using KnitErp.Domain.Warehousing
+@using KnitErp.Web.Components.Shared
+@inject InventoryService Inventory
+
+<PageTitle>@(_doc?.Number ?? "Инвентаризация") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_notFound)
+{
+    <h1>Инвентаризация не найдена</h1>
+    <p><a href="inventory">К списку</a></p>
+}
+else if (_doc is null)
+{
+    <p class="muted">Загрузка…</p>
+}
+else
+{
+    <p><a href="inventory">← Инвентаризация</a></p>
+    <div class="page-head">
+        <h1>Инвентаризация @_doc.Number <span class="tag @InventoryPage.StatusClass(_doc.Status)">@_doc.StatusName</span></h1>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="@(_messageIsError ? "flash error" : "flash")" role="@(_messageIsError ? "alert" : "status")">@_message</div>
+    }
+
+    <dl class="facts">
+        <dt>Склад</dt><dd>@_doc.WarehouseName</dd>
+        <dt>Дата</dt><dd>@_doc.CountDate.ToString("dd.MM.yyyy")</dd>
+        <dt>Комментарий</dt><dd>@(_doc.Comment ?? "—")</dd>
+        <dt>Автор</dt><dd>@_doc.CreatedBy, @Local(_doc.CreatedAtUtc)</dd>
+        @if (_doc.PostedBy is not null)
+        {
+            <dt>Провёл</dt><dd>@_doc.PostedBy, @Local(_doc.PostedAtUtc!.Value)</dd>
+        }
+    </dl>
+
+    @if (_doc.CanEdit)
+    {
+        <form class="inline-form" @onsubmit="SaveHeaderAsync">
+            <label>Дата <input type="date" @bind="_date" /></label>
+            <label>Комментарий <input @bind="_comment" maxlength="1000" size="40" placeholder="Пояснение недостачи" /></label>
+            <button type="submit" class="secondary" disabled="@_busy">Сохранить</button>
+        </form>
+    }
+
+    <div class="totals">
+        <span>Позиций: <b>@_doc.Lines.Count</b></span>
+        <span>Не пересчитано: <b class="@(_doc.NotCounted > 0 ? "bad" : "")">@_doc.NotCounted</b></span>
+        <span>Излишков: <b>@_doc.Deviations.Count(d => d.Difference > 0)</b></span>
+        <span>Недостач: <b class="@(_doc.Deviations.Any(d => d.Difference < 0) ? "bad" : "")">@_doc.Deviations.Count(d => d.Difference < 0)</b></span>
+    </div>
+
+    @if (_doc.CanEdit)
+    {
+        <div class="actions">
+            <a class="button secondary" href="inventory/@Id/sheet.xlsx" download data-enhance-nav="false">Бланк пересчёта (Excel)</a>
+            <label class="inline">Загрузить факт из Excel <InputFile OnChange="ImportAsync" accept=".xlsx" disabled="@_busy" /></label>
+            <button type="button" class="secondary" @onclick="RefillAsync" disabled="@_busy">Обновить учёт</button>
+        </div>
+        <form class="inline-form" @onsubmit="AddLineAsync">
+            <label>
+                Позиции нет в списке
+                <input list="items" @bind="_itemText" size="40" placeholder="Код или наименование" />
+                <datalist id="items">
+                    @foreach (var i in _items)
+                    {
+                        <option value="@($"{i.Code} — {i.Name}")">@i.UnitSymbol</option>
+                    }
+                </datalist>
+            </label>
+            <label>Факт <input @bind="_qtyText" inputmode="decimal" size="10" /></label>
+            <button type="submit" class="secondary" disabled="@_busy">Добавить</button>
+        </form>
+    }
+
+    @if (_import is { Applied: false })
+    {
+        <div class="error" role="alert">В файле есть ошибки (@_import.ErrorRows) — факт не загружен.</div>
+        <div class="scroll" style="max-height: 300px; overflow-y: auto">
+            <table>
+                <thead><tr><th>Строка</th><th>Код</th><th>Количество</th><th>Ошибки</th></tr></thead>
+                <tbody>
+                    @foreach (var r in _import.Rows.Where(r => r.Errors.Count > 0).Take(500))
+                    {
+                        <tr><td>@r.RowNumber</td><td>@r.Code</td><td>@r.QuantityText</td><td>@string.Join(" ", r.Errors)</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    <label class="inline" style="margin: 12px 0">
+        <input type="checkbox" @bind="_onlyDeviations" /> Только расхождения и непересчитанные
+    </label>
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>Код</th><th>Наименование</th><th class="num">По учёту</th><th class="num">Факт</th><th class="num">Разница</th><th>Ед.</th></tr></thead>
+            <tbody>
+                @if (_doc.Lines.Count == 0)
+                {
+                    <tr><td colspan="6" class="muted">По учёту на складе ничего нет. Добавьте позиции, которые нашли.</td></tr>
+                }
+                @foreach (var l in _doc.Lines.Where(l => !_onlyDeviations || l.Counted is null || l.Difference != 0))
+                {
+                    <tr class="@(l.Difference < 0 ? "short" : "")">
+                        <td>@l.Code</td>
+                        <td>@l.Name</td>
+                        <td class="num">@Quantities.Format(l.Book)</td>
+                        <td class="num">
+                            @if (_doc.CanEdit)
+                            {
+                                <input value="@(l.Counted is { } c ? Quantities.Format(c) : "")" inputmode="decimal" size="8" style="text-align: right"
+                                       aria-label="Факт @l.Code" disabled="@_busy" @onchange="e => SetCountedAsync(l, e.Value as string)" />
+                            }
+                            else
+                            {
+                                @(l.Counted is { } c ? Quantities.Format(c) : "—")
+                            }
+                        </td>
+                        <td class="num">@(l.Counted is null ? "" : l.Difference > 0 ? "+" + Quantities.Format(l.Difference) : Quantities.Format(l.Difference))</td>
+                        <td>@l.UnitSymbol</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="actions" style="margin-top: 16px">
+        @if (_doc.CanPost)
+        {
+            <button type="button" @onclick="PostAsync" disabled="@(_busy || _doc.Lines.Count == 0)">Провести</button>
+        }
+        @if (_doc.CanEdit)
+        {
+            <button type="button" class="secondary" @onclick="CancelAsync" disabled="@_busy">Отменить инвентаризацию</button>
+        }
+    </div>
+    @if (_doc.Status == InventoryStatus.Draft && !_doc.CanPost)
+    {
+        <p class="muted">Провести инвентаризацию может Старший кладовщик этого склада или Владелец.</p>
+    }
+    @if (_doc.Status == InventoryStatus.Posted)
+    {
+        <p class="muted">Проведённая инвентаризация не отменяется: если в ней ошибка, проведите повторную инвентаризацию по этим позициям.</p>
+    }
+}
+
+@code {
+    [Parameter]
+    public long Id { get; set; }
+
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private InventoryDto? _doc;
+    private IReadOnlyList<EntryItemDto> _items = [];
+    private LineImportResult? _import;
+    private bool _busy;
+    private bool _notFound;
+    private bool _onlyDeviations;
+    private string? _denied;
+    private string? _message;
+    private bool _messageIsError;
+    private string _itemText = string.Empty;
+    private string _qtyText = string.Empty;
+    private DateTime _date;
+    private string? _comment;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+            if (_doc!.CanEdit)
+            {
+                _items = await Inventory.ListItemsForEntryAsync();
+            }
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = ex.Message;
+        }
+        catch (NotFoundException)
+        {
+            _notFound = true;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _doc = await Inventory.GetAsync(Id);
+        _date = _doc.CountDate.ToDateTime(TimeOnly.MinValue);
+        _comment = _doc.Comment;
+    }
+
+    private Task SaveHeaderAsync() =>
+        RunAsync(() => Inventory.UpdateHeaderAsync(Id, DateOnly.FromDateTime(_date), _comment, _doc!.RowVersion), "Сохранено.");
+
+    private Task SetCountedAsync(InventoryLineDto line, string? text) => RunAsync(async () =>
+    {
+        decimal? value = null;
+        if (!string.IsNullOrWhiteSpace(text))
+        {
+            if (!Quantities.TryParse(text, out var parsed))
+            {
+                throw new BusinessRuleException("stock.quantity.invalid", $"{line.Code}: укажите количество числом, например 12,5.");
+            }
+
+            value = parsed;
+        }
+
+        await Inventory.SetCountedAsync(Id, line.ItemId, value, _doc!.RowVersion);
+    }, null);
+
+    private Task AddLineAsync() => RunAsync(async () =>
+    {
+        var code = _itemText.Split(" — ", 2)[0].Trim();
+        var item = _items.FirstOrDefault(i => string.Equals(i.Code, code, StringComparison.OrdinalIgnoreCase))
+                   ?? throw new BusinessRuleException("stock.item.unknown", $"Позиция «{_itemText}» не найдена. Выберите из списка.");
+        if (!Quantities.TryParse(_qtyText, out var qty))
+        {
+            throw new BusinessRuleException("stock.quantity.invalid", "Укажите количество числом, например 12,5.");
+        }
+
+        await Inventory.SetCountedAsync(Id, item.Id, qty, _doc!.RowVersion);
+        _itemText = string.Empty;
+        _qtyText = string.Empty;
+    }, null);
+
+    private Task RefillAsync() => RunAsync(async () =>
+    {
+        var added = await Inventory.RefillFromBookAsync(Id, _doc!.RowVersion);
+        _message = added > 0 ? $"Учёт обновлён, добавлено позиций: {added}." : "Учёт обновлён.";
+    }, null);
+
+    private Task ImportAsync(InputFileChangeEventArgs e) => RunAsync(async () =>
+    {
+        const long maxSize = 5 * 1024 * 1024;
+        if (e.File.Size > maxSize)
+        {
+            throw new BusinessRuleException("import.file_too_large", "Файл больше 5 МБ.");
+        }
+
+        await using var upload = e.File.OpenReadStream(maxSize);
+        using var buffer = new MemoryStream();
+        await upload.CopyToAsync(buffer);
+        buffer.Position = 0;
+        _import = await Inventory.ImportCountsAsync(Id, buffer, _doc!.RowVersion);
+        if (_import.Applied)
+        {
+            _message = $"Загружен факт по {_import.Lines} поз.";
+            _import = null;
+        }
+    }, null);
+
+    private Task PostAsync() => RunAsync(() => Inventory.PostAsync(Id, _doc!.RowVersion), "Инвентаризация проведена, остатки исправлены.");
+
+    private Task CancelAsync() => RunAsync(() => Inventory.CancelAsync(Id, _doc!.RowVersion), "Инвентаризация отменена.");
+
+    /// <summary>Одна операция за раз, затем свежий документ: у вкладки один DbContext.</summary>
+    private async Task RunAsync(Func<Task> action, string? success)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _messageIsError = false;
+        try
+        {
+            await action();
+            _message = success ?? _message;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+            _messageIsError = true;
+        }
+        finally
+        {
+            try
+            {
+                await LoadAsync();
+            }
+            finally
+            {
+                _busy = false;
+            }
+        }
+    }
+
+    private string Local(DateTime utc) => TimeZones.ToLocal(utc, CurrentAccess.TimeZoneId).ToString("dd.MM.yyyy HH:mm");
+}

@@ -16,6 +16,10 @@
         {
             @foreach (var item in Items)
             {
+                @if (Sections.TryGetValue(item.Href, out var groupTitle))
+                {
+                    <div class="nav-section">@groupTitle</div>
+                }
                 <NavLink href="@item.Href" Match="@(item.Href == "" ? NavLinkMatch.All : NavLinkMatch.Prefix)">
                     @item.Label
                     @if (!item.Allowed(_access))
@@ -67,11 +71,26 @@
                                                    || a.Has(Permissions.WarehouseReportView)),
         ("stock-documents", "Складские документы", a => a.Has(Permissions.WarehouseDocumentCreate) || a.Has(Permissions.WarehouseDocumentPost)
                                                      || a.Has(Permissions.WarehouseReportView)),
+        ("inventory", "Инвентаризация", a => a.Has(Permissions.WarehouseDocumentCreate) || a.Has(Permissions.WarehouseDocumentPost)
+                                          || a.Has(Permissions.WarehouseReportView)),
         ("stock", "Остатки", a => a.Has(Permissions.WarehouseReportView)),
+        ("reports/movements", "Движения", a => a.Has(Permissions.WarehouseReportView)),
+        ("reports/turnover", "Обороты", a => a.Has(Permissions.WarehouseReportView)),
+        ("period", "Закрытие периода", a => a.Has(Permissions.ClosedPeriodReopen) || a.Has(Permissions.WarehouseReportView)),
         ("users", "Пользователи", a => a.Has(Permissions.UserView)),
         ("roles", "Роли и права", a => a.Has(Permissions.UserView)),
         ("audit", "Журнал аудита", a => a.HasOwnOnly(Permissions.AuditLogView)),
     ];
+
+    /// <summary>Заголовки групп меню: ставятся перед пунктом с этим адресом.</summary>
+    private static readonly Dictionary<string, string> Sections = new()
+    {
+        [""] = "Предприятие",
+        ["catalog"] = "Справочники",
+        ["opening-balances"] = "Склад",
+        ["stock"] = "Отчёты",
+        ["users"] = "Доступ",
+    };
 
     private bool _menuOpen;
 

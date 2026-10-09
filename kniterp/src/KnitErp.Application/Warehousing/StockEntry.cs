@@ -34,7 +34,7 @@ internal static class StockEntry
     /// применять их можно, только если ошибок нет нигде.
     /// </summary>
     public static async Task<(IReadOnlyList<LineImportRow> Rows, IReadOnlyList<(long ItemId, decimal Quantity)> Lines)> ParseLinesAsync(
-        IKnitErpDbContext db, ISpreadsheetFormat spreadsheet, long organizationId, Stream file, CancellationToken ct)
+        IKnitErpDbContext db, ISpreadsheetFormat spreadsheet, long organizationId, Stream file, CancellationToken ct, bool allowZero = false)
     {
         var sheet = spreadsheet.ReadFirstSheet(file, MaxImportRows);
         if (sheet.Count == 0)
@@ -82,9 +82,9 @@ internal static class StockEntry
                 errors.Add(archived.Contains(code) ? $"Позиция {code} в архиве." : $"Позиции с кодом «{code}» нет в номенклатуре.");
             }
 
-            if (!Quantities.TryParse(qtyText, out var qty) || qty <= 0)
+            if (!Quantities.TryParse(qtyText, out var qty) || qty < 0 || (qty == 0 && !allowZero))
             {
-                errors.Add($"Количество «{qtyText}» — нужно положительное число.");
+                errors.Add(allowZero ? $"Количество «{qtyText}» — нужно число не меньше 0." : $"Количество «{qtyText}» — нужно положительное число.");
             }
             else if (item is not null && decimal.Round(qty, item.Precision) != qty)
             {

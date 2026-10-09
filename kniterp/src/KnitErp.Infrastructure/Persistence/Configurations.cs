@@ -423,8 +423,9 @@ internal sealed class StockMovementConfiguration : IEntityTypeConfiguration<Stoc
         b.ToTable("stock_movements", t =>
         {
             t.HasTrigger("tr_stock_movements_immutable");
+            t.HasTrigger("tr_stock_movements_closed_period");
             t.HasCheckConstraint("ck_stock_movements_quantity", "[Quantity] <> 0");
-            t.HasCheckConstraint("ck_stock_movements_source", "[Source] IN (1, 2, 3)");
+            t.HasCheckConstraint("ck_stock_movements_source", "[Source] IN (1, 2, 3, 4)");
         });
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).UseIdentityColumn();
@@ -503,5 +504,65 @@ internal sealed class StockDocumentLineConfiguration : IEntityTypeConfiguration<
         b.Property(x => x.Quantity).HasColumnType("decimal(18,6)");
         b.HasOne<Item>().WithMany().HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Restrict);
         b.HasIndex(x => new { x.DocumentId, x.ItemId }).IsUnique().HasDatabaseName("ux_stock_document_lines_doc_item");
+    }
+}
+
+internal sealed class InventoryCountConfiguration : IEntityTypeConfiguration<InventoryCount>
+{
+    public void Configure(EntityTypeBuilder<InventoryCount> b)
+    {
+        b.ToTable("inventory_counts", t =>
+        {
+            t.HasCheckConstraint("ck_inventory_counts_status", "[Status] IN (1, 2, 9)");
+            t.HasCheckConstraint("ck_inventory_counts_posted",
+                "([Status] = 2 AND [PostedByUserId] IS NOT NULL AND [PostedAtUtc] IS NOT NULL) OR ([Status] <> 2 AND [PostedByUserId] IS NULL)");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Number).HasMaxLength(30).IsRequired();
+        b.Property(x => x.Status).HasConversion<byte>();
+        b.Property(x => x.Comment).HasMaxLength(InventoryCount.CommentMaxLength);
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_inventory_counts_org_id");
+        b.HasOne<Warehouse>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.WarehouseId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_inventory_counts_warehouse");
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.PostedByUserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasIndex(x => new { x.OrganizationId, x.Number }).IsUnique().HasDatabaseName("ux_inventory_counts_org_number");
+        b.HasMany(x => x.Lines).WithOne().HasForeignKey(x => x.DocumentId).OnDelete(DeleteBehavior.Cascade);
+        b.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field).HasField("_lines");
+    }
+}
+
+internal sealed class InventoryLineConfiguration : IEntityTypeConfiguration<InventoryLine>
+{
+    public void Configure(EntityTypeBuilder<InventoryLine> b)
+    {
+        b.ToTable("inventory_lines", t =>
+        {
+            t.HasCheckConstraint("ck_inventory_lines_counted", "[CountedQuantity] IS NULL OR [CountedQuantity] >= 0");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.BookQuantity).HasColumnType("decimal(18,6)");
+        b.Property(x => x.CountedQuantity).HasColumnType("decimal(18,6)");
+        b.Ignore(x => x.Difference);
+        b.HasOne<Item>().WithMany().HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Restrict);
+        b.HasIndex(x => new { x.DocumentId, x.ItemId }).IsUnique().HasDatabaseName("ux_inventory_lines_doc_item");
+    }
+}
+
+internal sealed class PeriodClosureConfiguration : IEntityTypeConfiguration<PeriodClosure>
+{
+    public void Configure(EntityTypeBuilder<PeriodClosure> b)
+    {
+        b.ToTable("period_closures");
+        b.HasKey(x => x.OrganizationId);
+        b.Property(x => x.OrganizationId).ValueGeneratedNever();
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithOne().HasForeignKey<PeriodClosure>(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.ChangedByUserId).OnDelete(DeleteBehavior.Restrict);
     }
 }

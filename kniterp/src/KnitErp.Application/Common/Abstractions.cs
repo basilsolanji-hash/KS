@@ -50,6 +50,8 @@ public interface IKnitErpDbContext
     DbSet<OpeningBalance> OpeningBalances { get; }
     DbSet<StockMovement> StockMovements { get; }
     DbSet<StockDocument> StockDocuments { get; }
+    DbSet<InventoryCount> InventoryCounts { get; }
+    DbSet<PeriodClosure> PeriodClosures { get; }
     DbSet<DocumentCounter> DocumentCounters { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
