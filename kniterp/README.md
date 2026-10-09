@@ -71,14 +71,62 @@ dotnet ef migrations add <ИмяИзменения> -p src/KnitErp.Infrastructur
 
 База разработки, созданная до перехода на миграции через `EnsureCreated`, не имеет истории миграций. Её нужно один раз удалить.
 
-### Первый вход при локальном запуске
+### Как запустить и посмотреть у себя
+
+Нужно один раз установить:
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0);
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) — в нём работает SQL Server;
+- [Git](https://git-scm.com/downloads);
+- на телефон — приложение-аутентификатор (Яндекс Ключ, Google Authenticator): без него Владелец не войдёт.
+
+**1. Скачать код** (ветка с последней версией):
+
+```bash
+git clone https://github.com/basilsolanji-hash/KS.git
+cd KS
+git checkout claude/fervent-volta-3pn88r
+```
+
+**2. Запустить SQL Server** в Docker (пароль придумайте свой, не короче 8 символов, с буквами разного регистра и цифрой):
+
+```bash
+docker run -d --name kniterp-sql -e ACCEPT_EULA=Y -e "MSSQL_SA_PASSWORD=Мой_Пароль_123" -p 1433:1433 mcr.microsoft.com/mssql/server:2022-latest
+```
+
+**3. Доверить локальный HTTPS-сертификат** (один раз):
+
+```bash
+dotnet dev-certs https --trust
+```
+
+**4. Запустить knitERP.** Windows (PowerShell):
+
+```powershell
+cd kniterp/src/KnitErp.Web
+$env:ConnectionStrings__KnitErp = "Server=localhost,1433;Database=kniterp_dev;User Id=sa;Password=Мой_Пароль_123;TrustServerCertificate=true"
+dotnet run
+```
+
+macOS / Linux:
 
 ```bash
 cd kniterp/src/KnitErp.Web
-ASPNETCORE_ENVIRONMENT=Development ConnectionStrings__KnitErp="Server=localhost,1433;Database=kniterp_dev;User Id=sa;Password=<пароль>;TrustServerCertificate=true" dotnet run
+ConnectionStrings__KnitErp="Server=localhost,1433;Database=kniterp_dev;User Id=sa;Password=Мой_Пароль_123;TrustServerCertificate=true" dotnet run
 ```
 
-При первом запуске создаётся тестовая организация, а в лог выводится ссылка `/account/invite?token=…` для установки пароля Владельца (`owner@kniterp.local`). После пароля система попросит подключить приложение-аутентификатор: Владелец без 2FA не входит. В GitHub Actions SQL Server поднимается автоматически (`.github/workflows/kniterp.yml`).
+**5. Первый вход.** В окне запуска появится строка `Пароль Владельца не задан. Откройте /account/invite?token=…`.
+Откройте в браузере `https://localhost:5443/account/invite?token=…` (токен — из этой строки), задайте пароль,
+войдите как `owner@kniterp.local` и отсканируйте QR-код приложением-аутентификатором.
+
+Что можно проверить: реквизиты организации, структуру (подразделения и должности), сотрудников, приглашение пользователей
+с разными ролями (ссылка приглашения показывается после добавления — откройте её в другом браузере или окне инкогнито),
+«нет доступа» в меню у кладовщика, журнал аудита.
+
+Начать заново с пустой базой: остановите приложение (Ctrl+C) и удалите базу —
+`docker exec kniterp-sql /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P "Мой_Пароль_123" -Q "DROP DATABASE kniterp_dev"`.
+При следующем запуске база создастся заново с новой ссылкой для Владельца.
+
+Это тестовый стенд на вашем компьютере: в нём демонстрационная организация, реальные данные фабрики туда не вносите.
 
 ## Правила разработки
 
