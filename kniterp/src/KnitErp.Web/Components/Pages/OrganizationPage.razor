@@ -1,12 +1,12 @@
 @page "/"
+@using KnitErp.Web.Components.Shared
 @inject OrganizationService Organizations
 
 <PageTitle>Организация — knitERP</PageTitle>
-<h1>Организация</h1>
 
-@if (_error is not null)
+@if (_denied is not null)
 {
-    <div class="error">@_error</div>
+    <AccessDenied Message="@_denied" />
 }
 else if (_org is null)
 {
@@ -14,22 +14,83 @@ else if (_org is null)
 }
 else
 {
-    <table>
-        <tr><td class="muted">Полное наименование</td><td>@_org.FullName</td></tr>
-        <tr><td class="muted">ИНН</td><td>@_org.Inn</td></tr>
-        <tr>
-            <td class="muted">КПП</td>
-            <td>@_org.Kpp @(_org.KppVerified ? "" : " — требует сверки (D15), в печатные формы не выводится")</td>
-        </tr>
-        <tr><td class="muted">Фактический адрес</td><td>@(_org.ActualAddress ?? "—")</td></tr>
-        <tr><td class="muted">Часовой пояс</td><td>@_org.TimeZoneId</td></tr>
-        <tr><td class="muted">Валюта</td><td>@_org.CurrencyCode</td></tr>
-    </table>
+    <div class="page-head">
+        <h1>Организация</h1>
+        @if (_org.CanEdit && !_editing)
+        {
+            <button type="button" @onclick="StartEdit">Изменить</button>
+        }
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="error" role="alert">@_message</div>
+    }
+
+    <EditForm Model="_draft" OnValidSubmit="SaveAsync" FormName="organization">
+        <table>
+            <tr><td class="muted">Полное наименование</td><td>@_org.FullName</td></tr>
+            <tr><td class="muted">ИНН</td><td>@_org.Inn</td></tr>
+            <tr>
+                <td class="muted">КПП</td>
+                <td>@(_org.Kpp ?? "—") @if (_org.Kpp is not null && !_org.KppVerified) { <span class="tag">требует сверки · D15</span><div class="muted">До сверки по документу организации КПП не выводится в печатные формы.</div> }</td>
+            </tr>
+            <tr>
+                <td class="muted"><label for="org-address">Фактический адрес</label></td>
+                <td>
+                    @if (_editing)
+                    {
+                        <InputText id="org-address" @bind-Value="_draft.Address" maxlength="500" style="width: 100%" />
+                    }
+                    else
+                    {
+                        @(_org.ActualAddress ?? "—")
+                    }
+                </td>
+            </tr>
+            <tr>
+                <td class="muted"><label for="org-tz">Часовой пояс учёта</label></td>
+                <td>
+                    @if (_editing)
+                    {
+                        <InputSelect id="org-tz" @bind-Value="_draft.TimeZoneId">
+                            @foreach (var zone in TimeZones.Russian)
+                            {
+                                <option value="@zone.Id">@zone.Label</option>
+                            }
+                        </InputSelect>
+                    }
+                    else
+                    {
+                        @TimeZones.Label(_org.TimeZoneId)
+                    }
+                </td>
+            </tr>
+            <tr><td class="muted">Валюта учёта</td><td>@_org.CurrencyCode</td></tr>
+        </table>
+
+        @if (_editing)
+        {
+            <div class="actions">
+                <button type="submit" disabled="@_busy">Сохранить</button>
+                <button type="button" class="secondary" @onclick="CancelEdit" disabled="@_busy">Отмена</button>
+            </div>
+        }
+    </EditForm>
+
+    @if (!_org.CanEdit)
+    {
+        <p class="muted">У вашей роли только просмотр реквизитов.</p>
+    }
 }
 
 @code {
     private OrganizationDto? _org;
-    private string? _error;
+    private RequisitesDraft _draft = new();
+    private bool _editing;
+    private bool _busy;
+    private string? _denied;
+    private string? _message;
 
     protected override async Task OnInitializedAsync()
     {
@@ -39,7 +100,45 @@ else
         }
         catch (AccessDeniedException ex)
         {
-            _error = ex.Message;
+            _denied = ex.Message;
         }
+    }
+
+    private void StartEdit()
+    {
+        _draft = new RequisitesDraft { Address = _org!.ActualAddress ?? string.Empty, TimeZoneId = _org.TimeZoneId };
+        _message = null;
+        _editing = true;
+    }
+
+    private void CancelEdit()
+    {
+        _editing = false;
+        _message = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        try
+        {
+            _org = await Organizations.UpdateRequisitesAsync(new UpdateRequisitesCommand(_draft.Address, _draft.TimeZoneId, _org!.RowVersion));
+            _editing = false;
+            _message = null;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private sealed class RequisitesDraft
+    {
+        public string Address { get; set; } = string.Empty;
+        public string TimeZoneId { get; set; } = "Europe/Moscow";
     }
 }

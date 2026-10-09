@@ -1,13 +1,12 @@
 @page "/roles"
+@using KnitErp.Web.Components.Shared
 @inject UserAccessService Access
 
 <PageTitle>Роли и права — knitERP</PageTitle>
-<h1>Роли и права · матрица P0</h1>
-<p class="muted">Д — да, О — своя область, Ч — чтение, П — по отдельному праву, С — только своё, — — нет.</p>
 
-@if (_error is not null)
+@if (_denied is not null)
 {
-    <div class="error">@_error</div>
+    <AccessDenied Message="@_denied" />
 }
 else if (_matrix is null)
 {
@@ -15,14 +14,20 @@ else if (_matrix is null)
 }
 else
 {
-    <div style="overflow-x: auto">
-        <table>
+    <h1>Роли и права · матрица P0</h1>
+    <p class="muted">Столбец вашей роли подсвечен. Права проверяются на сервере, запрет сильнее разрешения.</p>
+    <div class="legend">
+        <span><b>Д</b> да</span><span><b>О</b> только своя область</span><span><b>Ч</b> только чтение</span>
+        <span><b>П</b> по отдельному праву</span><span><b>С</b> только своё</span><span><b>—</b> нет</span>
+    </div>
+    <div class="scroll">
+        <table class="matrix">
             <thead>
                 <tr>
                     <th>Действие</th>
                     @foreach (var r in _matrix.Roles)
                     {
-                        <th>@r.Name</th>
+                        <th class="@Mine(r.Code)">@r.Name</th>
                     }
                 </tr>
             </thead>
@@ -31,9 +36,9 @@ else
                 {
                     <tr>
                         <td>@row.Label<div class="muted">@row.PermissionCode</div></td>
-                        @foreach (var level in row.Levels)
+                        @for (var i = 0; i < row.Levels.Count; i++)
                         {
-                            <td>@level.Symbol()</td>
+                            <td class="@Mine(_matrix.Roles[i].Code)">@row.Levels[i].Symbol()</td>
                         }
                     </tr>
                 }
@@ -43,8 +48,11 @@ else
 }
 
 @code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
     private RoleMatrixDto? _matrix;
-    private string? _error;
+    private string? _denied;
 
     protected override async Task OnInitializedAsync()
     {
@@ -54,7 +62,9 @@ else
         }
         catch (AccessDeniedException ex)
         {
-            _error = ex.Message;
+            _denied = ex.Message;
         }
     }
+
+    private string? Mine(string roleCode) => CurrentAccess.RoleCodes.Contains(roleCode) ? "mine" : null;
 }

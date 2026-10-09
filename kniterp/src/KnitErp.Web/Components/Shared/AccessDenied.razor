@@ -1,0 +1,10 @@
+<div class="denied" role="alert">
+    <span class="denied-code">403</span>
+    <h1>@Message</h1>
+    <p class="muted">Обратитесь к администратору. Попытка записана в журнал аудита.</p>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Message { get; set; } = string.Empty;
+}

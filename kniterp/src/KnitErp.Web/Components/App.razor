@@ -27,6 +27,34 @@
         button.link { background: none; color: #2BA89A; padding: 0; font-weight: 400; }
         .key { font-family: ui-monospace, monospace; letter-spacing: 1px; word-break: break-all; }
         .qr { background: #fff; padding: 12px; border-radius: 8px; width: 200px; height: 200px; }
+        h2 { font-size: 18px; margin: 0 0 8px; }
+        .page-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+        .scroll { overflow-x: auto; }
+        .tag { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #2E2E33; color: #C8C8CE; margin-left: 6px; }
+        .tag.ok { background: #1E3A35; color: #8FE0D3; margin-left: 0; }
+        .tag.warn { background: #3D341C; color: #F0CF7A; margin-left: 0; }
+        .tag.bad { background: #43231F; color: #F2A79C; margin-left: 0; }
+        .panel { border: 1px solid #2E2E33; background: #202023; border-radius: 10px; padding: 16px; margin: 16px 0; }
+        .panel form, .panel .grid { display: flex; flex-direction: column; gap: 12px; }
+        .panel label { display: flex; flex-direction: column; gap: 6px; color: #C8C8CE; }
+        @@media (min-width: 900px) { .panel .grid { display: grid; grid-template-columns: 1fr 1fr; } }
+        select { font: inherit; padding: 10px 12px; border-radius: 6px; border: 1px solid #3A3A40; background: #232326; color: #ECECEE; }
+        button.secondary { background: #2E2E33; color: #ECECEE; font-weight: 400; }
+        button:disabled { opacity: .5; cursor: default; }
+        .actions, .row-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+        .row-actions button { padding: 6px 10px; font-size: 13px; }
+        .diff { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+        .diff > div { display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; }
+        .diff > div > .muted { width: 100%; }
+        .chip { font-size: 13px; padding: 4px 10px; border-radius: 6px; background: #2E2E33; }
+        .chip.added { background: #1E3A35; color: #CDEFE9; }
+        .flash { display: flex; justify-content: space-between; gap: 12px; align-items: center; border: 1px solid #2B5E56; background: #1A2B28; padding: 10px 14px; border-radius: 8px; margin: 12px 0; }
+        .denied { border: 1px solid #5A2E2E; background: #2C1A1A; padding: 20px; border-radius: 10px; }
+        .denied h1 { font-size: 22px; margin: 8px 0; }
+        .denied-code { font-weight: 700; color: #F2A79C; }
+        .legend { display: flex; flex-wrap: wrap; gap: 16px; margin: 12px 0; color: #C8C8CE; }
+        .matrix th.mine, .matrix td.mine { background: #1E3A35; }
+        .matrix td:not(:first-child), .matrix th:not(:first-child) { text-align: center; }
     </style>
     <HeadOutlet @rendermode="PageRenderMode" />
 </head>

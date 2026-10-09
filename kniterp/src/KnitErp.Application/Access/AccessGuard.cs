@@ -18,6 +18,12 @@ public interface IAccessGuard
 
     Task<EffectivePermissionSet> LoadAsync(long userId, long organizationId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Права пользователя, если его роли заменить на <paramref name="newRole"/>: индивидуальные права и запреты остаются.
+    /// Статус учётной записи не учитывается — это предпросмотр для формы, а не проверка доступа.
+    /// </summary>
+    Task<EffectivePermissionSet> PreviewWithRoleAsync(long? userId, long organizationId, Role newRole, CancellationToken ct = default);
+
     Task DenyAsync(AccessContext? context, string permissionCode, CancellationToken ct = default);
 }
 
@@ -66,8 +72,6 @@ public sealed class AccessGuard(IKnitErpDbContext db, ICurrentUser currentUser, 
 
     public async Task<EffectivePermissionSet> LoadAsync(long userId, long organizationId, CancellationToken ct = default)
     {
-        var now = clock.UtcNow;
-
         var userOk = await db.Users.AnyAsync(u => u.Id == userId && u.Status == UserStatus.Active, ct)
             && await db.OrganizationMembers.AnyAsync(
                 m => m.UserId == userId && m.OrganizationId == organizationId && m.Status == MembershipStatus.Active, ct);
@@ -76,11 +80,32 @@ public sealed class AccessGuard(IKnitErpDbContext db, ICurrentUser currentUser, 
             return EffectivePermissionSet.Empty;
         }
 
-        var assignments = await db.RoleAssignments
+        var assignments = await ActiveAssignmentsAsync(userId, organizationId, ct);
+        return EffectivePermissionSet.Compute(await ExpandAsync(organizationId, assignments, ct));
+    }
+
+    public async Task<EffectivePermissionSet> PreviewWithRoleAsync(long? userId, long organizationId, Role newRole, CancellationToken ct = default)
+    {
+        var individual = userId is { } id
+            ? (await ActiveAssignmentsAsync(id, organizationId, ct)).Where(a => a.RoleId == null).ToList()
+            : [];
+        var grants = await ExpandAsync(organizationId, individual, ct);
+        grants.AddRange(newRole.Permissions.Select(p => new PermissionGrant(p.PermissionCode, p.Level, false)));
+        return EffectivePermissionSet.Compute(grants);
+    }
+
+    private async Task<List<RoleAssignment>> ActiveAssignmentsAsync(long userId, long organizationId, CancellationToken ct)
+    {
+        var now = clock.UtcNow;
+        return await db.RoleAssignments
             .Where(a => a.OrganizationId == organizationId && a.UserId == userId && a.RevokedAtUtc == null
                         && a.ValidFromUtc <= now && (a.ValidToUtc == null || a.ValidToUtc > now))
             .ToListAsync(ct);
+    }
 
+    /// <summary>Роли раскрываются в права; область назначения переносится на каждое право роли.</summary>
+    private async Task<List<PermissionGrant>> ExpandAsync(long organizationId, List<RoleAssignment> assignments, CancellationToken ct)
+    {
         var roleIds = assignments.Where(a => a.RoleId != null).Select(a => a.RoleId!.Value).Distinct().ToList();
         var roles = await db.Roles
             .Where(r => r.OrganizationId == organizationId && roleIds.Contains(r.Id))
@@ -106,6 +131,6 @@ public sealed class AccessGuard(IKnitErpDbContext db, ICurrentUser currentUser, 
             }
         }
 
-        return EffectivePermissionSet.Compute(grants);
+        return grants;
     }
 }

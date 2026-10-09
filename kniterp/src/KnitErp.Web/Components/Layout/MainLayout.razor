@@ -1,23 +1,58 @@
 @inherits LayoutComponentBase
+@inject UserAccessService Access
 
 <div class="shell">
     <nav class="side" aria-label="Разделы">
         <div style="font-weight: 600; font-size: 18px; margin: 4px 12px 16px">knit<span style="color: #2BA89A">ERP</span></div>
-        <NavLink href="" Match="NavLinkMatch.All">Организация</NavLink>
-        <NavLink href="users">Пользователи</NavLink>
-        <NavLink href="roles">Роли и права</NavLink>
-        <AuthorizeView>
+        @if (_access is not null)
+        {
+            @foreach (var item in Items)
+            {
+                <NavLink href="@item.Href" Match="@(item.Href == "" ? NavLinkMatch.All : NavLinkMatch.Prefix)">
+                    @item.Label
+                    @if (!item.Allowed(_access))
+                    {
+                        <span class="tag">нет доступа</span>
+                    }
+                </NavLink>
+            }
             <div class="session">
-                <div>@context.User.Identity?.Name</div>
+                <div>@_access.DisplayName</div>
+                <div class="muted">@string.Join(", ", _access.RoleNames) · @_access.OrganizationName</div>
                 <a href="account/organizations" data-enhance-nav="false" style="padding: 6px 0">Сменить организацию</a>
                 <form method="post" action="account/logout">
                     <AntiforgeryToken />
                     <button type="submit" class="link">Выйти</button>
                 </form>
             </div>
-        </AuthorizeView>
+        }
     </nav>
     <main class="main">
-        @Body
+        @if (_access is null)
+        {
+            <p class="muted">Загрузка…</p>
+        }
+        else
+        {
+            @* Страница начинает работу после меню: у вкладки один DbContext, параллельных запросов к нему быть не должно. *@
+            <CascadingValue Value="_access" IsFixed="true">
+                @Body
+            </CascadingValue>
+        }
     </main>
 </div>
+
+@code {
+    private CurrentAccessDto? _access;
+
+    // Пункты без доступа видны и кликабельны: сервер ответит отказом и запишет попытку в журнал.
+    private static readonly (string Href, string Label, Func<CurrentAccessDto, bool> Allowed)[] Items =
+    [
+        ("", "Организация", a => a.Has(Permissions.OrganizationView)),
+        ("users", "Пользователи", a => a.Has(Permissions.UserView)),
+        ("roles", "Роли и права", a => a.Has(Permissions.UserView)),
+        ("audit", "Журнал аудита", a => a.HasOwnOnly(Permissions.AuditLogView)),
+    ];
+
+    protected override async Task OnInitializedAsync() => _access = await Access.GetCurrentAccessAsync();
+}

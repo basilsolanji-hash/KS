@@ -13,7 +13,49 @@ public sealed record UserRowDto(
     UserStatus AccountStatus,
     MembershipStatus MembershipStatus,
     IReadOnlyList<string> RoleCodes,
-    IReadOnlyList<string> RoleNames);
+    IReadOnlyList<string> RoleNames,
+    bool HasPassword,
+    bool TwoFactorEnabled,
+    string ScopeText,
+    bool IsCurrentUser);
+
+/// <summary>Строка итоговых прав «на человеческом языке» для блока «Было → Станет».</summary>
+public sealed record PermissionLineDto(string PermissionCode, string Label, PermissionLevel Level)
+{
+    public string Text => Level switch
+    {
+        PermissionLevel.Scoped => $"{Label} — своя область",
+        PermissionLevel.ReadOnly => $"{Label} — только чтение",
+        PermissionLevel.OwnOnly => $"{Label} — только свои данные",
+        _ => Label,
+    };
+}
+
+public sealed record AccessPreviewDto(
+    IReadOnlyList<PermissionLineDto> Before,
+    IReadOnlyList<PermissionLineDto> After,
+    string ScopeText,
+    bool IsAdministrative,
+    bool ReasonRequired);
+
+/// <summary>Роль в форме. Allowed = false: выдать её текущий пользователь не может (сервер всё равно проверит).</summary>
+public sealed record RoleOptionDto(string Code, string Name, bool IsAdministrative, bool Allowed, string? DeniedReason);
+
+/// <summary>Кто вошёл и что ему доступно — для меню. Защитой не является: каждое действие проверяет сервер.</summary>
+public sealed record CurrentAccessDto(
+    long UserId,
+    string DisplayName,
+    string OrganizationName,
+    string TimeZoneId,
+    IReadOnlyList<string> RoleCodes,
+    IReadOnlyList<string> RoleNames,
+    IReadOnlySet<string> Granted,
+    IReadOnlySet<string> OwnOnly)
+{
+    public bool Has(string permissionCode) => Granted.Contains(permissionCode);
+
+    public bool HasOwnOnly(string permissionCode) => Granted.Contains(permissionCode) || OwnOnly.Contains(permissionCode);
+}
 
 public sealed record InviteUserCommand(string Email, string DisplayName, string RoleCode, string? Reason);
 
@@ -52,12 +94,106 @@ public sealed class UserAccessService(IKnitErpDbContext db, IAccessGuard guard, 
             .Join(db.Roles.AsNoTracking(), a => a.RoleId, r => (long?)r.Id, (a, r) => new { a.UserId, r.Code, r.Name })
             .ToListAsync(ct);
 
+        var scopes = await db.RoleAssignments.AsNoTracking()
+            .Where(a => a.OrganizationId == ctx.OrganizationId && userIds.Contains(a.UserId) && a.RoleId != null
+                        && a.RevokedAtUtc == null && a.ValidFromUtc <= now && (a.ValidToUtc == null || a.ValidToUtc > now))
+            .Select(a => new { a.UserId, a.DepartmentId, a.WarehouseId })
+            .ToListAsync(ct);
+
         return members.Select(x =>
         {
             var roles = roleLinks.Where(r => r.UserId == x.u.Id).ToList();
+            var userScopes = scopes.Where(a => a.UserId == x.u.Id).ToList();
             return new UserRowDto(x.u.Id, x.u.DisplayName, x.u.Email, x.u.Status, x.m.Status,
-                roles.Select(r => r.Code).ToList(), roles.Select(r => r.Name).ToList());
+                roles.Select(r => r.Code).ToList(), roles.Select(r => r.Name).ToList(),
+                x.u.PasswordHash != null, x.u.TwoFactorEnabled,
+                DescribeScope(userScopes.Count(a => a.DepartmentId != null), userScopes.Count(a => a.WarehouseId != null), userScopes.Count),
+                x.u.Id == ctx.UserId);
         }).ToList();
+    }
+
+    /// <summary>Что видно в меню. Источник — те же итоговые права, что проверяет сервер.</summary>
+    public async Task<CurrentAccessDto> GetCurrentAccessAsync(CancellationToken ct = default)
+    {
+        var ctx = await guard.CurrentAsync(ct);
+        var user = await db.Users.AsNoTracking().SingleAsync(u => u.Id == ctx.UserId, ct);
+        var org = await db.Organizations.AsNoTracking().SingleAsync(o => o.Id == ctx.OrganizationId, ct);
+        var roles = await ActiveRolesAsync(ctx.OrganizationId, ctx.UserId, ct);
+        var ownOnly = Permissions.All.Where(c => !ctx.Permissions.Has(c) && ctx.Permissions.HasOwnOnly(c)).ToHashSet();
+        return new CurrentAccessDto(ctx.UserId, user.DisplayName, org.ShortName, org.TimeZoneId, roles.Select(r => r.Code).ToList(), roles.Select(r => r.Name).ToList(),
+            ctx.Permissions.GrantedCodes.ToHashSet(), ownOnly);
+    }
+
+    /// <summary>Роли организации для формы: какие текущий пользователь вправе выдать и почему нет.</summary>
+    public async Task<IReadOnlyList<RoleOptionDto>> ListGrantableRolesAsync(CancellationToken ct = default)
+    {
+        var ctx = await guard.DemandAsync(Permissions.UserManage, ct);
+        var roles = await db.Roles.AsNoTracking().Where(r => r.OrganizationId == ctx.OrganizationId).Include(r => r.Permissions).ToListAsync(ct);
+
+        return OrderRoles(roles).Select(role =>
+        {
+            try
+            {
+                GrantPolicy.EnsureCanGrantAdministrative(ctx.Permissions, role.IsAdministrative);
+                GrantPolicy.EnsureNoEscalation(ctx.Permissions, role.Permissions.Select(p => (p.PermissionCode, p.Level)));
+                return new RoleOptionDto(role.Code, role.Name, role.IsAdministrative, true, null);
+            }
+            catch (BusinessRuleException ex)
+            {
+                return new RoleOptionDto(role.Code, role.Name, role.IsAdministrative, false, ex.Message);
+            }
+        }).ToList();
+    }
+
+    /// <summary>
+    /// «Было → Станет» до сохранения: итоговые права пользователя сейчас и после назначения роли.
+    /// Индивидуальные права и запреты сохраняются — смена роли их не трогает.
+    /// </summary>
+    public async Task<AccessPreviewDto> PreviewRoleAsync(long? userId, string roleCode, CancellationToken ct = default)
+    {
+        var ctx = await guard.DemandAsync(Permissions.UserManage, ct);
+        var role = await FindRoleAsync(ctx, roleCode, ct);
+        var before = EffectivePermissionSet.Empty;
+        if (userId is { } id)
+        {
+            await RequireMemberAsync(ctx, id, ct);
+            before = await guard.LoadAsync(id, ctx.OrganizationId, ct);
+        }
+
+        var after = await guard.PreviewWithRoleAsync(userId, ctx.OrganizationId, role, ct);
+        return new AccessPreviewDto(Lines(before), Lines(after), DescribeScope(0, 0, 1), role.IsAdministrative, role.IsAdministrative);
+    }
+
+    private static List<PermissionLineDto> Lines(EffectivePermissionSet set) =>
+        RoleMatrixP0.PermissionCodes
+            .Select(code => set.Has(code)
+                ? new PermissionLineDto(code, Permissions.Describe(code), set.LevelOf(code))
+                : set.HasOwnOnly(code) ? new PermissionLineDto(code, Permissions.Describe(code), PermissionLevel.OwnOnly) : null)
+            .OfType<PermissionLineDto>()
+            .ToList();
+
+    // Подразделений и складов пока нет: назначение без области действует на всю организацию.
+    private static string DescribeScope(int departments, int warehouses, int assignments) =>
+        assignments == 0 ? "—"
+        : departments == 0 && warehouses == 0 ? "Вся организация"
+        : string.Join(", ", new[] { departments > 0 ? $"подразделений: {departments}" : null, warehouses > 0 ? $"складов: {warehouses}" : null }.OfType<string>());
+
+    private static List<Role> OrderRoles(List<Role> roles) =>
+        roles.OrderBy(r =>
+        {
+            var i = SystemRoles.Ordered.ToList().IndexOf(r.Code);
+            return i < 0 ? int.MaxValue : i;
+        }).ThenBy(r => r.Name).ToList();
+
+    private async Task<List<Role>> ActiveRolesAsync(long organizationId, long userId, CancellationToken ct)
+    {
+        var now = clock.UtcNow;
+        var roles = await db.RoleAssignments.AsNoTracking()
+            .Where(a => a.OrganizationId == organizationId && a.UserId == userId && a.RoleId != null
+                        && a.RevokedAtUtc == null && a.ValidFromUtc <= now && (a.ValidToUtc == null || a.ValidToUtc > now))
+            .Join(db.Roles.AsNoTracking(), a => a.RoleId, r => (long?)r.Id, (a, r) => r)
+            .ToListAsync(ct);
+        return OrderRoles(roles);
     }
 
     /// <summary>
@@ -223,11 +359,7 @@ public sealed class UserAccessService(IKnitErpDbContext db, IAccessGuard guard, 
             .Include(r => r.Permissions)
             .ToListAsync(ct);
 
-        roles = roles.OrderBy(r =>
-        {
-            var i = SystemRoles.Ordered.ToList().IndexOf(r.Code);
-            return i < 0 ? int.MaxValue : i;
-        }).ThenBy(r => r.Name).ToList();
+        roles = OrderRoles(roles);
 
         var rows = RoleMatrixP0.PermissionCodes.Select(code => new MatrixRowDto(
             code,

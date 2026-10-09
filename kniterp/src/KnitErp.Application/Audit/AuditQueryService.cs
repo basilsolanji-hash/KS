@@ -13,6 +13,7 @@ public sealed record AuditRowDto(
     string Action,
     string EntityType,
     string? EntityId,
+    string ObjectName,
     string? Before,
     string? After,
     string? Reason);
@@ -40,15 +41,29 @@ public sealed class AuditQueryService(IKnitErpDbContext db, IAccessGuard guard)
             .Take(Math.Clamp(take, 1, 1000))
             .ToListAsync(ct);
 
-        var actorIds = entries.Where(e => e.ActorUserId != null).Select(e => e.ActorUserId!.Value).Distinct().ToList();
+        var userIds = entries.Where(e => e.ActorUserId != null).Select(e => e.ActorUserId!.Value)
+            .Concat(entries.Where(e => e.EntityType == nameof(UserAccount)).Select(e => long.TryParse(e.EntityId, out var id) ? id : 0))
+            .Where(id => id > 0).Distinct().ToList();
         var names = await db.Users.AsNoTracking()
-            .Where(u => actorIds.Contains(u.Id))
+            .Where(u => userIds.Contains(u.Id))
             .ToDictionaryAsync(u => u.Id, u => u.DisplayName, ct);
+        var orgName = await db.Organizations.AsNoTracking().Where(o => o.Id == ctx.OrganizationId).Select(o => o.ShortName).SingleAsync(ct);
 
         return entries.Select(e => new AuditRowDto(
             e.OccurredAtUtc,
             e.ActorUserId,
             e.ActorUserId is { } id && names.TryGetValue(id, out var n) ? n : null,
-            e.Action, e.EntityType, e.EntityId, e.Before, e.After, e.Reason)).ToList();
+            e.Action, e.EntityType, e.EntityId, DescribeObject(e, names, orgName), e.Before, e.After, e.Reason)).ToList();
     }
+
+    /// <summary>Объект записи по-человечески: имя пользователя или название организации вместо «UserAccount 2».</summary>
+    private static string DescribeObject(AuditEntry e, Dictionary<long, string> userNames, string orgName) => e.EntityType switch
+    {
+        nameof(UserAccount) when long.TryParse(e.EntityId, out var id) && userNames.TryGetValue(id, out var name) => $"Пользователь «{name}»",
+        nameof(UserAccount) => "Пользователь",
+        "Organization" => $"Организация «{orgName}»",
+        "Permission" when e.After is { } code => $"Право «{Permissions.Describe(code)}»",
+        "Permission" => "Право доступа",
+        _ => $"{e.EntityType} {e.EntityId}".Trim(),
+    };
 }

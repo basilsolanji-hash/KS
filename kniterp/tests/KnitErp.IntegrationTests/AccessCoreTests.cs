@@ -61,6 +61,10 @@ public sealed class AccessCoreTests(SqlTestHost host) : IClassFixture<SqlTestHos
         Assert.True(await db.AuditEntries.AnyAsync(e =>
             e.OrganizationId == org.OrganizationId && e.ActorUserId == keeper
             && e.Action == AuditActions.AccessDenied && e.After == Permissions.UserView));
+
+        await using var owner = host.As(org.OwnerUserId, org.OrganizationId);
+        Assert.Contains(await owner.Audit.ListAsync(), e =>
+            e.Action == AuditActions.AccessDenied && e.ObjectName == "Право «Пользователи и роли: просмотр»");
     }
 
     [SqlFact]
