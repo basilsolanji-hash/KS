@@ -14,6 +14,7 @@ using KnitErp.Web.Security;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.EntityFrameworkCore;
 
@@ -85,6 +86,21 @@ builder.Services.AddAuthentication(AuthSchemes.Session)
 builder.Services.AddAuthorizationBuilder()
     .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
 
+// За обратным прокси (Caddy на сервере, deploy/beget): адрес клиента и HTTPS берутся из заголовков X-Forwarded-*,
+// но только от прокси из доверенной сети — иначе любой мог бы подставить чужой адрес и обойти ограничение попыток входа.
+var proxyNetwork = builder.Configuration["ReverseProxy:KnownNetwork"];
+if (!string.IsNullOrWhiteSpace(proxyNetwork))
+{
+    builder.Services.Configure<ForwardedHeadersOptions>(o =>
+    {
+        o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+        o.KnownIPNetworks.Clear();
+        o.KnownProxies.Clear();
+        o.KnownIPNetworks.Add(System.Net.IPNetwork.Parse(proxyNetwork));
+        o.ForwardLimit = 1;
+    });
+}
+
 builder.Services.AddScoped<KnitErp.Web.Exports.ReportExports>();
 builder.Services.AddHealthChecks().AddCheck<KnitErp.Web.Security.DatabaseHealthCheck>("database");
 
@@ -142,7 +158,15 @@ else
     app.UseHsts();
 }
 
-app.UseHttpsRedirection();
+if (!string.IsNullOrWhiteSpace(proxyNetwork))
+{
+    // За прокси на HTTPS переводит сам прокси; приложение слушает только внутренний HTTP.
+    app.UseForwardedHeaders();
+}
+else
+{
+    app.UseHttpsRedirection();
+}
 app.Use(SecurityHeaders.Apply);
 app.UseRateLimiter();
 app.UseAuthentication();

@@ -1,0 +1,21 @@
+@page "/error"
+@attribute [AllowAnonymous]
+@attribute [ExcludeFromInteractiveRouting]
+@layout AccountLayout
+@using System.Diagnostics
+
+<PageTitle>Ошибка — knitERP</PageTitle>
+<h1>Что-то пошло не так</h1>
+<p>Запрос не выполнен из-за внутренней ошибки. Данные не изменены, если операция не завершилась.</p>
+<p class="muted">Попробуйте ещё раз или вернитесь на <a href="./">главную</a>. Если ошибка повторяется, сообщите администратору номер:</p>
+<p class="key">@_requestId</p>
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    // Номер запроса связывает обращение пользователя с записью в журнале приложения.
+    private string? _requestId;
+
+    protected override void OnInitialized() => _requestId = Activity.Current?.Id ?? HttpContext?.TraceIdentifier;
+}

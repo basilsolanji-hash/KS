@@ -82,7 +82,7 @@
         {
             await PendingSignInCookie.CompleteAsync(HttpContext, result.Session!);
             // Сразу после подключения 2FA — выдать резервные коды на случай потери телефона (D06).
-            Navigation.NavigateTo("security?setup=1", forceLoad: true);
+            Navigation.NavigateTo("security?setup=true", forceLoad: true);
             return;
         }
 
