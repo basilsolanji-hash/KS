@@ -3,6 +3,7 @@ using KnitErp.Domain.Access;
 using KnitErp.Domain.Audit;
 using KnitErp.Domain.Organizations;
 using KnitErp.Domain.Catalog;
+using KnitErp.Domain.Common;
 using KnitErp.Domain.Structure;
 using KnitErp.Domain.Warehousing;
 using Microsoft.EntityFrameworkCore;
@@ -29,6 +30,9 @@ public sealed class KnitErpDbContext(DbContextOptions<KnitErpDbContext> options)
     public DbSet<Warehouse> Warehouses => Set<Warehouse>();
     public DbSet<Counterparty> Counterparties => Set<Counterparty>();
     public DbSet<OperationReason> OperationReasons => Set<OperationReason>();
+    public DbSet<OpeningBalance> OpeningBalances => Set<OpeningBalance>();
+    public DbSet<StockMovement> StockMovements => Set<StockMovement>();
+    public DbSet<DocumentCounter> DocumentCounters => Set<DocumentCounter>();
 
     public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default) =>
         Database.BeginTransactionAsync(cancellationToken);
@@ -58,7 +62,9 @@ public sealed class KnitErpDbContext(DbContextOptions<KnitErpDbContext> options)
         configurationBuilder.Properties<DateTime?>().HaveColumnType("datetime2(3)");
     }
 
-    /// <summary>Записи журнала аудита только добавляются (ТЗ §4.8 KA3644). Второй рубеж — триггер в базе.</summary>
+    /// <summary>
+    /// Журнал аудита (ТЗ §4.8 KA3644) и движения склада только добавляются. Второй рубеж — триггеры в базе.
+    /// </summary>
     private void GuardImmutableAudit()
     {
         foreach (var entry in ChangeTracker.Entries<AuditEntry>())
@@ -66,6 +72,14 @@ public sealed class KnitErpDbContext(DbContextOptions<KnitErpDbContext> options)
             if (entry.State is EntityState.Modified or EntityState.Deleted)
             {
                 throw new InvalidOperationException("Журнал аудита неизменяем: изменение и удаление записей запрещены.");
+            }
+        }
+
+        foreach (var entry in ChangeTracker.Entries<StockMovement>())
+        {
+            if (entry.State is EntityState.Modified or EntityState.Deleted)
+            {
+                throw new InvalidOperationException("Движения склада неизменяемы: исправление — новым документом.");
             }
         }
     }

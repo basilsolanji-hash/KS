@@ -2,6 +2,7 @@ using KnitErp.Domain.Access;
 using KnitErp.Domain.Audit;
 using KnitErp.Domain.Organizations;
 using KnitErp.Domain.Catalog;
+using KnitErp.Domain.Common;
 using KnitErp.Domain.Structure;
 using KnitErp.Domain.Warehousing;
 using Microsoft.EntityFrameworkCore;
@@ -356,5 +357,87 @@ internal sealed class OperationReasonConfiguration : IEntityTypeConfiguration<Op
         b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_operation_reasons_org_id");
         b.HasIndex(x => new { x.OrganizationId, x.Kind, x.Name }).IsUnique().HasFilter("[IsArchived] = 0")
             .HasDatabaseName("ux_operation_reasons_org_kind_name_active");
+    }
+}
+
+internal sealed class DocumentCounterConfiguration : IEntityTypeConfiguration<DocumentCounter>
+{
+    public void Configure(EntityTypeBuilder<DocumentCounter> b)
+    {
+        b.ToTable("document_counters", t => t.HasCheckConstraint("ck_document_counters_last", "[LastNumber] >= 0"));
+        b.HasKey(x => new { x.OrganizationId, x.Kind });
+        b.Property(x => x.Kind).HasMaxLength(DocumentCounter.KindMaxLength);
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+internal sealed class OpeningBalanceConfiguration : IEntityTypeConfiguration<OpeningBalance>
+{
+    public void Configure(EntityTypeBuilder<OpeningBalance> b)
+    {
+        b.ToTable("opening_balances", t =>
+        {
+            t.HasCheckConstraint("ck_opening_balances_status", "[Status] IN (1, 2, 3, 9)");
+            t.HasCheckConstraint("ck_opening_balances_approved",
+                "([Status] = 3 AND [ApprovedByUserId] IS NOT NULL AND [ApprovedAtUtc] IS NOT NULL AND [ApprovedByUserId] <> [CreatedByUserId])"
+                + " OR ([Status] <> 3 AND [ApprovedByUserId] IS NULL)");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Number).HasMaxLength(30).IsRequired();
+        b.Property(x => x.Status).HasConversion<byte>();
+        b.Property(x => x.Comment).HasMaxLength(OpeningBalance.CommentMaxLength);
+        b.Property(x => x.ReturnReason).HasMaxLength(OpeningBalance.ReasonMaxLength);
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_opening_balances_org_id");
+        b.HasOne<Warehouse>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.WarehouseId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_opening_balances_warehouse");
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.ApprovedByUserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasIndex(x => new { x.OrganizationId, x.Number }).IsUnique().HasDatabaseName("ux_opening_balances_org_number");
+        b.HasMany(x => x.Lines).WithOne().HasForeignKey(x => x.DocumentId).OnDelete(DeleteBehavior.Cascade);
+        b.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field).HasField("_lines");
+    }
+}
+
+internal sealed class OpeningBalanceLineConfiguration : IEntityTypeConfiguration<OpeningBalanceLine>
+{
+    public void Configure(EntityTypeBuilder<OpeningBalanceLine> b)
+    {
+        b.ToTable("opening_balance_lines", t => t.HasCheckConstraint("ck_opening_balance_lines_quantity", "[Quantity] > 0"));
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Quantity).HasColumnType("decimal(18,6)");
+        b.HasOne<Item>().WithMany().HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Restrict);
+        b.HasIndex(x => new { x.DocumentId, x.ItemId }).IsUnique().HasDatabaseName("ux_opening_balance_lines_doc_item");
+    }
+}
+
+internal sealed class StockMovementConfiguration : IEntityTypeConfiguration<StockMovement>
+{
+    public void Configure(EntityTypeBuilder<StockMovement> b)
+    {
+        b.ToTable("stock_movements", t =>
+        {
+            t.HasTrigger("tr_stock_movements_immutable");
+            t.HasCheckConstraint("ck_stock_movements_quantity", "[Quantity] <> 0");
+            t.HasCheckConstraint("ck_stock_movements_source", "[Source] IN (1)");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Quantity).HasColumnType("decimal(18,6)");
+        b.Property(x => x.Source).HasConversion<byte>();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<Warehouse>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.WarehouseId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_stock_movements_warehouse");
+        b.HasOne<Item>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.ItemId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_stock_movements_item");
+        b.HasIndex(x => new { x.OrganizationId, x.WarehouseId, x.ItemId }).HasDatabaseName("ix_stock_movements_org_wh_item");
+        b.HasIndex(x => new { x.Source, x.SourceId }).HasDatabaseName("ix_stock_movements_source");
     }
 }

@@ -54,6 +54,9 @@
         ("catalog", "Номенклатура", a => a.Has(Permissions.CatalogView)),
         ("warehouses", "Склады", a => a.Has(Permissions.CatalogView)),
         ("counterparties", "Контрагенты", a => a.Has(Permissions.CatalogView)),
+        ("opening-balances", "Начальные остатки", a => a.Has(Permissions.OpeningBalanceCreate) || a.Has(Permissions.OpeningBalanceApprove)
+                                                   || a.Has(Permissions.WarehouseReportView)),
+        ("stock", "Остатки", a => a.Has(Permissions.WarehouseReportView)),
         ("users", "Пользователи", a => a.Has(Permissions.UserView)),
         ("roles", "Роли и права", a => a.Has(Permissions.UserView)),
         ("audit", "Журнал аудита", a => a.HasOwnOnly(Permissions.AuditLogView)),

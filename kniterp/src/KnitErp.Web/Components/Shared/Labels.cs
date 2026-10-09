@@ -37,6 +37,12 @@ public static class AuditLabels
         [AuditActions.CatalogArchived] = "Отправлено в архив",
         [AuditActions.CatalogRestored] = "Возвращено из архива",
         [AuditActions.CatalogImported] = "Импорт номенклатуры",
+        [AuditActions.StockDocumentCreated] = "Создан складской документ",
+        [AuditActions.StockDocumentChanged] = "Изменён складской документ",
+        [AuditActions.StockDocumentSubmitted] = "Документ на утверждении",
+        [AuditActions.StockDocumentReturned] = "Документ возвращён на доработку",
+        [AuditActions.StockDocumentApproved] = "Документ утверждён",
+        [AuditActions.StockDocumentCancelled] = "Документ отменён",
         [AuditActions.OrganizationCreated] = "Создана организация",
         [AuditActions.OrganizationRequisitesChanged] = "Изменены реквизиты",
     };

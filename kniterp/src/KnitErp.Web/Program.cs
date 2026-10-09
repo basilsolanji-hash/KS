@@ -3,6 +3,7 @@ using KnitErp.Application.Authentication;
 using KnitErp.Application.Catalog;
 using KnitErp.Application.Common;
 using KnitErp.Application.Organizations;
+using KnitErp.Application.Warehousing;
 using KnitErp.Infrastructure;
 using KnitErp.Infrastructure.Persistence;
 using KnitErp.Web.Components;
@@ -106,6 +107,9 @@ app.MapGet("/catalog/items.xlsx", (ItemExchangeService exchange, CancellationTok
     FileOrForbid(() => exchange.ExportAsync(ct), $"nomenklatura-{DateTime.UtcNow:yyyy-MM-dd}.xlsx"));
 app.MapGet("/catalog/items-template.xlsx", (ItemExchangeService exchange, CancellationToken ct) =>
     FileOrForbid(() => exchange.TemplateAsync(ct), "shablon-nomenklatury.xlsx"));
+
+app.MapGet("/opening-balances/template.xlsx", (OpeningBalanceService balances, CancellationToken ct) =>
+    FileOrForbid(() => balances.LinesTemplateAsync(ct), "shablon-nachalnyh-ostatkov.xlsx"));
 
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 

@@ -95,6 +95,12 @@ public static class AuditActions
     public const string CatalogArchived = "catalog.archived";
     public const string CatalogRestored = "catalog.restored";
     public const string CatalogImported = "catalog.imported";
+    public const string StockDocumentCreated = "stock.document.created";
+    public const string StockDocumentChanged = "stock.document.changed";
+    public const string StockDocumentSubmitted = "stock.document.submitted";
+    public const string StockDocumentReturned = "stock.document.returned";
+    public const string StockDocumentApproved = "stock.document.approved";
+    public const string StockDocumentCancelled = "stock.document.cancelled";
     public const string OrganizationCreated = "organization.created";
     public const string OrganizationRequisitesChanged = "organization.requisites.changed";
 }

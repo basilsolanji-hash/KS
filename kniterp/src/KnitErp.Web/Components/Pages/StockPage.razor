@@ -1,0 +1,116 @@
+@page "/stock"
+@using KnitErp.Application.Warehousing
+@using KnitErp.Domain.Catalog
+@using KnitErp.Web.Components.Shared
+@inject StockService Stock
+
+<PageTitle>Остатки — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_rows is null)
+{
+    <p class="muted">Загрузка…</p>
+}
+else
+{
+    <h1>Остатки</h1>
+    <p class="muted">Текущий остаток — сумма утверждённых движений по складу. Пока движения создают только начальные остатки.</p>
+
+    <form class="inline-form" @onsubmit="ReloadAsync">
+        <label>
+            Склад
+            <select @bind="_warehouse">
+                <option value="">Все доступные</option>
+                @foreach (var w in _warehouses)
+                {
+                    <option value="@w.Id">@w.Name</option>
+                }
+            </select>
+        </label>
+        <label>
+            Тип
+            <select @bind="_type">
+                <option value="">Все типы</option>
+                @foreach (var t in ItemTypes.All)
+                {
+                    <option value="@((byte)t)">@ItemTypes.Name(t)</option>
+                }
+            </select>
+        </label>
+        <label>Поиск <input @bind="_search" placeholder="Код или наименование" /></label>
+        <button type="submit" class="secondary" disabled="@_busy">Показать</button>
+    </form>
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>Склад</th><th>Код</th><th>Наименование</th><th>Тип</th><th style="text-align: right">Остаток</th><th>Ед.</th></tr></thead>
+            <tbody>
+                @if (_rows.Count == 0)
+                {
+                    <tr><td colspan="6" class="muted">Остатков нет.</td></tr>
+                }
+                @foreach (var r in _rows)
+                {
+                    <tr>
+                        <td>@r.WarehouseName</td>
+                        <td>@r.Code</td>
+                        <td>@r.Name</td>
+                        <td>@r.TypeName</td>
+                        <td style="text-align: right">@Quantities.Format(r.Quantity)</td>
+                        <td>@r.UnitSymbol</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<StockBalanceDto>? _rows;
+    private IReadOnlyList<LookupWarehouseDto> _warehouses = [];
+    private bool _busy;
+    private string? _denied;
+    private string _warehouse = string.Empty;
+    private string _type = string.Empty;
+    private string _search = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _warehouses = await Stock.ListWarehousesAsync();
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = ex.Message;
+        }
+    }
+
+    private async Task LoadAsync() =>
+        _rows = await Stock.BalancesAsync(new StockFilter(
+            long.TryParse(_warehouse, out var w) ? w : null,
+            byte.TryParse(_type, out var t) ? (ItemType)t : null,
+            _search));
+
+    private async Task ReloadAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

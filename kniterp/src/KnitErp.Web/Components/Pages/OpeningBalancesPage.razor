@@ -1,0 +1,163 @@
+@page "/opening-balances"
+@using KnitErp.Application.Warehousing
+@using KnitErp.Domain.Warehousing
+@using KnitErp.Web.Components.Shared
+@inject OpeningBalanceService Balances
+@inject NavigationManager Navigation
+
+<PageTitle>Начальные остатки — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_rows is null)
+{
+    <p class="muted">Загрузка…</p>
+}
+else
+{
+    <div class="page-head">
+        <h1>Начальные остатки</h1>
+        @if (CurrentAccess.Has(Permissions.OpeningBalanceCreate) && !_creating)
+        {
+            <button type="button" @onclick="OpenCreateAsync" disabled="@_busy">Новый документ</button>
+        }
+    </div>
+    <p class="muted">
+        Остатки на дату начала учёта. Документ заполняет старший кладовщик, утверждает другой человек — владелец или руководитель.
+        После утверждения остатки появляются в разделе «Остатки», документ больше не меняется.
+    </p>
+
+    @if (_error is not null)
+    {
+        <div class="error" role="alert">@_error</div>
+    }
+
+    @if (_creating)
+    {
+        <div class="panel">
+            <h2>Новый документ</h2>
+            @if (_warehouses.Count == 0)
+            {
+                <p class="muted">Нет складов, доступных вам для ввода остатков. Склады заводятся в разделе «Склады».</p>
+            }
+            else
+            {
+                <form class="inline-form" @onsubmit="CreateAsync">
+                    <label>
+                        Склад
+                        <select @bind="_warehouseId">
+                            @foreach (var w in _warehouses)
+                            {
+                                <option value="@w.Id">@w.Name</option>
+                            }
+                        </select>
+                    </label>
+                    <label>Остатки на дату <input type="date" @bind="_asOf" /></label>
+                    <label>Комментарий <input @bind="_comment" maxlength="1000" size="30" /></label>
+                    <button type="submit" disabled="@_busy">Создать</button>
+                    <button type="button" class="secondary" @onclick="() => _creating = false">Отмена</button>
+                </form>
+            }
+        </div>
+    }
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>Номер</th><th>Склад</th><th>На дату</th><th>Строк</th><th>Статус</th><th>Автор</th></tr></thead>
+            <tbody>
+                @if (_rows.Count == 0)
+                {
+                    <tr><td colspan="6" class="muted">Документов пока нет.</td></tr>
+                }
+                @foreach (var d in _rows)
+                {
+                    <tr>
+                        <td><a href="opening-balances/@d.Id">@d.Number</a></td>
+                        <td>@d.WarehouseName</td>
+                        <td>@d.AsOfDate.ToString("dd.MM.yyyy")</td>
+                        <td>@d.LineCount</td>
+                        <td><span class="tag @StatusClass(d.Status)">@d.StatusName</span></td>
+                        <td>@d.CreatedBy</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private IReadOnlyList<OpeningBalanceRowDto>? _rows;
+    private IReadOnlyList<LookupWarehouseDto> _warehouses = [];
+    private bool _creating;
+    private bool _busy;
+    private string? _denied;
+    private string? _error;
+    private long _warehouseId;
+    private DateTime _asOf = DateTime.Today;
+    private string? _comment;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _rows = await Balances.ListAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = ex.Message;
+        }
+    }
+
+    private async Task OpenCreateAsync()
+    {
+        _busy = true;
+        try
+        {
+            _warehouses = await Balances.ListWarehousesForEntryAsync();
+            _warehouseId = _warehouses.FirstOrDefault()?.Id ?? 0;
+            _asOf = TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId).Date;
+            _creating = true;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CreateAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            var id = await Balances.CreateAsync(_warehouseId, DateOnly.FromDateTime(_asOf), _comment);
+            Navigation.NavigateTo($"opening-balances/{id}");
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    public static string StatusClass(OpeningBalanceStatus status) => status switch
+    {
+        OpeningBalanceStatus.Approved => "ok",
+        OpeningBalanceStatus.Submitted => "warn",
+        OpeningBalanceStatus.Cancelled => "bad",
+        _ => "",
+    };
+}

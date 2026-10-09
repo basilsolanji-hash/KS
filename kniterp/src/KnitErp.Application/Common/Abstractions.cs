@@ -2,6 +2,7 @@ using KnitErp.Domain.Access;
 using KnitErp.Domain.Audit;
 using KnitErp.Domain.Organizations;
 using KnitErp.Domain.Catalog;
+using KnitErp.Domain.Common;
 using KnitErp.Domain.Structure;
 using KnitErp.Domain.Warehousing;
 using Microsoft.EntityFrameworkCore;
@@ -46,6 +47,9 @@ public interface IKnitErpDbContext
     DbSet<Warehouse> Warehouses { get; }
     DbSet<Counterparty> Counterparties { get; }
     DbSet<OperationReason> OperationReasons { get; }
+    DbSet<OpeningBalance> OpeningBalances { get; }
+    DbSet<StockMovement> StockMovements { get; }
+    DbSet<DocumentCounter> DocumentCounters { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 
