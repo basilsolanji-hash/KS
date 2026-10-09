@@ -95,7 +95,7 @@ dotnet ef migrations add <ИмяИзменения> -p src/KnitErp.Infrastructur
 **1. Скачать код** (ветка с последней версией):
 
 ```bash
-git clone https://github.com/basilsolanji-hash/KS.git
+git clone https://github.com/basilsolanji-hash/kniterp.ru.git
 cd KS
 git checkout claude/fervent-volta-3pn88r
 ```

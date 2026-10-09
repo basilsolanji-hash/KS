@@ -25,7 +25,7 @@ HTTPS даёт Caddy (сертификат Let's Encrypt выпускается 
 
 ```bash
 apt-get update && apt-get install -y git
-git clone https://github.com/basilsolanji-hash/KS.git /opt/kniterp/src
+git clone https://github.com/basilsolanji-hash/kniterp.ru.git /opt/kniterp/src
 cd /opt/kniterp/src && git checkout claude/fervent-volta-3pn88r
 cd kniterp/deploy/beget
 ./install.sh erp.ваша-фабрика.ru
