@@ -36,6 +36,7 @@ public static class AuditLabels
         [AuditActions.CatalogChanged] = "Изменено в справочнике",
         [AuditActions.CatalogArchived] = "Отправлено в архив",
         [AuditActions.CatalogRestored] = "Возвращено из архива",
+        [AuditActions.CatalogImported] = "Импорт номенклатуры",
         [AuditActions.OrganizationCreated] = "Создана организация",
         [AuditActions.OrganizationRequisitesChanged] = "Изменены реквизиты",
     };

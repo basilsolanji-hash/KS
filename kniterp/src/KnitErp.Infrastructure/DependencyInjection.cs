@@ -1,5 +1,6 @@
 using KnitErp.Application.Common;
 using KnitErp.Infrastructure.Persistence;
+using KnitErp.Infrastructure.Spreadsheets;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,6 +16,7 @@ public static class DependencyInjection
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
         services.AddDbContext<KnitErpDbContext>(o => o.UseSqlServer(connectionString, ConfigureSqlServer));
         services.AddScoped<IKnitErpDbContext>(sp => sp.GetRequiredService<KnitErpDbContext>());
+        services.AddSingleton<ISpreadsheetFormat, ClosedXmlSpreadsheet>();
         return services;
     }
 

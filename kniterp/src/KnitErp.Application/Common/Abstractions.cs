@@ -44,8 +44,22 @@ public interface IKnitErpDbContext
     DbSet<Item> Items { get; }
     DbSet<Site> Sites { get; }
     DbSet<Warehouse> Warehouses { get; }
+    DbSet<Counterparty> Counterparties { get; }
+    DbSet<OperationReason> OperationReasons { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 
     Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default);
+}
+
+/// <summary>Лист таблицы для выгрузки: заголовок и строки как текст.</summary>
+public sealed record SheetData(string Name, IReadOnlyList<string> Header, IReadOnlyList<IReadOnlyList<string>> Rows);
+
+/// <summary>Чтение и запись таблиц Excel (.xlsx). Реализация — в Infrastructure, сценарии от библиотеки не зависят.</summary>
+public interface ISpreadsheetFormat
+{
+    /// <summary>Строки первого листа как текст, вместе с заголовком. Плохой файл — BusinessRuleException.</summary>
+    IReadOnlyList<IReadOnlyList<string>> ReadFirstSheet(Stream stream, int maxRows);
+
+    byte[] Write(IReadOnlyList<SheetData> sheets);
 }

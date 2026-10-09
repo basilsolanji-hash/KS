@@ -315,3 +315,46 @@ internal sealed class WarehouseConfiguration : IEntityTypeConfiguration<Warehous
             .HasDatabaseName("ux_warehouses_org_name_active");
     }
 }
+
+internal sealed class CounterpartyConfiguration : IEntityTypeConfiguration<Counterparty>
+{
+    public void Configure(EntityTypeBuilder<Counterparty> b)
+    {
+        b.ToTable("counterparties", t =>
+        {
+            t.HasCheckConstraint("ck_counterparties_role", "[IsSupplier] = 1 OR [IsCustomer] = 1");
+            t.HasCheckConstraint("ck_counterparties_inn", "[Inn] IS NULL OR ((LEN([Inn]) = 10 OR LEN([Inn]) = 12) AND [Inn] NOT LIKE '%[^0-9]%')");
+            t.HasCheckConstraint("ck_counterparties_kpp", "[Kpp] IS NULL OR (LEN([Kpp]) = 9 AND LEN([Inn]) = 10)");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Name).HasMaxLength(Counterparty.NameMaxLength).IsRequired();
+        b.Property(x => x.Inn).HasColumnType("varchar(12)");
+        b.Property(x => x.Kpp).HasColumnType("char(9)");
+        b.Property(x => x.Comment).HasMaxLength(Counterparty.CommentMaxLength);
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_counterparties_org_id");
+        // Филиалы одной организации отличаются КПП, поэтому уникальна пара ИНН + КПП среди действующих.
+        b.HasIndex(x => new { x.OrganizationId, x.Inn, x.Kpp }).IsUnique()
+            .HasFilter("[Inn] IS NOT NULL AND [IsArchived] = 0").HasDatabaseName("ux_counterparties_org_inn_kpp_active");
+        b.HasIndex(x => new { x.OrganizationId, x.Name }).HasDatabaseName("ix_counterparties_org_name");
+    }
+}
+
+internal sealed class OperationReasonConfiguration : IEntityTypeConfiguration<OperationReason>
+{
+    public void Configure(EntityTypeBuilder<OperationReason> b)
+    {
+        b.ToTable("operation_reasons", t => t.HasCheckConstraint("ck_operation_reasons_kind", "[Kind] IN (1, 2, 3, 4)"));
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Kind).HasConversion<byte>();
+        b.Property(x => x.Name).HasMaxLength(OperationReason.NameMaxLength).IsRequired();
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_operation_reasons_org_id");
+        b.HasIndex(x => new { x.OrganizationId, x.Kind, x.Name }).IsUnique().HasFilter("[IsArchived] = 0")
+            .HasDatabaseName("ux_operation_reasons_org_kind_name_active");
+    }
+}

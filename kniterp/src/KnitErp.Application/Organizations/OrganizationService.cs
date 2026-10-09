@@ -114,6 +114,7 @@ public sealed class OrganizationService(IKnitErpDbContext db, IAccessGuard guard
         var roles = SystemRoles.Ordered.Select(code => Role.CreateSystem(org.Id, code)).ToList();
         db.Roles.AddRange(roles);
         Catalog.CatalogService.SeedDefaultUnits(db, org.Id);
+        Warehousing.OperationReasonService.SeedDefaults(db, org.Id);
         db.OrganizationMembers.Add(OrganizationMember.Join(org.Id, owner.Id, now));
         await db.SaveChangesAsync(ct);
 

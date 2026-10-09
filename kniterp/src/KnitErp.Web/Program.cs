@@ -1,5 +1,6 @@
 using KnitErp.Application;
 using KnitErp.Application.Authentication;
+using KnitErp.Application.Catalog;
 using KnitErp.Application.Common;
 using KnitErp.Application.Organizations;
 using KnitErp.Infrastructure;
@@ -100,9 +101,27 @@ app.MapPost("/account/logout", async (HttpContext http, IAntiforgery antiforgery
     return Results.LocalRedirect("~/account/login");
 }).AllowAnonymous();
 
+// Файлы Excel отдаются обычными ссылками: права проверяет сервис, отказ — 403 и запись в журнал.
+app.MapGet("/catalog/items.xlsx", (ItemExchangeService exchange, CancellationToken ct) =>
+    FileOrForbid(() => exchange.ExportAsync(ct), $"nomenklatura-{DateTime.UtcNow:yyyy-MM-dd}.xlsx"));
+app.MapGet("/catalog/items-template.xlsx", (ItemExchangeService exchange, CancellationToken ct) =>
+    FileOrForbid(() => exchange.TemplateAsync(ct), "shablon-nomenklatury.xlsx"));
+
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 
 app.Run();
+
+static async Task<IResult> FileOrForbid(Func<Task<byte[]>> build, string fileName)
+{
+    try
+    {
+        return Results.File(await build(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+    }
+    catch (AccessDeniedException)
+    {
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
+    }
+}
 
 static async Task MigrateAsync(WebApplication app)
 {

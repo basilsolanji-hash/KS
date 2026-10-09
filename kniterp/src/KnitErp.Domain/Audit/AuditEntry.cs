@@ -94,6 +94,7 @@ public static class AuditActions
     public const string CatalogChanged = "catalog.changed";
     public const string CatalogArchived = "catalog.archived";
     public const string CatalogRestored = "catalog.restored";
+    public const string CatalogImported = "catalog.imported";
     public const string OrganizationCreated = "organization.created";
     public const string OrganizationRequisitesChanged = "organization.requisites.changed";
 }

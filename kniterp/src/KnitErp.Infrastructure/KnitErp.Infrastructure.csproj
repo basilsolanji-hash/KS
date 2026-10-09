@@ -6,6 +6,7 @@
     <ProjectReference Include="..\KnitErp.Application\KnitErp.Application.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="ClosedXML" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
     <!-- Только для команды dotnet ef: в сборку приложения не попадает. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">

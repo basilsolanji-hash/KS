@@ -75,10 +75,15 @@ public sealed class SqlTestHost : IAsyncLifetime
             new StructureService(db, guard, user, Clock),
             new EmployeeService(db, guard, access, user, Clock),
             new CatalogService(db, guard, user, Clock),
-            new WarehouseService(db, guard, user, Clock));
+            new WarehouseService(db, guard, user, Clock),
+            new CounterpartyService(db, guard, user, Clock),
+            new OperationReasonService(db, guard, user, Clock),
+            new ItemExchangeService(db, guard, Spreadsheet, user, Clock));
     }
 
     private static readonly IPasswordHasher<UserAccount> Hasher = new PasswordHasher<UserAccount>();
+
+    public static readonly ISpreadsheetFormat Spreadsheet = new KnitErp.Infrastructure.Spreadsheets.ClosedXmlSpreadsheet();
 
     public async Task InitializeAsync()
     {
@@ -113,7 +118,10 @@ public sealed record Services(
     StructureService Structure,
     EmployeeService Employees,
     CatalogService Catalog,
-    WarehouseService Warehouses) : IAsyncDisposable
+    WarehouseService Warehouses,
+    CounterpartyService Counterparties,
+    OperationReasonService Reasons,
+    ItemExchangeService ItemExchange) : IAsyncDisposable
 {
     public ValueTask DisposeAsync() => Db.DisposeAsync();
 }

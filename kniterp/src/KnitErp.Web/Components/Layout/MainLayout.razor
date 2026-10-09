@@ -53,6 +53,7 @@
         ("employees", "Сотрудники", a => a.HasOwnOnly(Permissions.EmployeeView)),
         ("catalog", "Номенклатура", a => a.Has(Permissions.CatalogView)),
         ("warehouses", "Склады", a => a.Has(Permissions.CatalogView)),
+        ("counterparties", "Контрагенты", a => a.Has(Permissions.CatalogView)),
         ("users", "Пользователи", a => a.Has(Permissions.UserView)),
         ("roles", "Роли и права", a => a.Has(Permissions.UserView)),
         ("audit", "Журнал аудита", a => a.HasOwnOnly(Permissions.AuditLogView)),

@@ -27,6 +27,8 @@ public sealed class KnitErpDbContext(DbContextOptions<KnitErpDbContext> options)
     public DbSet<Item> Items => Set<Item>();
     public DbSet<Site> Sites => Set<Site>();
     public DbSet<Warehouse> Warehouses => Set<Warehouse>();
+    public DbSet<Counterparty> Counterparties => Set<Counterparty>();
+    public DbSet<OperationReason> OperationReasons => Set<OperationReason>();
 
     public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default) =>
         Database.BeginTransactionAsync(cancellationToken);

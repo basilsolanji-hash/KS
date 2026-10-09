@@ -38,11 +38,11 @@ public sealed class MigrationTests(SqlTestHost host) : IClassFixture<SqlTestHost
     }
 
     /// <summary>
-    /// Обновление существующей базы: организация, созданная до справочников, получает стандартные единицы.
+    /// Обновление существующей базы: организация, созданная до справочников, получает стандартные единицы и причины операций.
     /// Так обновится и база, которая уже работает (или у пользователя локально).
     /// </summary>
     [SqlFact]
-    public async Task Upgrade_seeds_default_units_for_existing_organizations()
+    public async Task Upgrade_seeds_default_units_and_reasons_for_existing_organizations()
     {
         var connection = new SqlConnectionStringBuilder(Environment.GetEnvironmentVariable(SqlTestHost.EnvVar))
         {
@@ -63,6 +63,7 @@ public sealed class MigrationTests(SqlTestHost host) : IClassFixture<SqlTestHost
 
             var codes = await db.Units.Select(u => u.Code).OrderBy(c => c).ToListAsync();
             Assert.Equal(KnitErp.Domain.Catalog.UnitOfMeasure.Defaults.Select(u => u.Code).OrderBy(c => c), codes);
+            Assert.Equal(KnitErp.Domain.Warehousing.OperationReason.Defaults.Count, await db.OperationReasons.CountAsync());
         }
         finally
         {

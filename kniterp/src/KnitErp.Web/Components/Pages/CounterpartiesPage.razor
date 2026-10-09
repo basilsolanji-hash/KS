@@ -1,0 +1,245 @@
+@page "/counterparties"
+@using KnitErp.Application.Catalog
+@using KnitErp.Web.Components.Shared
+@inject CounterpartyService Counterparties
+
+<PageTitle>Контрагенты — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_list is null)
+{
+    <p class="muted">Загрузка…</p>
+}
+else
+{
+    <div class="page-head">
+        <h1>Контрагенты</h1>
+        @if (_list.CanEdit && _mode == Mode.None)
+        {
+            <button type="button" @onclick="OpenCreate" disabled="@_busy">Добавить контрагента</button>
+        }
+    </div>
+
+    @if (_flash is not null)
+    {
+        <div class="@(_flashIsError ? "flash error" : "flash")" role="@(_flashIsError ? "alert" : "status")"><span>@_flash</span><button type="button" class="link" aria-label="Закрыть сообщение" @onclick="() => _flash = null">×</button></div>
+    }
+
+    @if (_mode is Mode.Create or Mode.Edit)
+    {
+        <div class="panel">
+            <h2>@(_mode == Mode.Create ? "Новый контрагент" : _target!.Name)</h2>
+            <EditForm Model="_form" OnValidSubmit="SaveAsync" FormName="counterparty">
+                <div class="grid">
+                    <label>Наименование <InputText @bind-Value="_form.Name" maxlength="300" required placeholder="ООО «Пряжа»" /></label>
+                    <label>ИНН <InputText @bind-Value="_form.Inn" maxlength="12" inputmode="numeric" placeholder="10 цифр у организации, 12 у ИП" /></label>
+                    <label>КПП <InputText @bind-Value="_form.Kpp" maxlength="9" placeholder="только у организации" /></label>
+                    <label>Комментарий <InputText @bind-Value="_form.Comment" maxlength="1000" /></label>
+                    <label class="inline"><InputCheckbox @bind-Value="_form.IsSupplier" /> Поставщик</label>
+                    <label class="inline"><InputCheckbox @bind-Value="_form.IsCustomer" /> Покупатель</label>
+                </div>
+                @if (_formError is not null)
+                {
+                    <div class="error" role="alert">@_formError</div>
+                }
+                <div class="actions">
+                    <button type="submit" disabled="@_busy">Сохранить</button>
+                    <button type="button" class="secondary" @onclick="Close" disabled="@_busy">Отмена</button>
+                </div>
+            </EditForm>
+        </div>
+    }
+
+    <form class="inline-form" @onsubmit="ReloadAsync">
+        <label>
+            Показать
+            <select @bind="_role">
+                <option value="">Всех</option>
+                <option value="s">Поставщиков</option>
+                <option value="c">Покупателей</option>
+            </select>
+        </label>
+        <label>Поиск <input @bind="_search" placeholder="Наименование или ИНН" /></label>
+        <label class="inline"><input type="checkbox" @bind="_includeArchived" /> Показать архив</label>
+        <button type="submit" class="secondary" disabled="@_busy">Найти</button>
+    </form>
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>Наименование</th><th>ИНН / КПП</th><th>Роль</th>@if (_list.CanEdit || _list.CanArchive) { <th>Действия</th> }</tr></thead>
+            <tbody>
+                @if (_list.Counterparties.Count == 0)
+                {
+                    <tr><td colspan="4" class="muted">Контрагентов не найдено.</td></tr>
+                }
+                @foreach (var c in _list.Counterparties)
+                {
+                    <tr class="@(c.IsArchived ? "archived" : null)">
+                        <td>@c.Name @if (c.IsArchived) { <span class="tag">архив</span> }@if (c.Comment is not null) { <div class="muted">@c.Comment</div> }</td>
+                        <td>@(c.Inn ?? "—")@if (c.Kpp is not null) { <span class="muted"> / @c.Kpp</span> }</td>
+                        <td>@c.RolesText</td>
+                        @if (_list.CanEdit || _list.CanArchive)
+                        {
+                            <td>
+                                <div class="row-actions">
+                                    @if (!c.IsArchived && _list.CanEdit)
+                                    {
+                                        <button type="button" class="secondary" @onclick="() => OpenEdit(c)" disabled="@(_busy || _mode != Mode.None)">Изменить</button>
+                                    }
+                                    @if (_list.CanArchive)
+                                    {
+                                        @if (c.IsArchived)
+                                        {
+                                            <button type="button" class="secondary" @onclick="() => RestoreAsync(c)" disabled="@_busy">Вернуть</button>
+                                        }
+                                        else
+                                        {
+                                            <button type="button" class="secondary" @onclick="() => ArchiveAsync(c)" disabled="@(_busy || _mode != Mode.None)">В архив</button>
+                                        }
+                                    }
+                                </div>
+                            </td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private enum Mode { None, Create, Edit }
+
+    private CounterpartyListDto? _list;
+    private CounterpartyForm _form = new();
+    private CounterpartyDto? _target;
+    private Mode _mode;
+    private bool _busy;
+    private string? _denied;
+    private string? _formError;
+    private string? _flash;
+    private bool _flashIsError;
+    private string _role = string.Empty;
+    private string _search = string.Empty;
+    private bool _includeArchived;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = ex.Message;
+        }
+    }
+
+    private async Task LoadAsync() =>
+        _list = await Counterparties.ListAsync(new CounterpartyFilter(
+            _role == "s" ? true : null, _role == "c" ? true : null, _search, _includeArchived));
+
+    private Task ReloadAsync() => RunAsync(() => Task.CompletedTask, null);
+
+    private void OpenCreate()
+    {
+        _flash = null;
+        _formError = null;
+        _target = null;
+        _form = new CounterpartyForm { IsSupplier = true };
+        _mode = Mode.Create;
+    }
+
+    private void OpenEdit(CounterpartyDto c)
+    {
+        _flash = null;
+        _formError = null;
+        _target = c;
+        _form = new CounterpartyForm
+        {
+            Name = c.Name, Inn = c.Inn, Kpp = c.Kpp, IsSupplier = c.IsSupplier, IsCustomer = c.IsCustomer, Comment = c.Comment,
+        };
+        _mode = Mode.Edit;
+    }
+
+    private void Close()
+    {
+        _mode = Mode.None;
+        _target = null;
+        _formError = null;
+    }
+
+    private Task SaveAsync() => RunAsync(async () =>
+    {
+        var cmd = new CounterpartyCommand(_form.Name, _form.Inn, _form.Kpp, _form.IsSupplier, _form.IsCustomer, _form.Comment);
+        if (_mode == Mode.Create)
+        {
+            await Counterparties.CreateAsync(cmd);
+        }
+        else
+        {
+            await Counterparties.UpdateAsync(_target!.Id, cmd, _target.RowVersion);
+        }
+
+        Close();
+    }, "Контрагент сохранён.");
+
+    private Task ArchiveAsync(CounterpartyDto c) => RunAsync(() => Counterparties.ArchiveAsync(c.Id, c.RowVersion), $"Контрагент «{c.Name}» в архиве.");
+
+    private Task RestoreAsync(CounterpartyDto c) => RunAsync(() => Counterparties.RestoreAsync(c.Id, c.RowVersion), $"Контрагент «{c.Name}» возвращён из архива.");
+
+    /// <summary>Одна операция за раз, затем свежие данные: у вкладки один DbContext.</summary>
+    private async Task RunAsync(Func<Task> action, string? success)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _flash = null;
+        _flashIsError = false;
+        _formError = null;
+        try
+        {
+            await action();
+            _flash = success;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            if (_mode == Mode.None)
+            {
+                _flash = UiErrors.Message(ex);
+                _flashIsError = true;
+            }
+            else
+            {
+                _formError = UiErrors.Message(ex);
+            }
+        }
+        finally
+        {
+            try
+            {
+                await LoadAsync();
+            }
+            finally
+            {
+                _busy = false;
+            }
+        }
+    }
+
+    private sealed class CounterpartyForm
+    {
+        public string Name { get; set; } = string.Empty;
+        public string? Inn { get; set; }
+        public string? Kpp { get; set; }
+        public bool IsSupplier { get; set; }
+        public bool IsCustomer { get; set; }
+        public string? Comment { get; set; }
+    }
+}

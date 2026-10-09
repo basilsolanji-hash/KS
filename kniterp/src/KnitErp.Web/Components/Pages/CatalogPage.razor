@@ -3,6 +3,7 @@
 @using KnitErp.Domain.Catalog
 @using KnitErp.Web.Components.Shared
 @inject CatalogService Catalog
+@inject ItemExchangeService Exchange
 
 <PageTitle>Номенклатура — knitERP</PageTitle>
 
@@ -68,6 +69,71 @@ else
                 </div>
             </EditForm>
         </div>
+    }
+
+    <div class="actions" style="margin-bottom: 12px">
+        <button type="button" class="secondary" @onclick="() => _showExchange = !_showExchange" aria-expanded="@(_showExchange ? "true" : "false")">
+            Excel: выгрузка и загрузка @(_showExchange ? "▲" : "▼")
+        </button>
+    </div>
+    @if (_showExchange)
+    {
+    <div class="panel exchange">
+        <div class="actions">
+            <a class="button secondary" href="catalog/items.xlsx" download data-enhance-nav="false">Выгрузить номенклатуру</a>
+            @if (CurrentAccess.Has(Permissions.CatalogImport))
+            {
+                <a class="button secondary" href="catalog/items-template.xlsx" download data-enhance-nav="false">Скачать шаблон</a>
+            }
+        </div>
+        @if (CurrentAccess.Has(Permissions.CatalogImport))
+        {
+            <p class="muted">
+                Загрузка создаёт новые позиции и обновляет существующие по коду. Сначала файл проверяется целиком;
+                если в нём есть ошибки, не загружается ничего. До @ItemExchangeService.MaxRows строк, файл до 5 МБ.
+            </p>
+            <label>Файл .xlsx <InputFile OnChange="PreviewImportAsync" accept=".xlsx" disabled="@_busy" /></label>
+        }
+
+        @if (_plan is not null)
+        {
+            <div class="totals" role="status">
+                <span>Строк: <b>@_plan.Total</b></span>
+                <span>Создать: <b>@_plan.ToCreate</b></span>
+                <span>Обновить: <b>@_plan.ToUpdate</b></span>
+                <span>Без изменений: <b>@_plan.Unchanged</b></span>
+                <span class="@(_plan.ErrorRows > 0 ? "bad" : null)">С ошибками: <b>@_plan.ErrorRows</b></span>
+            </div>
+            @if (_plan.ErrorRows > 0)
+            {
+                <div class="error" role="alert">В файле есть ошибки — ничего не будет загружено. Исправьте строки ниже и загрузите файл снова.</div>
+            }
+            <div class="scroll" style="max-height: 360px; overflow-y: auto">
+                <table>
+                    <thead><tr><th>Строка</th><th>Код</th><th>Наименование</th><th>Действие</th><th>Ошибки</th></tr></thead>
+                    <tbody>
+                        @foreach (var r in _plan.Rows.OrderBy(r => r.Action == ImportAction.Error ? 0 : 1).ThenBy(r => r.RowNumber).Take(500))
+                        {
+                            <tr>
+                                <td>@r.RowNumber</td>
+                                <td>@r.Code</td>
+                                <td>@r.Name</td>
+                                <td><span class="tag @ActionClass(r.Action)">@ActionText(r.Action)</span></td>
+                                <td>@string.Join(" ", r.Errors)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div class="actions">
+                @if (_plan.CanApply)
+                {
+                    <button type="button" @onclick="ApplyImportAsync" disabled="@_busy">Загрузить: создать @_plan.ToCreate, обновить @_plan.ToUpdate</button>
+                }
+                <button type="button" class="secondary" @onclick="() => _plan = null" disabled="@_busy">Закрыть протокол</button>
+            </div>
+        }
+    </div>
     }
 
     <form class="inline-form" @onsubmit="ReloadAsync">
@@ -190,6 +256,11 @@ else
     private string? _denied;
     private string? _formError;
     private string? _flash;
+    private ItemImportPlan? _plan;
+    private bool _showExchange;
+
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
     private bool _flashIsError;
     private string _typeFilter = string.Empty;
     private string _search = string.Empty;
@@ -265,6 +336,45 @@ else
 
     private Task ArchiveUnitAsync(UnitDto u) => RunAsync(() => Catalog.ArchiveUnitAsync(u.Id, u.RowVersion), $"Единица «{u.Name}» в архиве.");
 
+    /// <summary>Файл читается в память целиком (до 5 МБ) и проверяется; в базе ничего не меняется.</summary>
+    private Task PreviewImportAsync(InputFileChangeEventArgs e) => RunAsync(async () =>
+    {
+        _plan = null;
+        const long maxSize = 5 * 1024 * 1024;
+        if (e.File.Size > maxSize)
+        {
+            throw new BusinessRuleException("import.file_too_large", "Файл больше 5 МБ. Разбейте его на части.");
+        }
+
+        await using var upload = e.File.OpenReadStream(maxAllowedSize: maxSize);
+        using var buffer = new MemoryStream();
+        await upload.CopyToAsync(buffer);
+        buffer.Position = 0;
+        _plan = await Exchange.PreviewAsync(buffer);
+    }, null);
+
+    private Task ApplyImportAsync() => RunAsync(async () =>
+    {
+        var result = await Exchange.ApplyAsync(_plan!.Rows);
+        _plan = null;
+        _flash = $"Загружено: создано {result.Created}, обновлено {result.Updated}.";
+    }, null);
+
+    private static string ActionText(ImportAction a) => a switch
+    {
+        ImportAction.Create => "создать",
+        ImportAction.Update => "обновить",
+        ImportAction.Unchanged => "без изменений",
+        _ => "ошибка",
+    };
+
+    private static string? ActionClass(ImportAction a) => a switch
+    {
+        ImportAction.Create or ImportAction.Update => "ok",
+        ImportAction.Error => "bad",
+        _ => null,
+    };
+
     private Task CreateUnitAsync() => RunAsync(async () =>
     {
         await Catalog.CreateUnitAsync(new UnitCommand(_unit.Code, _unit.Name, _unit.Symbol, _unit.Precision));
@@ -286,7 +396,7 @@ else
         try
         {
             await action();
-            _flash = success;
+            _flash = success ?? _flash;
         }
         catch (Exception ex) when (UiErrors.IsUserFacing(ex))
         {
