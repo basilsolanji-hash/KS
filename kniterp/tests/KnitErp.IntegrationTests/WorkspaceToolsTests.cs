@@ -151,6 +151,49 @@ public sealed class WorkspaceToolsTests(SqlTestHost host) : IClassFixture<SqlTes
     }
 
     [SqlFact]
+    public async Task Assistant_answers_in_interface_language()
+    {
+        var f = await SetUpAsync();
+        host.UiText = new MarkedUiText();
+        try
+        {
+            await using (var s = host.As(f.Keeper, f.Org.OrganizationId))
+            {
+                // Без модели: ответ из справки — на языке пользователя.
+                var reply = await s.Assistant.AskAsync("Как исправить проведённое списание?", "stock-documents/5", []);
+                Assert.StartsWith("[uz]Нашёл в справке:", reply.Text);
+                Assert.Contains("«[uz]Поступление, перемещение, списание»", reply.Text);
+                var hits = await s.Search.SearchAsync("сторно");
+                Assert.Contains(hits, h => h.Kind == SearchHitKind.Help && h.Title == "[uz]Поступление, перемещение, списание");
+            }
+
+            var model = new RecordingModel();
+            host.AssistantModel = model;
+            await using (var s = host.As(f.Keeper, f.Org.OrganizationId))
+            {
+                await s.Assistant.AskAsync("Qanday qilib hisobdan chiqarish kerak?", "stock-documents", []);
+                Assert.Contains("Отвечай по-узбекски (латиницей)", model.System);
+                Assert.Contains("[uz]Создайте черновик кнопкой", model.System);
+                Assert.Contains("[uz]Кладовщик", model.System);
+                Assert.Contains("[uz]Складские документы: черновик", model.System);
+            }
+        }
+        finally
+        {
+            host.UiText = new RussianUiText();
+            host.AssistantModel = new DisabledAssistantModel();
+        }
+    }
+
+    /// <summary>«Перевод» с пометкой: видно, какие тексты сервис переводит.</summary>
+    private sealed class MarkedUiText : IUiText
+    {
+        public string LanguageCode => "uz";
+
+        public string Translate(string russian) => "[uz]" + russian;
+    }
+
+    [SqlFact]
     public async Task Website_and_position_reach_current_access()
     {
         var f = await SetUpAsync();

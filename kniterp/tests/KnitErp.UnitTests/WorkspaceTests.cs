@@ -60,6 +60,41 @@ public sealed class WorkspaceTests
     }
 
     [Theory]
+    [InlineData("uz", "inventarizatsiya kamomad", "inventory")]
+    [InlineData("kk", "түгендеу кемшілік", "inventory")]
+    [InlineData("be", "інвентарызацыя недастача", "inventory")]
+    [InlineData("uz", "zaxira kodlar telefon yoʻqolsa", "security")]
+    [InlineData("kk", "ҚҚС мөлшерлемесі", "vat")]
+    public void Help_search_understands_interface_language(string code, string query, string expected)
+    {
+        var language = new FileUiText(code);
+        Assert.Equal(expected, HelpCenter.Search(query, 5, language)[0].Id);
+        Assert.Empty(HelpCenter.Search(query, 5)); // Без перевода — только русский текст.
+    }
+
+    /// <summary>Переводы из Localization/{code}.json — как в интерфейсе.</summary>
+    private sealed class FileUiText(string code) : IUiText
+    {
+        private readonly Dictionary<string, string> _dict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(
+            File.ReadAllText(Path.Combine(Root(), "src", "KnitErp.Web", "Localization", $"{code}.json")))!;
+
+        public string LanguageCode => code;
+
+        public string Translate(string russian) => _dict.GetValueOrDefault(russian, russian);
+
+        private static string Root()
+        {
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (!File.Exists(Path.Combine(dir!.FullName, "KnitErp.slnx")))
+            {
+                dir = dir.Parent;
+            }
+
+            return dir.FullName;
+        }
+    }
+
+    [Theory]
     [InlineData("fabrika.ru", "https://fabrika.ru/")]
     [InlineData("  https://www.ks-knit.ru/catalog ", "https://www.ks-knit.ru/catalog")]
     [InlineData("", null)]

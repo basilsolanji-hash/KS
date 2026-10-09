@@ -219,7 +219,7 @@ public sealed record SearchHitDto(SearchHitKind Kind, string Title, string? Subt
 /// Быстрый поиск: номенклатура по коду и названию, документы по номеру (в области складов пользователя), справка.
 /// Разделы меню ищет интерфейс — он знает их список. Показывается только доступное по правам.
 /// </summary>
-public sealed class QuickSearchService(IKnitErpDbContextFactory factory, ICurrentUser currentUser, IClock clock)
+public sealed class QuickSearchService(IKnitErpDbContextFactory factory, ICurrentUser currentUser, IClock clock, IUiText ui)
 {
     public const int MaxPerKind = 8;
 
@@ -245,7 +245,7 @@ public sealed class QuickSearchService(IKnitErpDbContextFactory factory, ICurren
                     .Select(i => new { i.Code, i.Name, i.IsArchived }).ToListAsync(ct);
                 var stock = ctx.Permissions.Has(Permissions.WarehouseReportView);
                 hits.AddRange(items.Select(i => new SearchHitDto(SearchHitKind.Item, $"{i.Code} — {i.Name}",
-                    i.IsArchived ? "Номенклатура, в архиве" : stock ? "Номенклатура · открыть остатки" : "Номенклатура",
+                    ui.Translate(i.IsArchived ? "Номенклатура, в архиве" : stock ? "Номенклатура · открыть остатки" : "Номенклатура"),
                     stock ? $"stock?search={Uri.EscapeDataString(i.Code)}" : $"catalog?search={Uri.EscapeDataString(i.Code)}", null)));
             }
 
@@ -257,14 +257,14 @@ public sealed class QuickSearchService(IKnitErpDbContextFactory factory, ICurren
                     .Where(d => d.OrganizationId == org && d.Number.Contains(text)
                                 && (visible == null || visible.Contains(d.WarehouseId) || (d.TargetWarehouseId != null && visible.Contains(d.TargetWarehouseId.Value))))
                     .OrderByDescending(d => d.Id).Take(MaxPerKind).Select(d => new { d.Id, d.Number, d.Kind, d.Status, d.DocumentDate }).ToListAsync(ct);
-                hits.AddRange(docs.Select(d => new SearchHitDto(SearchHitKind.Document, $"{StockDocument.KindName(d.Kind)} {d.Number}",
-                    $"{d.DocumentDate:dd.MM.yyyy} · {StockDocument.StatusName(d.Status)}", $"stock-documents/{d.Id}", null)));
+                hits.AddRange(docs.Select(d => new SearchHitDto(SearchHitKind.Document, $"{ui.Translate(StockDocument.KindName(d.Kind))} {d.Number}",
+                    $"{d.DocumentDate:dd.MM.yyyy} · {ui.Translate(StockDocument.StatusName(d.Status))}", $"stock-documents/{d.Id}", null)));
 
                 var counts = await db.InventoryCounts.AsNoTracking()
                     .Where(d => d.OrganizationId == org && d.Number.Contains(text) && (visible == null || visible.Contains(d.WarehouseId)))
                     .OrderByDescending(d => d.Id).Take(MaxPerKind).Select(d => new { d.Id, d.Number, d.Status, d.CountDate }).ToListAsync(ct);
-                hits.AddRange(counts.Select(d => new SearchHitDto(SearchHitKind.Document, $"Инвентаризация {d.Number}",
-                    $"{d.CountDate:dd.MM.yyyy} · {InventoryCount.StatusName(d.Status)}", $"inventory/{d.Id}", null)));
+                hits.AddRange(counts.Select(d => new SearchHitDto(SearchHitKind.Document, $"{ui.Translate("Инвентаризация")} {d.Number}",
+                    $"{d.CountDate:dd.MM.yyyy} · {ui.Translate(InventoryCount.StatusName(d.Status))}", $"inventory/{d.Id}", null)));
             }
 
             string[] openingPermissions = [Permissions.OpeningBalanceCreate, Permissions.OpeningBalanceApprove, Permissions.WarehouseReportView];
@@ -274,12 +274,13 @@ public sealed class QuickSearchService(IKnitErpDbContextFactory factory, ICurren
                 var opening = await db.OpeningBalances.AsNoTracking()
                     .Where(d => d.OrganizationId == org && d.Number.Contains(text) && (visible == null || visible.Contains(d.WarehouseId)))
                     .OrderByDescending(d => d.Id).Take(MaxPerKind).Select(d => new { d.Id, d.Number, d.Status, d.AsOfDate }).ToListAsync(ct);
-                hits.AddRange(opening.Select(d => new SearchHitDto(SearchHitKind.Document, $"Начальные остатки {d.Number}",
-                    $"{d.AsOfDate:dd.MM.yyyy} · {OpeningBalance.StatusName(d.Status)}", $"opening-balances/{d.Id}", null)));
+                hits.AddRange(opening.Select(d => new SearchHitDto(SearchHitKind.Document, $"{ui.Translate("Начальные остатки")} {d.Number}",
+                    $"{d.AsOfDate:dd.MM.yyyy} · {ui.Translate(OpeningBalance.StatusName(d.Status))}", $"opening-balances/{d.Id}", null)));
             }
         }
 
-        hits.AddRange(HelpCenter.Search(text, 3).Select(a => new SearchHitDto(SearchHitKind.Help, a.Title, "Справка · " + a.Category, null, a.Id)));
+        hits.AddRange(HelpCenter.Search(text, 3, ui).Select(a =>
+            new SearchHitDto(SearchHitKind.Help, ui.Translate(a.Title), ui.Translate("Справка") + " · " + ui.Translate(a.Category), null, a.Id)));
         return hits;
     }
 }
@@ -291,7 +292,7 @@ public sealed record AssistantReply(string Text, bool FromModel, IReadOnlyList<H
 /// данные фабрики (остатки, контрагенты, сотрудники) не передаются (допущение D49). Без настроенной модели или при
 /// её недоступности помощник отвечает статьями справочного центра — работа не останавливается.
 /// </summary>
-public sealed class AssistantService(IAssistantModel model, IKnitErpDbContextFactory factory, ICurrentUser currentUser, IClock clock)
+public sealed class AssistantService(IAssistantModel model, IKnitErpDbContextFactory factory, ICurrentUser currentUser, IClock clock, IUiText ui)
 {
     public const int MaxQuestionLength = 1000;
     public const int MaxRequestsPerHour = 30;
@@ -324,31 +325,32 @@ public sealed class AssistantService(IAssistantModel model, IKnitErpDbContextFac
                 .Where(a => a.OrganizationId == ctx.OrganizationId && a.UserId == ctx.UserId && a.RoleId != null && a.RevokedAtUtc == null
                             && a.ValidFromUtc <= now && (a.ValidToUtc == null || now < a.ValidToUtc))
                 .Select(a => a.RoleId!.Value).ToListAsync(ct);
-            roles = string.Join(", ", await db.Roles.AsNoTracking().Where(r => roleIds.Contains(r.Id)).Select(r => r.Name).ToListAsync(ct));
+            roles = string.Join(", ", (await db.Roles.AsNoTracking().Where(r => roleIds.Contains(r.Id)).Select(r => r.Name).ToListAsync(ct)).Select(ui.Translate));
         }
 
         var current = HelpCenter.ForRoute(route);
-        var related = HelpCenter.Search(text, 3).Where(a => a != current).ToList();
+        var related = HelpCenter.Search(text, 3, ui).Where(a => a != current).ToList();
         var articles = (current is null ? related : [current, .. related]).Take(4).ToList();
 
         if (!model.IsConfigured || !TryTakeQuota(ctx.UserId))
         {
-            return Fallback(articles, model.IsConfigured ? "Лимит вопросов помощнику на этот час исчерпан. Вот что есть в справке:" : null);
+            return Fallback(articles, model.IsConfigured ? ui.Translate("Лимит вопросов помощнику на этот час исчерпан. Вот что есть в справке:") : null);
         }
 
         var system = BuildSystemPrompt(roles, ctx, route, current, articles);
         var conversation = history.TakeLast(MaxHistoryTurns).Append(new AssistantTurn(true, text)).ToList();
         try
         {
-            return new AssistantReply(await model.AskAsync(system, conversation, ct), true, articles);
+            // Служебные ответы модели (отказ, пустой ответ) — ключи перевода; обычный ответ уже на языке пользователя.
+            return new AssistantReply(ui.Translate(await model.AskAsync(system, conversation, ct)), true, articles);
         }
         catch (ExternalServiceUnavailableException ex)
         {
-            return Fallback(articles, ex.Message + " Пока — ответ из справки:");
+            return Fallback(articles, ui.Translate(ex.Message) + " " + ui.Translate("Пока — ответ из справки:"));
         }
     }
 
-    private static AssistantReply Fallback(IReadOnlyList<HelpArticle> articles, string? lead)
+    private AssistantReply Fallback(IReadOnlyList<HelpArticle> articles, string? lead)
     {
         var sb = new StringBuilder();
         if (lead is not null)
@@ -358,34 +360,56 @@ public sealed class AssistantService(IAssistantModel model, IKnitErpDbContextFac
 
         if (articles.Count == 0)
         {
-            sb.Append("В справке ничего не нашлось. Переформулируйте вопрос или создайте обращение в «Поддержке».");
+            sb.Append(ui.Translate("В справке ничего не нашлось. Переформулируйте вопрос или создайте обращение в «Поддержке»."));
         }
         else
         {
-            sb.Append(lead is null ? "Нашёл в справке: " : "").Append(string.Join("; ", articles.Select(a => $"«{a.Title}»"))).Append('.');
+            sb.Append(lead is null ? ui.Translate("Нашёл в справке:") + " " : "").Append(string.Join("; ", articles.Select(a => $"«{ui.Translate(a.Title)}»"))).Append('.');
         }
 
         return new AssistantReply(sb.ToString().Trim(), false, articles);
     }
 
-    private static string BuildSystemPrompt(string roles, AccessContext ctx, string? route, HelpArticle? current, IReadOnlyList<HelpArticle> articles)
+    /// <summary>
+    /// Инструкция модели — по-русски, а справка, роли и права — на языке пользователя (D60): так ответ называет
+    /// разделы и кнопки так же, как их видит пользователь.
+    /// </summary>
+    private string BuildSystemPrompt(string roles, AccessContext ctx, string? route, HelpArticle? current, IReadOnlyList<HelpArticle> articles)
     {
-        var granted = string.Join("; ", Permissions.All.Where(ctx.Permissions.Has).Select(Permissions.Describe));
+        var granted = string.Join("; ", Permissions.All.Where(ctx.Permissions.Has).Select(p => ui.Translate(Permissions.Describe(p))));
         var sb = new StringBuilder();
-        sb.AppendLine("Ты — помощник по работе в knitERP, системе учёта трикотажной фабрики. Отвечай по-русски, коротко и по шагам.");
+        sb.AppendLine($"Ты — помощник по работе в knitERP, системе учёта трикотажной фабрики. Отвечай {AnswerLanguage(ui.LanguageCode)}, коротко и по шагам.");
         sb.AppendLine("Отвечай только о работе в системе. Не выдумывай функции и данные: если в справке ответа нет, так и скажи и предложи создать обращение в «Поддержке».");
         sb.AppendLine("Учитывай права пользователя: если для действия нужно право, которого у него нет, объясни, к кому обратиться (Владелец или Администратор), а не как обойти запрет.");
+        if (ui.LanguageCode != UiLanguages.Default)
+        {
+            sb.AppendLine("Названия разделов, кнопок, ролей и прав пиши так, как они даны ниже в справке и в списке прав.");
+        }
+
         sb.AppendLine($"Роли пользователя: {(roles.Length > 0 ? roles : "не назначены")}.");
         sb.AppendLine($"Права пользователя: {(granted.Length > 0 ? granted : "нет")}.");
-        sb.AppendLine($"Текущий раздел: {(string.IsNullOrWhiteSpace(route) ? "главная" : route.Split('?')[0])}{(current is null ? "" : $" ({current.Title})")}.");
+        sb.AppendLine($"Текущий раздел: {(string.IsNullOrWhiteSpace(route) ? "главная" : route.Split('?')[0])}{(current is null ? "" : $" ({ui.Translate(current.Title)})")}.");
         sb.AppendLine("Справка:");
         foreach (var a in articles.Count > 0 ? articles : HelpCenter.Articles.Take(2).ToList())
         {
-            sb.AppendLine($"## {a.Title}").AppendLine(a.Text);
+            sb.AppendLine($"## {ui.Translate(a.Title)}");
+            foreach (var p in a.Body)
+            {
+                sb.AppendLine(ui.Translate(p));
+            }
         }
 
         return sb.ToString();
     }
+
+    /// <summary>Язык ответа помощника — язык интерфейса пользователя.</summary>
+    private static string AnswerLanguage(string code) => code switch
+    {
+        "uz" => "по-узбекски (латиницей)",
+        "kk" => "по-казахски",
+        "be" => "по-белорусски",
+        _ => "по-русски",
+    };
 
     /// <summary>Не больше <see cref="MaxRequestsPerHour"/> обращений к модели в час на пользователя.</summary>
     private bool TryTakeQuota(long userId)

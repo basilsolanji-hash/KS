@@ -57,11 +57,11 @@ public sealed class ClaudeAssistantModel : IAssistantModel
 
             if (response.StopReason == "refusal")
             {
-                return "Не могу ответить на этот вопрос. Спросите о работе в knitERP или откройте справочный центр.";
+                return AssistantReplies.Refused;
             }
 
             var text = string.Join("\n", response.Content.Select(b => b.Value).OfType<BetaTextBlock>().Select(t => t.Text)).Trim();
-            return text.Length > 0 ? text : "Ответ пустой — переформулируйте вопрос.";
+            return text.Length > 0 ? text : AssistantReplies.Empty;
         }
         catch (AnthropicRateLimitException)
         {

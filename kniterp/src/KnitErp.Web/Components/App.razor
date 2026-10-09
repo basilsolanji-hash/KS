@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="@CurrentCode">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -128,8 +128,8 @@
             .scroll table:not(.matrix) td[data-opt] { display: none; }
             .scroll table:not(.matrix) tr[data-open] td[data-opt] { display: flex; }
             .scroll table:not(.matrix) tr[data-has-opt] { cursor: pointer; }
-            .scroll table:not(.matrix) tr[data-has-opt]::after { content: "Подробнее ▾"; display: block; padding-top: 6px; color: #2BA89A; font-size: 14px; }
-            .scroll table:not(.matrix) tr[data-has-opt][data-open]::after { content: "Свернуть ▴"; }
+            .scroll table:not(.matrix) tr[data-has-opt]::after { content: "@CssText("Подробнее") ▾"; display: block; padding-top: 6px; color: #2BA89A; font-size: 14px; }
+            .scroll table:not(.matrix) tr[data-has-opt][data-open]::after { content: "@CssText("Свернуть") ▴"; }
         }
 
         /* Колонка страницы: панель быстрого доступа сверху, затем содержимое. */

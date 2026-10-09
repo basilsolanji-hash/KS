@@ -16,7 +16,7 @@
                 <div class="chat-links">
                     @foreach (var a in m.Articles)
                     {
-                        <button type="button" class="link" @onclick="() => Context.OpenTool(ToolCatalog.Help, a.Id)">📖 @a.Title</button>
+                        <button type="button" class="link" @onclick="() => Context.OpenTool(ToolCatalog.Help, a.Id)">📖 @L(a.Title)</button>
                     }
                 </div>
             }

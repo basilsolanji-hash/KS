@@ -137,6 +137,30 @@ public sealed partial class TranslationCoverageTests
             keys.Add(KnitErp.Domain.Organizations.Countries.TaxIdRule(country.Code, organization: false));
         }
 
+        // Справочный центр: категории, заголовки и абзацы статей (их же получает ИИ-помощник).
+        foreach (var article in HelpCenter.Articles)
+        {
+            keys.Add(article.Category);
+            keys.Add(article.Title);
+            keys.UnionWith(article.Body);
+        }
+
+        // Тексты, которые сервисы переводят сами (ui.Translate("…")), служебные ответы помощника
+        // и сообщения недоступных внешних сервисов (погода, ИИ-помощник).
+        keys.UnionWith([AssistantReplies.Refused, AssistantReplies.Empty]);
+        foreach (var dir in new[] { "KnitErp.Application", "KnitErp.Infrastructure" })
+        {
+            foreach (var file in Directory.EnumerateFiles(Path.Combine(FindRoot(), "src", dir), "*.cs", SearchOption.AllDirectories)
+                         .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")))
+            {
+                var text = File.ReadAllText(file);
+                foreach (Match m in ServiceText().Matches(text))
+                {
+                    keys.Add(Regex.Unescape(m.Groups[1].Value));
+                }
+            }
+        }
+
         // Пункты «Готовности к запуску».
         var readiness = File.ReadAllText(Path.Combine(FindRoot(), "src", "KnitErp.Application", "Organizations", "LaunchReadinessService.cs"));
         foreach (Match m in ReadinessTitle().Matches(readiness))
@@ -189,7 +213,7 @@ public sealed partial class TranslationCoverageTests
         return dir?.FullName ?? throw new InvalidOperationException("Не найден KnitErp.slnx");
     }
 
-    [GeneratedRegex("""(?<![\w.])(?:Text\.)?L\("((?:[^"\\]|\\.)*)"[,)]""")]
+    [GeneratedRegex("""(?<![\w.])(?:Text\.)?(?:L|CssText)\("((?:[^"\\]|\\.)*)"[,)]""")]
     private static partial Regex Call();
 
     [GeneratedRegex("""\("[\w/-]*", "([^"]+)", a =>""")]
@@ -209,6 +233,9 @@ public sealed partial class TranslationCoverageTests
 
     [GeneratedRegex("""\[AuditActions\.\w+\] = "([^"]+)",""")]
     private static partial Regex AuditLabel();
+
+    [GeneratedRegex("""(?:ui\.Translate|ExternalServiceUnavailableException)\("((?:[^"\\]|\\.)*)"\)""")]
+    private static partial Regex ServiceText();
 
     [GeneratedRegex("""items\.Add\(new\("\w+", "([^"]+)",""")]
     private static partial Regex ReadinessTitle();

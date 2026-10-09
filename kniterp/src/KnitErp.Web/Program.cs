@@ -54,6 +54,7 @@ builder.Services.AddKnitErpInfrastructure(
     builder.Configuration["Assistant:Model"]);
 
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<KnitErp.Application.Workspace.IUiText, KnitErp.Web.Localization.WebUiText>();
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddScoped<AuthenticationStateProvider, SessionRevalidatingAuthenticationStateProvider>();
 builder.Services.AddScoped<ICurrentUser, ClaimsCurrentUser>();

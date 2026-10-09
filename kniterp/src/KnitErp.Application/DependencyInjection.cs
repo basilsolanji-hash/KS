@@ -47,6 +47,7 @@ public static class DependencyInjection
         services.AddScoped<Security.IntegrityService>();
         services.AddScoped<ReconciliationService>();
         services.AddScoped<StockService>();
+        services.TryAddScoped<Workspace.IUiText, Workspace.RussianUiText>();
         services.TryAddSingleton<IPasswordHasher<UserAccount>, PasswordHasher<UserAccount>>();
         services.AddScoped<SignInService>();
         return services;

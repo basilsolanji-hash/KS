@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using KnitErp.Domain.Access;
+using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Localization;
 
 namespace KnitErp.Web.Localization;
@@ -28,6 +29,13 @@ public static class Text
 
     /// <summary>Текст с подстановками {0}, {1}… — как в string.Format.</summary>
     public static string L(string russian, params object?[] args) => string.Format(CultureInfo.CurrentCulture, L(russian), args);
+
+    /// <summary>
+    /// Перевод для строки CSS (content: "…") в &lt;style&gt;: Razor закодировал бы буквы в HTML-сущности, которые CSS
+    /// показывает как есть. Кавычки, обратная косая черта и угловые скобки экранируются по правилам CSS.
+    /// </summary>
+    public static MarkupString CssText(string russian) =>
+        new(string.Concat(L(russian).Select(c => c is '"' or '\\' or '<' or '>' or '\n' ? $"\\{(int)c:X} " : c.ToString())));
 
     /// <summary>
     /// Сообщение сервиса на языке пользователя (D60). Сообщения правил собираются в коде с подстановками

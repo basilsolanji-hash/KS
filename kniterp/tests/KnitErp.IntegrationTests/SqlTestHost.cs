@@ -71,6 +71,8 @@ public sealed class SqlTestHost : IAsyncLifetime
     /// <summary>Модель ИИ-помощника для тестов: по умолчанию не подключена.</summary>
     public IAssistantModel AssistantModel { get; set; } = new DisabledAssistantModel();
 
+    public IUiText UiText { get; set; } = new RussianUiText();
+
     /// <summary>Фабрика контекстов для инструментов панели — как в приложении, свой контекст на операцию.</summary>
     public IKnitErpDbContextFactory Factory => new TestDbFactory(this);
 
@@ -111,8 +113,8 @@ public sealed class SqlTestHost : IAsyncLifetime
             new PersonalToolsService(Factory, user, Clock),
             new SupportService(Factory, user, Clock),
             new NotificationService(Factory, new PersonalToolsService(Factory, user, Clock), user, Clock),
-            new QuickSearchService(Factory, user, Clock),
-            new AssistantService(AssistantModel, Factory, user, Clock),
+            new QuickSearchService(Factory, user, Clock, UiText),
+            new AssistantService(AssistantModel, Factory, user, Clock, UiText),
             new KnitErp.Application.Security.IntegrityService(db, guard, new KnitErp.Infrastructure.Security.IntegrityVerifier(Factory), user, Clock),
             new ReconciliationService(db, guard),
             new CounterpartyExchangeService(db, guard, Spreadsheet, user, Clock),

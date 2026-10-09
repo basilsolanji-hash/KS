@@ -1,4 +1,5 @@
-@* Справочный центр: подсказка по текущему экрану, поиск, статьи по разделам («Первые шаги» — обучение). *@
+@* Справочный центр: подсказка по текущему экрану, поиск, статьи по разделам («Первые шаги» — обучение). Статьи — на языке пользователя. *@
+@inject IUiText UiText
 
 <form class="tool-form" @onsubmit="() => { }" role="search">
     <label>@L("Поиск по справке") <input @bind="_query" @bind:event="oninput" placeholder="@L("Например: сторно, инвентаризация")" /></label>
@@ -8,17 +9,17 @@
 {
     <article class="help-article">
         <button type="button" class="link" @onclick="() => _article = null">@L("← Все статьи")</button>
-        <h3>@_article.Title</h3>
-        <p class="muted">@_article.Category</p>
+        <h3>@L(_article.Title)</h3>
+        <p class="muted">@L(_article.Category)</p>
         @foreach (var p in _article.Body)
         {
-            <p>@p</p>
+            <p>@L(p)</p>
         }
     </article>
 }
 else if (_query.Trim().Length >= 3)
 {
-    var found = HelpCenter.Search(_query, 8);
+    var found = HelpCenter.Search(_query, 8, UiText);
     @if (found.Count == 0)
     {
         <p class="muted">@L("Ничего не найдено. Спросите") <button type="button" class="link" @onclick="() => Context.OpenTool(ToolCatalog.Assistant, null)">@L("ИИ-помощника")</button>
@@ -27,7 +28,7 @@ else if (_query.Trim().Length >= 3)
     <ul class="plain link-list">
         @foreach (var a in found)
         {
-            <li><button type="button" class="link" @onclick="() => _article = a">@a.Title</button> <span class="muted">@a.Category</span></li>
+            <li><button type="button" class="link" @onclick="() => _article = a">@L(a.Title)</button> <span class="muted">@L(a.Category)</span></li>
         }
     </ul>
 }
@@ -37,21 +38,21 @@ else
     @if (current is not null)
     {
         <div class="panel help-current">
-            <h3>@L("По этому экрану:") @current.Title</h3>
+            <h3>@L("По этому экрану:") @L(current.Title)</h3>
             @foreach (var p in current.Body.Take(2))
             {
-                <p>@p</p>
+                <p>@L(p)</p>
             }
             <button type="button" class="link" @onclick="() => _article = current">@L("Читать полностью")</button>
         </div>
     }
     @foreach (var group in HelpCenter.Articles.GroupBy(a => a.Category))
     {
-        <h3>@(group.Key == "Первые шаги" ? L("Обучение: первые шаги") : group.Key)</h3>
+        <h3>@(group.Key == "Первые шаги" ? L("Обучение: первые шаги") : L(group.Key))</h3>
         <ul class="plain link-list">
             @foreach (var a in group)
             {
-                <li><button type="button" class="link" @onclick="() => _article = a">@a.Title</button></li>
+                <li><button type="button" class="link" @onclick="() => _article = a">@L(a.Title)</button></li>
             }
         </ul>
     }

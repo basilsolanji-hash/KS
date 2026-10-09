@@ -81,7 +81,7 @@
         catch (ExternalServiceUnavailableException ex)
         {
             _weather = null;
-            _message = ex.Message;
+            _message = Message(ex.Message);
         }
         finally
         {
