@@ -1,0 +1,45 @@
+@page "/"
+@inject OrganizationService Organizations
+
+<PageTitle>Организация — knitERP</PageTitle>
+<h1>Организация</h1>
+
+@if (_error is not null)
+{
+    <div class="error">@_error</div>
+}
+else if (_org is null)
+{
+    <p class="muted">Загрузка…</p>
+}
+else
+{
+    <table>
+        <tr><td class="muted">Полное наименование</td><td>@_org.FullName</td></tr>
+        <tr><td class="muted">ИНН</td><td>@_org.Inn</td></tr>
+        <tr>
+            <td class="muted">КПП</td>
+            <td>@_org.Kpp @(_org.KppVerified ? "" : " — требует сверки (D15), в печатные формы не выводится")</td>
+        </tr>
+        <tr><td class="muted">Фактический адрес</td><td>@(_org.ActualAddress ?? "—")</td></tr>
+        <tr><td class="muted">Часовой пояс</td><td>@_org.TimeZoneId</td></tr>
+        <tr><td class="muted">Валюта</td><td>@_org.CurrencyCode</td></tr>
+    </table>
+}
+
+@code {
+    private OrganizationDto? _org;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _org = await Organizations.GetCurrentAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _error = ex.Message;
+        }
+    }
+}

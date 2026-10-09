@@ -1,0 +1,60 @@
+@page "/roles"
+@inject UserAccessService Access
+
+<PageTitle>Роли и права — knitERP</PageTitle>
+<h1>Роли и права · матрица P0</h1>
+<p class="muted">Д — да, О — своя область, Ч — чтение, П — по отдельному праву, С — только своё, — — нет.</p>
+
+@if (_error is not null)
+{
+    <div class="error">@_error</div>
+}
+else if (_matrix is null)
+{
+    <p class="muted">Загрузка…</p>
+}
+else
+{
+    <div style="overflow-x: auto">
+        <table>
+            <thead>
+                <tr>
+                    <th>Действие</th>
+                    @foreach (var r in _matrix.Roles)
+                    {
+                        <th>@r.Name</th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in _matrix.Rows)
+                {
+                    <tr>
+                        <td>@row.Label<div class="muted">@row.PermissionCode</div></td>
+                        @foreach (var level in row.Levels)
+                        {
+                            <td>@level.Symbol()</td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private RoleMatrixDto? _matrix;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _matrix = await Access.GetRoleMatrixAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _error = ex.Message;
+        }
+    }
+}

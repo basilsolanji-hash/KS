@@ -1,0 +1,47 @@
+@page "/users"
+@inject UserAccessService Access
+
+<PageTitle>Пользователи — knitERP</PageTitle>
+<h1>Пользователи</h1>
+
+@if (_error is not null)
+{
+    <div class="error">@_error</div>
+}
+else if (_users is null)
+{
+    <p class="muted">Загрузка…</p>
+}
+else
+{
+    <table>
+        <thead><tr><th>Пользователь</th><th>Роль</th><th>Статус в организации</th></tr></thead>
+        <tbody>
+            @foreach (var u in _users)
+            {
+                <tr>
+                    <td>@u.DisplayName<div class="muted">@u.Email</div></td>
+                    <td>@string.Join(", ", u.RoleNames)</td>
+                    <td>@(u.MembershipStatus == MembershipStatus.Active ? "Активен" : "Заблокирован")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private IReadOnlyList<UserRowDto>? _users;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _users = await Access.ListUsersAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _error = ex.Message;
+        }
+    }
+}

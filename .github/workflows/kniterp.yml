@@ -1,0 +1,99 @@
+name: knitERP build
+
+on:
+  push:
+    paths:
+      - "kniterp/**"
+      - ".github/workflows/kniterp.yml"
+  pull_request:
+    paths:
+      - "kniterp/**"
+      - ".github/workflows/kniterp.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kniterp-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: kniterp
+
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          # Одноразовый контейнер только для тестов CI, не секрет рабочей среды.
+          MSSQL_SA_PASSWORD: "Ci_Only_Pa55w0rd!"
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Ci_Only_Pa55w0rd!' -Q 'SELECT 1' || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DOTNET_NOLOGO: "1"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      KNITERP_TEST_SQL: "Server=localhost,1433;User Id=sa;Password=Ci_Only_Pa55w0rd!;TrustServerCertificate=true;Encrypt=false"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore KnitErp.slnx
+
+      - name: Build
+        run: dotnet build KnitErp.slnx --no-restore -c Release
+
+      - name: Unit tests
+        run: dotnet test tests/KnitErp.UnitTests --no-build -c Release --logger "trx;LogFileName=unit.trx" --results-directory ../test-results
+
+      - name: Integration tests (SQL Server)
+        if: success() || failure()
+        run: dotnet test tests/KnitErp.IntegrationTests --no-build -c Release --logger "trx;LogFileName=integration.trx" --results-directory ../test-results
+
+      - name: Report failed tests as annotations
+        if: failure()
+        working-directory: .
+        run: |
+          python3 - <<'EOF'
+          import glob, xml.etree.ElementTree as ET
+          ns = {"t": "http://microsoft.com/schemas/VisualStudio/TeamTest/2010"}
+          for path in glob.glob("test-results/*.trx"):
+              root = ET.parse(path).getroot()
+              for r in root.iter("{%s}UnitTestResult" % ns["t"]):
+                  if r.get("outcome") != "Failed":
+                      continue
+                  msg = r.find(".//t:Message", ns)
+                  st = r.find(".//t:StackTrace", ns)
+                  text = ((msg.text if msg is not None else "") + "\n" + (st.text[:1500] if st is not None and st.text else ""))
+                  text = text.replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+                  print("::error title=%s::%s" % (r.get("testName"), text[:3500]))
+          EOF
+
+      - name: Test summary
+        if: success() || failure()
+        working-directory: .
+        run: |
+          python3 - <<'EOF'
+          import glob, xml.etree.ElementTree as ET
+          ns = "{http://microsoft.com/schemas/VisualStudio/TeamTest/2010}"
+          for path in sorted(glob.glob("test-results/*.trx")):
+              c = ET.parse(path).getroot().find(ns + "ResultSummary/" + ns + "Counters")
+              line = "%s: total %s, passed %s, failed %s, not executed %s" % (path, c.get("total"), c.get("passed"), c.get("failed"), c.get("notExecuted"))
+              print("::notice title=Tests::" + line)
+          EOF

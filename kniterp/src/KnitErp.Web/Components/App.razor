@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <title>knitERP</title>
+    <style>
+        :root { color-scheme: dark; }
+        body { margin: 0; background: #1A1A1C; color: #ECECEE; font-family: system-ui, sans-serif; font-size: 15px; }
+        a { color: #2BA89A; }
+        .shell { display: flex; flex-wrap: wrap; min-height: 100vh; }
+        .side { flex: 1 1 200px; padding: 16px; border-right: 1px solid #2E2E33; }
+        .side a { display: block; padding: 10px 12px; text-decoration: none; color: #C8C8CE; border-radius: 6px; }
+        .side a.active { background: #22302E; color: #ECECEE; }
+        .main { flex: 999 1 600px; min-width: 0; padding: 24px; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #2E2E33; }
+        .muted { color: #A6A6AE; }
+        .error { border: 1px solid #5A2E2E; background: #2C1A1A; padding: 12px; border-radius: 8px; }
+    </style>
+    <HeadOutlet @rendermode="InteractiveServer" />
+</head>
+<body>
+    <Routes @rendermode="InteractiveServer" />
+    <script src="_framework/blazor.web.js"></script>
+</body>
+</html>

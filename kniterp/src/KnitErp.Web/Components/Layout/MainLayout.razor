@@ -1,0 +1,13 @@
+@inherits LayoutComponentBase
+
+<div class="shell">
+    <nav class="side" aria-label="Разделы">
+        <div style="font-weight: 600; font-size: 18px; margin: 4px 12px 16px">knit<span style="color: #2BA89A">ERP</span></div>
+        <NavLink href="" Match="NavLinkMatch.All">Организация</NavLink>
+        <NavLink href="users">Пользователи</NavLink>
+        <NavLink href="roles">Роли и права</NavLink>
+    </nav>
+    <main class="main">
+        @Body
+    </main>
+</div>
