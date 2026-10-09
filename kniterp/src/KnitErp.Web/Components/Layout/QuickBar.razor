@@ -1,0 +1,201 @@
+@* Панель быстрого доступа рядом с профилем. Полный вид — закреплённые ярлыки, «Ещё», «Все инструменты», настройка и
+   профиль; компактный (телефон, узкий планшет) — одна кнопка «Инструменты» с меню и значок профиля. *@
+
+<div class="quickbar @(Compact ? "compact" : "")" @onkeydown="OnKeyDown">
+    @if (!Compact)
+    {
+        <div class="quick-pinned" role="toolbar" aria-label="Быстрый доступ">
+            @foreach (var tool in Visible)
+            {
+                @RenderTool(tool, asMenuItem: false)
+            }
+            @if (More.Count > 0)
+            {
+                <div class="menu-anchor">
+                    <button type="button" class="quick-btn" aria-haspopup="menu" aria-expanded="@Expanded("more")" @onclick="@(() => Toggle("more"))" title="Остальные закреплённые инструменты">
+                        <Icon Name="more" /><span class="quick-label">Ещё</span>
+                    </button>
+                    @if (_menu == "more")
+                    {
+                        <div class="menu" role="menu" aria-label="Ещё">
+                            @foreach (var tool in More)
+                            {
+                                @RenderTool(tool, asMenuItem: true)
+                            }
+                        </div>
+                    }
+                </div>
+            }
+            <div class="menu-anchor">
+                <button type="button" class="quick-btn" aria-haspopup="menu" aria-expanded="@Expanded("all")" @onclick="@(() => Toggle("all"))" title="Все инструменты">
+                    <Icon Name="all" /><span class="quick-label">Все инструменты</span>
+                </button>
+                @if (_menu == "all")
+                {
+                    @RenderAllMenu()
+                }
+            </div>
+            <button type="button" class="quick-btn" @onclick="@(() => Open(SettingsId))" title="Настроить панель" aria-label="Настроить панель">
+                <Icon Name="settings" />
+            </button>
+        </div>
+    }
+    else
+    {
+        <div class="menu-anchor">
+            <button type="button" class="quick-btn" aria-haspopup="menu" aria-expanded="@Expanded("all")" @onclick="@(() => Toggle("all"))" title="Инструменты">
+                <Icon Name="all" /><span class="quick-label">Инструменты</span>
+                @if (Badge > 0)
+                {
+                    <span class="badge" aria-label="Уведомлений: @Badge">@Badge</span>
+                }
+            </button>
+            @if (_menu == "all")
+            {
+                @RenderAllMenu()
+            }
+        </div>
+    }
+
+    <div class="menu-anchor">
+        <button type="button" class="profile" aria-haspopup="menu" aria-expanded="@Expanded("profile")" @onclick="@(() => Toggle("profile"))"
+                title="@($"{Access.DisplayName} — {Access.Subtitle}")">
+            <span class="avatar" aria-hidden="true">@Access.Initials</span>
+            @if (!Compact)
+            {
+                <span class="profile-text">
+                    <span class="profile-name">@Access.DisplayName</span>
+                    <span class="profile-sub">@Access.Subtitle</span>
+                </span>
+            }
+            <span class="sr-only">Профиль</span>
+        </button>
+        @if (_menu == "profile")
+        {
+            <div class="menu menu-right" role="menu" aria-label="Профиль">
+                <div class="menu-info">
+                    <b>@Access.DisplayName</b>
+                    <span class="muted">@Access.Subtitle</span>
+                    <span class="muted">@string.Join(", ", Access.RoleNames) · @Access.OrganizationName</span>
+                </div>
+                <a role="menuitem" href="account/organizations" data-enhance-nav="false">Сменить организацию</a>
+                <button type="button" role="menuitem" class="menu-item" @onclick="@(() => Open(SettingsId))">Настроить панель</button>
+                <form method="post" action="account/logout">
+                    <AntiforgeryToken />
+                    <button type="submit" role="menuitem" class="menu-item">Выйти</button>
+                </form>
+            </div>
+        }
+    </div>
+
+    @if (_menu is not null)
+    {
+        @* Щелчок мимо меню закрывает его. *@
+        <div class="menu-backdrop" @onclick="Close"></div>
+    }
+</div>
+
+@code {
+    public const string SettingsId = "settings";
+
+    [Parameter, EditorRequired]
+    public CurrentAccessDto Access { get; set; } = default!;
+
+    [Parameter, EditorRequired]
+    public PanelSettings Settings { get; set; } = default!;
+
+    [Parameter]
+    public bool Compact { get; set; }
+
+    [Parameter]
+    public string? ActiveTool { get; set; }
+
+    [Parameter]
+    public int Badge { get; set; }
+
+    [Parameter]
+    public EventCallback<string> OnOpen { get; set; }
+
+    private string? _menu;
+
+    /// <summary>Сайт фабрики показывается, только когда адрес задан в реквизитах организации.</summary>
+    private IEnumerable<ToolDefinition> Available =>
+        ToolCatalog.All.Where(t => t.Id != ToolCatalog.Site || Access.WebsiteUrl is not null);
+
+    private List<ToolDefinition> Pinned =>
+        Settings.Pinned.Select(ToolCatalog.Find).OfType<ToolDefinition>().Where(t => Available.Contains(t)).ToList();
+
+    private List<ToolDefinition> Visible => Pinned.Take(Settings.Visible).ToList();
+
+    private List<ToolDefinition> More => Pinned.Skip(Settings.Visible).ToList();
+
+    private RenderFragment RenderTool(ToolDefinition tool, bool asMenuItem) => __builder =>
+    {
+        var css = asMenuItem ? "menu-item" : $"quick-btn{(ActiveTool == tool.Id ? " active" : "")}";
+        if (tool.Mode == ToolOpenMode.NewTab)
+        {
+            <a class="@css" href="@Access.WebsiteUrl" target="_blank" rel="noopener noreferrer" title="@tool.Hint" role="@(asMenuItem ? "menuitem" : null)" @onclick="Close">
+                <Icon Name="@tool.Id" /><span class="quick-label">@tool.Title</span>
+            </a>
+        }
+        else
+        {
+            <button type="button" class="@css" title="@tool.Hint" role="@(asMenuItem ? "menuitem" : null)" aria-pressed="@(asMenuItem ? null : ActiveTool == tool.Id ? "true" : "false")"
+                    @onclick="@(() => Open(tool.Id))">
+                <Icon Name="@tool.Id" /><span class="quick-label">@tool.Title</span>
+                @if (tool.Id == ToolCatalog.Notifications && Badge > 0)
+                {
+                    <span class="badge" aria-label="новых: @Badge">@Badge</span>
+                }
+            </button>
+        }
+    };
+
+    private RenderFragment RenderAllMenu() => __builder =>
+    {
+        <div class="menu menu-wide menu-right" role="menu" aria-label="Все инструменты">
+            @if (Compact && Pinned.Count > 0)
+            {
+                <div class="menu-caption">Закреплённые</div>
+                @foreach (var tool in Pinned)
+                {
+                    @RenderTool(tool, asMenuItem: true)
+                }
+                <div class="menu-caption">Все инструменты</div>
+            }
+            @foreach (var tool in Available.Where(t => !Compact || !Pinned.Contains(t)))
+            {
+                @RenderTool(tool, asMenuItem: true)
+            }
+            @if (Access.WebsiteUrl is null)
+            {
+                <span class="menu-item disabled" title="Адрес сайта задаёт Владелец в разделе «Организация»">
+                    <Icon Name="@ToolCatalog.Site" /><span class="quick-label">Сайт фабрики — адрес не задан</span>
+                </span>
+            }
+            <button type="button" role="menuitem" class="menu-item" @onclick="@(() => Open(SettingsId))">
+                <Icon Name="settings" /><span class="quick-label">Настроить панель</span>
+            </button>
+        </div>
+    };
+
+    private string Expanded(string menu) => _menu == menu ? "true" : "false";
+
+    private void Toggle(string menu) => _menu = _menu == menu ? null : menu;
+
+    private void Close() => _menu = null;
+
+    private async Task Open(string id)
+    {
+        _menu = null;
+        await OnOpen.InvokeAsync(id);
+    }
+
+    private void OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            _menu = null;
+        }
+    }
+}

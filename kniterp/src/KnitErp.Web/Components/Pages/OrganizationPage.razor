@@ -49,6 +49,24 @@ else
                 </td>
             </tr>
             <tr>
+                <td class="muted"><label for="org-site">Сайт фабрики</label></td>
+                <td>
+                    @if (_editing)
+                    {
+                        <InputText id="org-site" @bind-Value="_draft.Website" maxlength="300" style="width: 100%" placeholder="https://fabrika.ru" />
+                        <div class="muted">Открывается ярлыком «Сайт фабрики» на панели быстрого доступа.</div>
+                    }
+                    else if (_org.WebsiteUrl is { } site)
+                    {
+                        <a href="@site" target="_blank" rel="noopener noreferrer">@site</a>
+                    }
+                    else
+                    {
+                        @("—")
+                    }
+                </td>
+            </tr>
+            <tr>
                 <td class="muted"><label for="org-tz">Часовой пояс учёта</label></td>
                 <td>
                     @if (_editing)
@@ -106,7 +124,7 @@ else
 
     private void StartEdit()
     {
-        _draft = new RequisitesDraft { Address = _org!.ActualAddress ?? string.Empty, TimeZoneId = _org.TimeZoneId };
+        _draft = new RequisitesDraft { Address = _org!.ActualAddress ?? string.Empty, TimeZoneId = _org.TimeZoneId, Website = _org.WebsiteUrl ?? string.Empty };
         _message = null;
         _editing = true;
     }
@@ -122,7 +140,7 @@ else
         _busy = true;
         try
         {
-            _org = await Organizations.UpdateRequisitesAsync(new UpdateRequisitesCommand(_draft.Address, _draft.TimeZoneId, _org!.RowVersion));
+            _org = await Organizations.UpdateRequisitesAsync(new UpdateRequisitesCommand(_draft.Address, _draft.TimeZoneId, _org!.RowVersion, _draft.Website));
             _editing = false;
             _message = null;
         }
@@ -138,6 +156,8 @@ else
 
     private sealed class RequisitesDraft
     {
+        public string Website { get; set; } = string.Empty;
+
         public string Address { get; set; } = string.Empty;
         public string TimeZoneId { get; set; } = "Europe/Moscow";
     }

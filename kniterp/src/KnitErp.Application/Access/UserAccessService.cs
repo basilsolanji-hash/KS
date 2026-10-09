@@ -53,8 +53,17 @@ public sealed record CurrentAccessDto(
     IReadOnlyList<string> RoleCodes,
     IReadOnlyList<string> RoleNames,
     IReadOnlySet<string> Granted,
-    IReadOnlySet<string> OwnOnly)
+    IReadOnlySet<string> OwnOnly,
+    string? PositionName = null,
+    string? WebsiteUrl = null)
 {
+    /// <summary>Инициалы для значка профиля (фотографий в системе пока нет — допущение D50).</summary>
+    public string Initials => string.Concat(DisplayName.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+        .Select(w => w.FirstOrDefault(char.IsLetter)).Where(c => c != default).Take(2).Select(char.ToUpperInvariant));
+
+    /// <summary>Подпись под именем: должность сотрудника, а если учётная запись не связана с сотрудником — роль.</summary>
+    public string Subtitle => PositionName ?? (RoleNames.Count > 0 ? string.Join(", ", RoleNames) : "Без роли");
+
     public bool Has(string permissionCode) => Granted.Contains(permissionCode);
 
     public bool HasOwnOnly(string permissionCode) => Granted.Contains(permissionCode) || OwnOnly.Contains(permissionCode);
@@ -132,8 +141,12 @@ public sealed class UserAccessService(IKnitErpDbContext db, IAccessGuard guard, 
         var org = await db.Organizations.AsNoTracking().SingleAsync(o => o.Id == ctx.OrganizationId, ct);
         var roles = await ActiveRolesAsync(ctx.OrganizationId, ctx.UserId, ct);
         var ownOnly = Permissions.All.Where(c => !ctx.Permissions.Has(c) && ctx.Permissions.HasOwnOnly(c)).ToHashSet();
+        var position = await db.Employees.AsNoTracking()
+            .Where(e => e.OrganizationId == ctx.OrganizationId && e.UserId == ctx.UserId)
+            .Join(db.Positions.AsNoTracking(), e => e.PositionId, p => p.Id, (e, p) => p.Name)
+            .FirstOrDefaultAsync(ct);
         return new CurrentAccessDto(ctx.UserId, user.DisplayName, org.ShortName, org.TimeZoneId, roles.Select(r => r.Code).ToList(), roles.Select(r => r.Name).ToList(),
-            ctx.Permissions.GrantedCodes.ToHashSet(), ownOnly);
+            ctx.Permissions.GrantedCodes.ToHashSet(), ownOnly, position, org.WebsiteUrl);
     }
 
     /// <summary>Роли организации для формы: какие текущий пользователь вправе выдать и почему нет.</summary>

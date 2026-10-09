@@ -1,0 +1,144 @@
+@implements IDisposable
+@inject QuickSearchService SearchService
+
+<form class="tool-form" @onsubmit="OpenFirstAsync" role="search">
+    <label>
+        Что найти
+        <input id="quick-search-input" @bind="_query" @bind:event="oninput" @bind:after="Schedule" autocomplete="off"
+               placeholder="Раздел, код позиции, номер документа" aria-describedby="search-hint" />
+    </label>
+</form>
+<p class="muted" id="search-hint">Ctrl+K — открыть поиск с любого экрана, Enter — перейти к первому результату.</p>
+
+@if (_error is not null)
+{
+    <div class="error" role="alert">@_error</div>
+}
+
+@if (_query.Trim().Length >= 2)
+{
+    var sections = Sections();
+    @if (sections.Count == 0 && _hits.Count == 0 && !_busy)
+    {
+        <p class="muted">Ничего не найдено.</p>
+    }
+
+    @if (sections.Count > 0)
+    {
+        <h3>Разделы</h3>
+        <ul class="plain link-list">
+            @foreach (var s in sections)
+            {
+                <li><button type="button" class="link" @onclick="() => Context.Navigate(s.Href)">@s.Label</button></li>
+            }
+        </ul>
+    }
+
+    @foreach (var group in _hits.GroupBy(h => h.Kind))
+    {
+        <h3>@GroupTitle(group.Key)</h3>
+        <ul class="plain link-list">
+            @foreach (var h in group)
+            {
+                <li>
+                    <button type="button" class="link" @onclick="() => OpenAsync(h)">@h.Title</button>
+                    @if (h.Subtitle is not null)
+                    {
+                        <span class="muted">@h.Subtitle</span>
+                    }
+                </li>
+            }
+        </ul>
+    }
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public ToolContext Context { get; set; } = default!;
+
+    private string _query = string.Empty;
+    private IReadOnlyList<SearchHitDto> _hits = [];
+    private string? _error;
+    private bool _busy;
+    private CancellationTokenSource? _debounce;
+
+    private List<NavEntry> Sections()
+    {
+        var q = _query.Trim();
+        return Context.Sections.Where(s => s.Allowed && s.Label.Contains(q, StringComparison.OrdinalIgnoreCase)).ToList();
+    }
+
+    /// <summary>Поиск запускается через 300 мс после последнего нажатия — без запроса на каждую букву.</summary>
+    private void Schedule()
+    {
+        _debounce?.Cancel();
+        _debounce = new CancellationTokenSource();
+        var token = _debounce.Token;
+        _ = Task.Delay(300, token).ContinueWith(async t =>
+        {
+            if (!t.IsCanceled)
+            {
+                await InvokeAsync(() => RunAsync(token));
+            }
+        }, TaskScheduler.Default);
+    }
+
+    private async Task RunAsync(CancellationToken token)
+    {
+        var query = _query;
+        if (query.Trim().Length < 2)
+        {
+            _hits = [];
+            StateHasChanged();
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var hits = await SearchService.SearchAsync(query, token);
+            if (!token.IsCancellationRequested)
+            {
+                _hits = hits;
+                _error = null;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OpenFirstAsync()
+    {
+        if (Sections().FirstOrDefault() is { } s)
+        {
+            await Context.Navigate(s.Href);
+        }
+        else if (_hits.FirstOrDefault() is { } h)
+        {
+            await OpenAsync(h);
+        }
+    }
+
+    private Task OpenAsync(SearchHitDto hit) =>
+        hit.Kind == SearchHitKind.Help ? Context.OpenTool(ToolCatalog.Help, hit.HelpId) : Context.Navigate(hit.Href ?? "");
+
+    private static string GroupTitle(SearchHitKind kind) => kind switch
+    {
+        SearchHitKind.Item => "Номенклатура",
+        SearchHitKind.Document => "Документы",
+        SearchHitKind.Help => "Справка",
+        _ => "Разделы",
+    };
+
+    public void Dispose() => _debounce?.Cancel();
+}

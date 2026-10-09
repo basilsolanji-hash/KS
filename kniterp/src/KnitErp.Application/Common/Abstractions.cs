@@ -30,7 +30,16 @@ public interface ICurrentUser
     string? CorrelationId { get; }
 }
 
-public interface IKnitErpDbContext
+/// <summary>
+/// Отдельный DbContext на одну операцию. Нужен инструментам панели быстрого доступа: они работают поверх открытой
+/// страницы, а DbContext вкладки нельзя использовать параллельно.
+/// </summary>
+public interface IKnitErpDbContextFactory
+{
+    IKnitErpDbContext Create();
+}
+
+public interface IKnitErpDbContext : IAsyncDisposable
 {
     DbSet<Organization> Organizations { get; }
     DbSet<UserAccount> Users { get; }
@@ -52,6 +61,8 @@ public interface IKnitErpDbContext
     DbSet<StockDocument> StockDocuments { get; }
     DbSet<InventoryCount> InventoryCounts { get; }
     DbSet<PeriodClosure> PeriodClosures { get; }
+    DbSet<KnitErp.Domain.Workspace.UserToolData> UserToolData { get; }
+    DbSet<KnitErp.Domain.Workspace.SupportTicket> SupportTickets { get; }
     DbSet<DocumentCounter> DocumentCounters { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);

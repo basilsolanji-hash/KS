@@ -13,5 +13,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\KnitErp.Domain\KnitErp.Domain.csproj" />
+    <!-- Чистые правила прикладного слоя (калькулятор, справка, настройка панели) — без базы данных. -->
+    <ProjectReference Include="..\..\src\KnitErp.Application\KnitErp.Application.csproj" />
   </ItemGroup>
 </Project>

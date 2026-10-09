@@ -20,7 +20,10 @@ builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddKnitErpApplication();
 builder.Services.AddKnitErpInfrastructure(
     builder.Configuration.GetConnectionString("KnitErp")
-    ?? throw new InvalidOperationException("Не задана строка подключения ConnectionStrings:KnitErp."));
+    ?? throw new InvalidOperationException("Не задана строка подключения ConnectionStrings:KnitErp."),
+    // ИИ-помощник включается ключом из секретов сервера; без ключа он отвечает по справочному центру.
+    builder.Configuration["Assistant:ApiKey"] ?? builder.Configuration["ANTHROPIC_API_KEY"],
+    builder.Configuration["Assistant:Model"]);
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddCascadingAuthenticationState();

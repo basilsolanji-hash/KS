@@ -1,0 +1,93 @@
+using KnitErp.Application.Workspace;
+using KnitErp.Domain.Common;
+using KnitErp.Domain.Organizations;
+using KnitErp.Domain.Workspace;
+
+namespace KnitErp.UnitTests;
+
+public sealed class WorkspaceTests
+{
+    private static readonly DateTime Now = new(2026, 10, 9, 5, 0, 0, DateTimeKind.Utc);
+
+    [Theory]
+    [InlineData("2 + 2 × 2", 6)]
+    [InlineData("(2 + 2) * 2", 8)]
+    [InlineData("1250 + 20%", 1500)]
+    [InlineData("1250 − 20%", 1000)]
+    [InlineData("400 × 15%", 60)]
+    [InlineData("15% от 400", 60)]
+    [InlineData("50%", 0.5)]
+    [InlineData("12,5 * 4", 50)]
+    [InlineData("1 250,5 + 0,5", 1251)]
+    [InlineData("-3 + 5", 2)]
+    [InlineData("10 / 4", 2.5)]
+    [InlineData("0.1 + 0.2", 0.3)]
+    public void Calculator_evaluates_like_office_calculator(string expression, double expected) =>
+        Assert.Equal((decimal)expected, Calculator.Evaluate(expression));
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("2 +")]
+    [InlineData("5 / 0")]
+    [InlineData("(1 + 2")]
+    [InlineData("2 + abc")]
+    [InlineData("alert(1)")]
+    public void Calculator_rejects_bad_input_with_message(string expression) =>
+        Assert.Equal("calculator.invalid", Assert.Throws<BusinessRuleException>(() => Calculator.Evaluate(expression)).Code);
+
+    [Fact]
+    public void Calculator_formats_in_russian_style() => Assert.Equal("1 250,5", Calculator.Format(1250.5m));
+
+    [Fact]
+    public void Panel_settings_drop_unknown_and_duplicate_tools_and_clamp_visible()
+    {
+        var clean = PersonalToolsService.Clean(new PanelSettings(["help", "unknown", "help", "calculator"], 99));
+        Assert.Equal(["help", "calculator"], clean.Pinned);
+        Assert.Equal(ToolCatalog.MaxVisible, clean.Visible);
+        Assert.Equal(0, PersonalToolsService.Clean(new PanelSettings([], -5)).Visible);
+    }
+
+    [Fact]
+    public void Help_finds_article_for_current_screen_and_by_words()
+    {
+        Assert.Equal("documents", HelpCenter.ForRoute("stock-documents/15")!.Id);
+        Assert.Equal("reports", HelpCenter.ForRoute("reports/turnover")!.Id);
+        Assert.Equal("start", HelpCenter.ForRoute("")!.Id);
+        Assert.Null(HelpCenter.ForRoute("unknown-page"));
+        Assert.Equal("documents", HelpCenter.Search("как сделать сторно")[0].Id);
+        Assert.Contains(HelpCenter.Search("инвентаризация недостача"), a => a.Id == "inventory");
+        Assert.Empty(HelpCenter.Search("а"));
+    }
+
+    [Theory]
+    [InlineData("fabrika.ru", "https://fabrika.ru/")]
+    [InlineData("  https://www.ks-knit.ru/catalog ", "https://www.ks-knit.ru/catalog")]
+    [InlineData("", null)]
+    public void Website_is_normalized(string input, string? expected) => Assert.Equal(expected, Organization.NormalizeWebsite(input));
+
+    [Theory]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("ftp://files.ru")]
+    [InlineData("https://")]
+    public void Website_rejects_unsafe_addresses(string input) =>
+        Assert.Equal("org.website.invalid", Assert.Throws<BusinessRuleException>(() => Organization.NormalizeWebsite(input)).Code);
+
+    [Fact]
+    public void Support_ticket_answer_marks_unread_for_author_and_closed_is_final()
+    {
+        var t = SupportTicket.Create(1, "ОБ-000001", 7, "Не проводится списание", "Пишет «не хватает остатка»", "Складские документы", Now);
+        Assert.Equal((SupportTicketStatus.Open, false), (t.Status, t.UnreadByAuthor));
+        t.TakeInWork(Now);
+        Assert.Equal("field.required", Assert.Throws<BusinessRuleException>(() => t.Reply(" ", 8, Now)).Code);
+        t.Reply("Сначала проведите поступление", 8, Now);
+        Assert.Equal((SupportTicketStatus.Answered, true), (t.Status, t.UnreadByAuthor));
+        t.MarkReadByAuthor();
+        t.Close(Now);
+        Assert.Equal("support.closed", Assert.Throws<BusinessRuleException>(() => t.Reply("ещё", 8, Now)).Code);
+    }
+
+    [Fact]
+    public void Tool_data_size_is_limited() =>
+        Assert.Equal("workspace.too_large", Assert.Throws<BusinessRuleException>(() =>
+            UserToolData.Create(1, 1, "notes", new string('x', UserToolData.MaxJsonLength + 1), Now)).Code);
+}

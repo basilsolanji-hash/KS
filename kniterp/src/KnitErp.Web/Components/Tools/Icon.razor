@@ -1,0 +1,35 @@
+@* Векторные значки панели: тонкая обводка цветом текста — одинаково на всех устройствах и в любой теме, без внешних шрифтов. *@
+<svg class="icon-svg" width="@Size" height="@Size" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+    @((MarkupString)Paths(Name))
+</svg>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Name { get; set; } = string.Empty;
+
+    [Parameter]
+    public int Size { get; set; } = 18;
+
+    private static string Paths(string name) => name switch
+    {
+        ToolCatalog.Search => "<circle cx='11' cy='11' r='7'/><path d='m20 20-4-4'/>",
+        ToolCatalog.Notifications => "<path d='M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9'/><path d='M10.3 21a1.9 1.9 0 0 0 3.4 0'/>",
+        ToolCatalog.Calculator => "<rect x='4' y='2' width='16' height='20' rx='2'/><path d='M8 6h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01M8 19h.01M12 19h.01M16 19h.01'/>",
+        ToolCatalog.Calendar => "<rect x='3' y='4' width='18' height='18' rx='2'/><path d='M16 2v4M8 2v4M3 10h18'/>",
+        ToolCatalog.Tasks => "<path d='m9 11 3 3L22 4'/><path d='M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11'/>",
+        ToolCatalog.Notes => "<path d='M12 20h9'/><path d='M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z'/>",
+        ToolCatalog.Favorites => "<path d='m12 2 3.1 6.3 6.9 1-5 4.8 1.2 6.9-6.2-3.2L5.8 21 7 14.1 2 9.3l6.9-1Z'/>",
+        ToolCatalog.Links => "<path d='M15 3h6v6M10 14 21 3'/><path d='M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6'/>",
+        ToolCatalog.Site => "<path d='m3 10.5 9-7.5 9 7.5'/><path d='M5 9.5V21h14V9.5M10 21v-6h4v6'/>",
+        ToolCatalog.Assistant => "<path d='m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9Z'/><path d='M19 16v4M17 18h4'/>",
+        ToolCatalog.Weather => "<circle cx='12' cy='12' r='4'/><path d='M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4'/>",
+        ToolCatalog.Support => "<rect x='2' y='4' width='20' height='16' rx='2'/><path d='m22 7-10 6L2 7'/>",
+        ToolCatalog.Help => "<circle cx='12' cy='12' r='10'/><path d='M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01'/>",
+        "settings" => "<path d='M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6'/>",
+        "all" => "<rect x='3' y='3' width='7' height='7' rx='1'/><rect x='14' y='3' width='7' height='7' rx='1'/><rect x='3' y='14' width='7' height='7' rx='1'/><rect x='14' y='14' width='7' height='7' rx='1'/>",
+        "more" => "<circle cx='5' cy='12' r='1'/><circle cx='12' cy='12' r='1'/><circle cx='19' cy='12' r='1'/>",
+        "close" => "<path d='M18 6 6 18M6 6l12 12'/>",
+        _ => "<circle cx='12' cy='12' r='9'/>",
+    };
+}

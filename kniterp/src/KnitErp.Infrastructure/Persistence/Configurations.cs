@@ -28,6 +28,7 @@ internal sealed class OrganizationConfiguration : IEntityTypeConfiguration<Organ
         b.Property(x => x.Inn).HasColumnType("char(10)").IsRequired();
         b.Property(x => x.Kpp).HasColumnType("char(9)");
         b.Property(x => x.ActualAddress).HasMaxLength(Organization.AddressMaxLength);
+        b.Property(x => x.WebsiteUrl).HasMaxLength(Organization.WebsiteMaxLength);
         b.Property(x => x.TimeZoneId).HasMaxLength(Organization.TimeZoneMaxLength).IsRequired();
         b.Property(x => x.CurrencyCode).HasColumnType("char(3)").IsRequired();
         b.Property(x => x.RowVersion).IsRowVersion();
@@ -564,5 +565,47 @@ internal sealed class PeriodClosureConfiguration : IEntityTypeConfiguration<Peri
         b.Property(x => x.RowVersion).IsRowVersion();
         b.HasOne<Organization>().WithOne().HasForeignKey<PeriodClosure>(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.ChangedByUserId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+internal sealed class UserToolDataConfiguration : IEntityTypeConfiguration<KnitErp.Domain.Workspace.UserToolData>
+{
+    public void Configure(EntityTypeBuilder<KnitErp.Domain.Workspace.UserToolData> b)
+    {
+        b.ToTable("user_tool_data", t => t.HasCheckConstraint("ck_user_tool_data_size", "LEN([Json]) <= 200000"));
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Kind).HasMaxLength(KnitErp.Domain.Workspace.UserToolData.KindMaxLength).IsRequired();
+        b.Property(x => x.Json).IsRequired();
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasIndex(x => new { x.OrganizationId, x.UserId, x.Kind }).IsUnique().HasDatabaseName("ux_user_tool_data_org_user_kind");
+    }
+}
+
+internal sealed class SupportTicketConfiguration : IEntityTypeConfiguration<KnitErp.Domain.Workspace.SupportTicket>
+{
+    public void Configure(EntityTypeBuilder<KnitErp.Domain.Workspace.SupportTicket> b)
+    {
+        b.ToTable("support_tickets", t =>
+        {
+            t.HasCheckConstraint("ck_support_tickets_status", "[Status] IN (1, 2, 3, 9)");
+            t.HasCheckConstraint("ck_support_tickets_answer", "[Status] <> 3 OR ([Answer] IS NOT NULL AND [AnsweredByUserId] IS NOT NULL)");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Number).HasMaxLength(30).IsRequired();
+        b.Property(x => x.Subject).HasMaxLength(KnitErp.Domain.Workspace.SupportTicket.SubjectMaxLength).IsRequired();
+        b.Property(x => x.Text).HasMaxLength(KnitErp.Domain.Workspace.SupportTicket.TextMaxLength).IsRequired();
+        b.Property(x => x.Section).HasMaxLength(KnitErp.Domain.Workspace.SupportTicket.SectionMaxLength);
+        b.Property(x => x.Answer).HasMaxLength(KnitErp.Domain.Workspace.SupportTicket.TextMaxLength);
+        b.Property(x => x.Status).HasConversion<byte>();
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.AuthorUserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.AnsweredByUserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasIndex(x => new { x.OrganizationId, x.Number }).IsUnique().HasDatabaseName("ux_support_tickets_org_number");
+        b.HasIndex(x => new { x.OrganizationId, x.AuthorUserId, x.Status }).HasDatabaseName("ix_support_tickets_org_author_status");
     }
 }

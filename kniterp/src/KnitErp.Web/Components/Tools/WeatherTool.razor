@@ -1,0 +1,91 @@
+@inject IWeatherProvider Weather
+@inject PersonalToolsService Personal
+
+<form class="tool-form" @onsubmit="SaveCityAsync">
+    <label>Город <input @bind="_city" maxlength="100" placeholder="Например: Иваново" /></label>
+    <button type="submit" class="secondary" disabled="@_busy">Показать</button>
+</form>
+
+@if (_message is not null)
+{
+    <p class="muted" role="status">@_message</p>
+}
+
+@if (_weather is not null)
+{
+    <div class="weather">
+        <div class="weather-temp">@(_weather.TemperatureC > 0 ? "+" : "")@_weather.TemperatureC.ToString("0.#") °C</div>
+        <div>@_weather.City · @_weather.Description</div>
+        <div class="muted">Ветер @_weather.WindMs.ToString("0.#") м/с · обновлено @TimeZones.ToLocal(_weather.ObservedAtUtc, Context.Access.TimeZoneId).ToString("HH:mm")</div>
+    </div>
+}
+<p class="muted">Данные Open-Meteo. Если сервис недоступен, на работу системы это не влияет.</p>
+
+@code {
+    [Parameter, EditorRequired]
+    public ToolContext Context { get; set; } = default!;
+
+    private string _city = string.Empty;
+    private WeatherDto? _weather;
+    private string? _message;
+    private bool _busy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _city = await Personal.GetWeatherCityAsync() ?? string.Empty;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+        }
+
+        if (_city.Length > 0)
+        {
+            await LoadAsync();
+        }
+        else
+        {
+            _message = "Укажите город — он сохранится в вашем профиле.";
+        }
+    }
+
+    private async Task SaveCityAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        try
+        {
+            await Personal.SaveWeatherCityAsync(_city);
+            await LoadAsync();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _busy = true;
+        _message = "Загрузка…";
+        try
+        {
+            _weather = await Weather.GetAsync(_city);
+            _message = _weather is null ? $"Город «{_city}» не найден." : null;
+        }
+        catch (ExternalServiceUnavailableException ex)
+        {
+            _weather = null;
+            _message = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

@@ -1,0 +1,80 @@
+@inject NotificationService Notifications
+
+@if (_error is not null)
+{
+    <div class="error" role="alert">@_error</div>
+}
+
+@if (_items is null)
+{
+    <p class="muted">Загрузка…</p>
+}
+else if (_items.Count == 0)
+{
+    <p class="muted">Новых уведомлений нет.</p>
+}
+else
+{
+    <ul class="plain notice-list">
+        @foreach (var n in _items)
+        {
+            <li class="notice @n.Level.ToString().ToLowerInvariant()">
+                <button type="button" class="link" @onclick="() => OpenAsync(n)">@n.Text</button>
+            </li>
+        }
+    </ul>
+}
+<button type="button" class="secondary" @onclick="LoadAsync" disabled="@_busy">Обновить</button>
+
+@code {
+    [Parameter, EditorRequired]
+    public ToolContext Context { get; set; } = default!;
+
+    [Parameter]
+    public bool Active { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnCount { get; set; }
+
+    private IReadOnlyList<NotificationDto>? _items;
+    private string? _error;
+    private bool _busy;
+    private bool _wasActive;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Active && !_wasActive)
+        {
+            await LoadAsync();
+        }
+
+        _wasActive = Active;
+    }
+
+    private async Task LoadAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            _items = await Notifications.ListAsync();
+            await OnCount.InvokeAsync(_items.Count);
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private Task OpenAsync(NotificationDto n) =>
+        n.ToolId is { } tool ? Context.OpenTool(tool, null) : Context.Navigate(n.Href ?? "");
+}

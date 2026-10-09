@@ -11,6 +11,7 @@ public sealed class Organization
     public const int ShortNameMaxLength = 150;
     public const int AddressMaxLength = 500;
     public const int TimeZoneMaxLength = 64;
+    public const int WebsiteMaxLength = 300;
 
     private Organization()
     {
@@ -26,6 +27,9 @@ public sealed class Organization
 
     public bool KppVerified { get; private set; }
     public string? ActualAddress { get; private set; }
+
+    /// <summary>Сайт фабрики для ярлыка на панели быстрого доступа. Только http(s).</summary>
+    public string? WebsiteUrl { get; private set; }
 
     /// <summary>Часовой пояс учёта (IANA). Время хранится в UTC, показывается в этом поясе.</summary>
     public string TimeZoneId { get; private set; } = "Europe/Moscow";
@@ -66,7 +70,7 @@ public sealed class Organization
     }
 
     /// <summary>Меняет изменяемые реквизиты и возвращает список изменений для журнала аудита.</summary>
-    public IReadOnlyList<FieldChange> UpdateRequisites(string? actualAddress, string timeZoneId)
+    public IReadOnlyList<FieldChange> UpdateRequisites(string? actualAddress, string timeZoneId, string? websiteUrl = null)
     {
         EnsureNotArchived();
         var changes = new List<FieldChange>();
@@ -90,6 +94,13 @@ public sealed class Organization
             changes.Add(new FieldChange("TimeZoneId", before, TimeZoneId));
         }
 
+        var website = NormalizeWebsite(websiteUrl);
+        if (website != WebsiteUrl)
+        {
+            changes.Add(new FieldChange("WebsiteUrl", WebsiteUrl, website));
+            WebsiteUrl = website;
+        }
+
         return changes;
     }
 
@@ -99,6 +110,29 @@ public sealed class Organization
         var before = $"{Kpp} (сверен: {KppVerified})";
         SetKpp(kpp, verified: true);
         return new FieldChange("Kpp", before, $"{Kpp} (сверен: True)");
+    }
+
+    /// <summary>Адрес сайта: пусто — нет сайта; без схемы дописывается https://; только http и https.</summary>
+    public static string? NormalizeWebsite(string? url)
+    {
+        var value = url?.Trim();
+        if (string.IsNullOrEmpty(value))
+        {
+            return null;
+        }
+
+        if (!value.Contains("://", StringComparison.Ordinal))
+        {
+            value = "https://" + value;
+        }
+
+        if (value.Length > WebsiteMaxLength || !Uri.TryCreate(value, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp) || string.IsNullOrEmpty(uri.Host))
+        {
+            throw new BusinessRuleException("org.website.invalid", "Адрес сайта указан неверно, например: https://fabrika.ru");
+        }
+
+        return uri.ToString();
     }
 
     private void SetKpp(string? kpp, bool verified)

@@ -1,0 +1,112 @@
+@inject IJSRuntime JS
+
+<form class="tool-form" @onsubmit="Calculate">
+    <label>
+        Выражение
+        <input @bind="_expression" @bind:event="oninput" inputmode="decimal" autocomplete="off" placeholder="1250 + 20%" aria-describedby="calc-hint" />
+    </label>
+    <div class="calc-keys" role="group" aria-label="Кнопки калькулятора">
+        @foreach (var key in Keys)
+        {
+            <button type="button" class="secondary" @onclick="() => Press(key)" aria-label="@KeyLabel(key)">@key</button>
+        }
+    </div>
+    <div class="actions">
+        <button type="submit">=</button>
+        <button type="button" class="secondary" @onclick="Clear">Очистить</button>
+    </div>
+</form>
+
+@if (_error is not null)
+{
+    <div class="error" role="alert">@_error</div>
+}
+@if (_result is not null)
+{
+    <div class="calc-result" aria-live="polite">
+        <span class="muted">@_shown =</span>
+        <b>@_result</b>
+        <button type="button" class="secondary" @onclick="CopyAsync" title="Скопировать результат">@(_copied ? "Скопировано" : "Копировать")</button>
+    </div>
+}
+
+@if (_history.Count > 0)
+{
+    <h3>Последние расчёты</h3>
+    <ul class="plain">
+        @foreach (var h in _history)
+        {
+            <li><button type="button" class="link" @onclick="() => _expression = h.Result" title="Подставить результат">@h.Expression = @h.Result</button></li>
+        }
+    </ul>
+}
+
+<p class="muted" id="calc-hint">Проценты: «1250 + 20%» — прибавить 20 %, «15% от 400» — 60, «400 × 15%» — тоже 60. Десятичная запятая или точка.</p>
+
+@code {
+    private static readonly string[] Keys = ["7", "8", "9", "÷", "4", "5", "6", "×", "1", "2", "3", "−", "0", ",", "%", "+", "(", ")", "⌫"];
+
+    private string _expression = string.Empty;
+    private string? _result;
+    private string? _shown;
+    private string? _error;
+    private bool _copied;
+    private readonly List<(string Expression, string Result)> _history = [];
+
+    private void Press(string key)
+    {
+        _copied = false;
+        _expression = key == "⌫" ? (_expression.Length > 0 ? _expression[..^1] : "") : _expression + key;
+    }
+
+    private void Calculate()
+    {
+        _error = null;
+        _copied = false;
+        try
+        {
+            var value = KnitErp.Application.Workspace.Calculator.Evaluate(_expression);
+            _result = KnitErp.Application.Workspace.Calculator.Format(value);
+            _shown = _expression.Trim();
+            _history.Insert(0, (_shown, _result));
+            if (_history.Count > 5)
+            {
+                _history.RemoveAt(5);
+            }
+        }
+        catch (BusinessRuleException ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private void Clear()
+    {
+        _expression = string.Empty;
+        _result = null;
+        _error = null;
+    }
+
+    private async Task CopyAsync()
+    {
+        if (_result is null)
+        {
+            return;
+        }
+
+        // Буфер обмена — в браузере; если он запрещён, результат остаётся на экране.
+        _copied = await JS.InvokeAsync<bool>("kniterp.copy", _result.Replace(" ", ""));
+    }
+
+    private static string KeyLabel(string key) => key switch
+    {
+        "÷" => "Разделить",
+        "×" => "Умножить",
+        "−" => "Минус",
+        "+" => "Плюс",
+        "%" => "Процент",
+        "⌫" => "Стереть символ",
+        "," => "Запятая",
+        _ => key,
+    };
+}

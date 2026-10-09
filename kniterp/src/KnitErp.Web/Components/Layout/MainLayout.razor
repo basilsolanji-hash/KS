@@ -1,12 +1,22 @@
 @inherits LayoutComponentBase
-@implements IDisposable
+@implements IAsyncDisposable
 @inject UserAccessService Access
+@inject PersonalToolsService Personal
+@inject NotificationService Notifications
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 
 <div class="shell">
     <nav class="side" aria-label="Разделы">
         <div class="side-head">
             <div class="logo">knit<span style="color: #2BA89A">ERP</span></div>
+            @if (_access is not null && _panel is not null)
+            {
+                @* Телефон и узкий планшет: инструменты и профиль — в этой же строке, одной кнопкой. *@
+                <div class="side-tools">
+                    <QuickBar Access="_access" Settings="_panel" Compact="true" ActiveTool="@_activeTool" Badge="_badge" OnOpen="OpenTool" />
+                </div>
+            }
             @* На телефоне меню свёрнуто в кнопку, чтобы не занимать экран над страницей. *@
             <button type="button" class="secondary menu-toggle" aria-expanded="@(_menuOpen ? "true" : "false")" aria-controls="nav-body"
                     @onclick="() => _menuOpen = !_menuOpen">@(_menuOpen ? "Закрыть" : "Меню")</button>
@@ -28,31 +38,36 @@
                     }
                 </NavLink>
             }
-            <div class="session">
-                <div>@_access.DisplayName</div>
-                <div class="muted">@string.Join(", ", _access.RoleNames) · @_access.OrganizationName</div>
-                <a href="account/organizations" data-enhance-nav="false" style="padding: 6px 0">Сменить организацию</a>
-                <form method="post" action="account/logout">
-                    <AntiforgeryToken />
-                    <button type="submit" class="link">Выйти</button>
-                </form>
-            </div>
         }
         </div>
     </nav>
-    <main class="main">
-        @if (_access is null)
+    <div class="main-col">
+        @if (_access is not null && _panel is not null)
         {
-            <p class="muted">Загрузка…</p>
+            <header class="topbar">
+                <QuickBar Access="_access" Settings="_panel" ActiveTool="@_activeTool" Badge="_badge" OnOpen="OpenTool" />
+            </header>
         }
-        else
-        {
-            @* Страница начинает работу после меню: у вкладки один DbContext, параллельных запросов к нему быть не должно. *@
-            <CascadingValue Value="_access" IsFixed="true">
-                @Body
-            </CascadingValue>
-        }
-    </main>
+        <main class="main">
+            @if (_access is null)
+            {
+                <p class="muted">Загрузка…</p>
+            }
+            else
+            {
+                @* Страница начинает работу после меню: у вкладки один DbContext, параллельных запросов к нему быть не должно.
+                   Инструменты панели работают со своим DbContext на каждую операцию и страницу не трогают. *@
+                <CascadingValue Value="_access" IsFixed="true">
+                    @Body
+                </CascadingValue>
+            }
+        </main>
+    </div>
+    @if (_access is not null && _panel is not null && _opened.Count > 0)
+    {
+        <ToolDrawer Context="ToolContext()" Settings="_panel" Active="@_activeTool" Opened="_opened" HelpArticleId="@_helpArticle"
+                    OnClose="CloseTool" OnBadge="count => _badge = count" OnSaveSettings="SavePanelAsync" />
+    }
 </div>
 
 @code {
@@ -93,21 +108,158 @@
     };
 
     private bool _menuOpen;
+    private PanelSettings? _panel;
+    private string? _activeTool;
+    private string? _helpArticle;
+    private readonly List<string> _opened = [];
+    private int _badge;
+    private DateTime _badgeAt;
+    private DotNetObjectReference<MainLayout>? _self;
 
     protected override async Task OnInitializedAsync()
     {
-        Navigation.LocationChanged += CloseMenu;
+        Navigation.LocationChanged += OnLocationChanged;
         _access = await Access.GetCurrentAccessAsync();
-    }
-
-    private void CloseMenu(object? sender, LocationChangedEventArgs e)
-    {
-        if (_menuOpen)
+        try
         {
-            _menuOpen = false;
-            _ = InvokeAsync(StateHasChanged);
+            _panel = await Personal.GetPanelAsync();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            // Панель не должна мешать работе: без настроек показываем панель по умолчанию.
+            _panel = new PanelSettings(ToolCatalog.DefaultPinned, ToolCatalog.DefaultVisible);
         }
     }
 
-    public void Dispose() => Navigation.LocationChanged -= CloseMenu;
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _self = DotNetObjectReference.Create(this);
+            try
+            {
+                await JS.InvokeVoidAsync("kniterp.registerHotkeys", _self);
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+
+            // Счётчик уведомлений — после отрисовки страницы, чтобы не задерживать её загрузку.
+            await RefreshBadgeAsync();
+        }
+    }
+
+    /// <summary>Ctrl+K — поиск, Esc — закрыть инструмент (вызывается из браузера).</summary>
+    [JSInvokable]
+    public Task OnHotkey(string key) => InvokeAsync(async () =>
+    {
+        if (key == "search")
+        {
+            await OpenTool(ToolCatalog.Search);
+        }
+        else if (key == "escape" && _activeTool is not null)
+        {
+            await CloseTool();
+        }
+
+        StateHasChanged();
+    });
+
+    private async Task OpenTool(string id) => await OpenTool(id, null);
+
+    private async Task OpenTool(string id, string? arg)
+    {
+        _menuOpen = false;
+        if (id == ToolCatalog.Help)
+        {
+            _helpArticle = arg;
+        }
+
+        if (!_opened.Contains(id))
+        {
+            _opened.Add(id);
+        }
+
+        _activeTool = id;
+        StateHasChanged();
+        try
+        {
+            await JS.InvokeVoidAsync("kniterp.focusDrawer", id == ToolCatalog.Search ? "quick-search-input" : "drawer-title");
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private async Task CloseTool()
+    {
+        _activeTool = null;
+        try
+        {
+            await JS.InvokeVoidAsync("kniterp.restoreFocus");
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private Task NavigateFromTool(string href)
+    {
+        _activeTool = null;
+        Navigation.NavigateTo(href);
+        return Task.CompletedTask;
+    }
+
+    private async Task SavePanelAsync(PanelSettings settings) => _panel = await Personal.SavePanelAsync(settings);
+
+    private ToolContext ToolContext()
+    {
+        var route = Navigation.ToBaseRelativePath(Navigation.Uri);
+        return new ToolContext(_access!, route, RouteTitle(route),
+            Items.Select(i => new NavEntry(i.Href, i.Label, i.Allowed(_access!))).ToList(),
+            (id, arg) => InvokeAsync(() => OpenTool(id, arg)), href => InvokeAsync(() => NavigateFromTool(href)));
+    }
+
+    /// <summary>Название текущего раздела — для избранного и поддержки.</summary>
+    private static string RouteTitle(string route)
+    {
+        var path = route.Split('?', '#')[0];
+        var item = Items.Where(i => i.Href.Length == 0 ? path.Length == 0 : path == i.Href || path.StartsWith(i.Href + "/", StringComparison.Ordinal))
+            .OrderByDescending(i => i.Href.Length).FirstOrDefault();
+        return item.Label is null ? path : path.Contains('/') ? $"{item.Label}: {path[(path.IndexOf('/') + 1)..]}" : item.Label;
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        _menuOpen = false;
+        _ = InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            if (DateTime.UtcNow - _badgeAt > TimeSpan.FromMinutes(1))
+            {
+                await RefreshBadgeAsync();
+            }
+        });
+    }
+
+    private async Task RefreshBadgeAsync()
+    {
+        _badgeAt = DateTime.UtcNow;
+        try
+        {
+            _badge = (await Notifications.ListAsync()).Count;
+            StateHasChanged();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            // Счётчик — подсказка; ошибка не мешает работе.
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Navigation.LocationChanged -= OnLocationChanged;
+        _self?.Dispose();
+        await Task.CompletedTask;
+    }
 }

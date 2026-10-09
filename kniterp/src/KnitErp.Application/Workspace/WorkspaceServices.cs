@@ -1,0 +1,411 @@
+using System.Collections.Concurrent;
+using System.Text;
+using KnitErp.Application.Access;
+using KnitErp.Application.Common;
+using KnitErp.Application.Warehousing;
+using KnitErp.Domain.Access;
+using KnitErp.Domain.Audit;
+using KnitErp.Domain.Common;
+using KnitErp.Domain.Warehousing;
+using KnitErp.Domain.Workspace;
+using Microsoft.EntityFrameworkCore;
+
+namespace KnitErp.Application.Workspace;
+
+public sealed record SupportTicketDto(
+    long Id, string Number, string Subject, string Text, string? Section, SupportTicketStatus Status, string? Answer,
+    string Author, DateTime CreatedAtUtc, DateTime UpdatedAtUtc, bool Unread, byte[] RowVersion)
+{
+    public string StatusName => SupportTicket.StatusName(Status);
+}
+
+public sealed record SupportListDto(IReadOnlyList<SupportTicketDto> Mine, IReadOnlyList<SupportTicketDto> Queue, bool CanHandle);
+
+/// <summary>
+/// Поддержка внутри организации (допущение D48): обращение создаёт любой пользователь, разбирает Администратор
+/// (право управления пользователями). Свой DbContext на операцию — инструмент работает поверх страницы.
+/// </summary>
+public sealed class SupportService(IKnitErpDbContextFactory factory, ICurrentUser currentUser, IClock clock)
+{
+    public async Task<SupportListDto> ListAsync(CancellationToken ct = default)
+    {
+        await using var db = factory.Create();
+        var ctx = await new AccessGuard(db, currentUser, clock).CurrentAsync(ct);
+        var canHandle = ctx.Permissions.Has(Permissions.UserManage);
+
+        // Автор открыл список — ответы прочитаны, уведомление гаснет. До выборки: версии строк в списке должны быть свежими.
+        var unread = await db.SupportTickets.Where(t => t.OrganizationId == ctx.OrganizationId && t.AuthorUserId == ctx.UserId && t.UnreadByAuthor).ToListAsync(ct);
+        if (unread.Count > 0)
+        {
+            unread.ForEach(t => t.MarkReadByAuthor());
+            await db.SaveChangesAsync(ct);
+        }
+
+        var q = db.SupportTickets.AsNoTracking().Where(t => t.OrganizationId == ctx.OrganizationId);
+        var mine = await Project(db, q.Where(t => t.AuthorUserId == ctx.UserId).OrderByDescending(t => t.Id).Take(50)).ToListAsync(ct);
+        var queue = canHandle
+            ? await Project(db, q.Where(t => t.Status != SupportTicketStatus.Closed).OrderBy(t => t.Status).ThenBy(t => t.Id).Take(100)).ToListAsync(ct)
+            : [];
+
+        return new SupportListDto(mine, queue, canHandle);
+    }
+
+    public async Task<string> CreateAsync(string? subject, string? text, string? section, CancellationToken ct = default)
+    {
+        await using var db = factory.Create();
+        var ctx = await new AccessGuard(db, currentUser, clock).CurrentAsync(ct);
+        await using var tx = await db.BeginTransactionAsync(ct);
+        var number = await DocumentNumbers.NextAsync(db, ctx.OrganizationId, SupportTicket.NumberPrefix, ct);
+        var ticket = SupportTicket.Create(ctx.OrganizationId, number, ctx.UserId, subject, text, section, clock.UtcNow);
+        db.SupportTickets.Add(ticket);
+        await db.SaveChangesAsync(ct);
+        Audit(db, ctx, AuditActions.SupportTicketCreated, ticket, null, ticket.Subject);
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        return number;
+    }
+
+    public async Task TakeAsync(long id, byte[] rowVersion, CancellationToken ct = default) =>
+        await HandleAsync(id, rowVersion, (t, ctx) => t.TakeInWork(clock.UtcNow), AuditActions.SupportTicketChanged, ct);
+
+    public async Task ReplyAsync(long id, string? answer, byte[] rowVersion, CancellationToken ct = default) =>
+        await HandleAsync(id, rowVersion, (t, ctx) => t.Reply(answer, ctx.UserId, clock.UtcNow), AuditActions.SupportTicketChanged, ct);
+
+    /// <summary>Закрыть может автор (вопрос решён) или Администратор.</summary>
+    public async Task CloseAsync(long id, byte[] rowVersion, CancellationToken ct = default)
+    {
+        await using var db = factory.Create();
+        var ctx = await new AccessGuard(db, currentUser, clock).CurrentAsync(ct);
+        var ticket = await LoadAsync(db, ctx, id, rowVersion, ct);
+        if (ticket.AuthorUserId != ctx.UserId && !ctx.Permissions.Has(Permissions.UserManage))
+        {
+            await new AccessGuard(db, currentUser, clock).DenyAsync(ctx, Permissions.UserManage, ct);
+        }
+
+        var before = SupportTicket.StatusName(ticket.Status);
+        ticket.Close(clock.UtcNow);
+        Audit(db, ctx, AuditActions.SupportTicketChanged, ticket, before, SupportTicket.StatusName(ticket.Status));
+        await db.SaveOrConflictAsync(ct);
+    }
+
+    private async Task HandleAsync(long id, byte[] rowVersion, Action<SupportTicket, AccessContext> action, string audit, CancellationToken ct)
+    {
+        await using var db = factory.Create();
+        var guard = new AccessGuard(db, currentUser, clock);
+        var ctx = await guard.DemandAsync(Permissions.UserManage, ct);
+        var ticket = await LoadAsync(db, ctx, id, rowVersion, ct);
+        var before = SupportTicket.StatusName(ticket.Status);
+        action(ticket, ctx);
+        Audit(db, ctx, audit, ticket, before, SupportTicket.StatusName(ticket.Status));
+        await db.SaveOrConflictAsync(ct);
+    }
+
+    private static async Task<SupportTicket> LoadAsync(IKnitErpDbContext db, AccessContext ctx, long id, byte[] rowVersion, CancellationToken ct)
+    {
+        var ticket = await db.SupportTickets.SingleOrDefaultAsync(t => t.Id == id && t.OrganizationId == ctx.OrganizationId, ct)
+                     ?? throw new NotFoundException("Обращение");
+        if (ticket.AuthorUserId != ctx.UserId && !ctx.Permissions.Has(Permissions.UserManage))
+        {
+            throw new NotFoundException("Обращение");
+        }
+
+        return ticket.EnsureVersion(ticket.RowVersion, rowVersion);
+    }
+
+    private static IQueryable<SupportTicketDto> Project(IKnitErpDbContext db, IQueryable<SupportTicket> q) =>
+        q.Join(db.Users.AsNoTracking(), t => t.AuthorUserId, u => u.Id, (t, u) => new SupportTicketDto(
+            t.Id, t.Number, t.Subject, t.Text, t.Section, t.Status, t.Answer, u.DisplayName, t.CreatedAtUtc, t.UpdatedAtUtc, t.UnreadByAuthor, t.RowVersion));
+
+    private void Audit(IKnitErpDbContext db, AccessContext ctx, string action, SupportTicket t, string? before, string? after) =>
+        db.AuditEntries.Add(AuditEntry.Create(clock.UtcNow, ctx.OrganizationId, ctx.UserId, action, nameof(SupportTicket), t.Id.ToString(),
+            before, after, t.Number, currentUser.CorrelationId));
+}
+
+public enum NotificationLevel
+{
+    Info,
+    Action,
+    Warning,
+}
+
+public sealed record NotificationDto(string Text, string? Href, string? ToolId, NotificationLevel Level);
+
+/// <summary>
+/// Уведомления собираются из существующих модулей при открытии, а не хранятся отдельно: напоминания из задач,
+/// документы на утверждение и к проведению в области пользователя, ответы и новые обращения поддержки.
+/// </summary>
+public sealed class NotificationService(IKnitErpDbContextFactory factory, PersonalToolsService personal, ICurrentUser currentUser, IClock clock)
+{
+    public async Task<IReadOnlyList<NotificationDto>> ListAsync(CancellationToken ct = default)
+    {
+        var result = new List<NotificationDto>();
+        await using (var db = factory.Create())
+        {
+            var ctx = await new AccessGuard(db, currentUser, clock).CurrentAsync(ct);
+            var tz = await db.Organizations.AsNoTracking().Where(o => o.Id == ctx.OrganizationId).Select(o => o.TimeZoneId).SingleAsync(ct);
+            var today = PersonalToolsService.Today(clock.UtcNow, tz);
+
+            foreach (var task in (await personal.GetTasksAsync(ct)).Where(t => t.Remind && !t.Done && t.Date is { } d && d <= today)
+                         .OrderBy(t => t.Date).ThenBy(t => t.Time))
+            {
+                var when = task.Date == today ? $"сегодня{(task.Time is { } time ? $" в {time:HH\\:mm}" : "")}" : $"просрочено с {PersonalToolsService.FormatDate(task.Date!.Value)}";
+                result.Add(new(task.Title + " — " + when, null, ToolCatalog.Calendar, task.Date < today ? NotificationLevel.Warning : NotificationLevel.Info));
+            }
+
+            if (ctx.Permissions.Has(Permissions.OpeningBalanceApprove))
+            {
+                var visible = WarehouseScope.Visible(ctx, Permissions.OpeningBalanceApprove);
+                var waiting = await db.OpeningBalances.AsNoTracking()
+                    .CountAsync(d => d.OrganizationId == ctx.OrganizationId && d.Status == OpeningBalanceStatus.Submitted
+                                     && d.CreatedByUserId != ctx.UserId && (visible == null || visible.Contains(d.WarehouseId)), ct);
+                if (waiting > 0)
+                {
+                    result.Add(new($"Начальные остатки ждут утверждения: {waiting}", "opening-balances", null, NotificationLevel.Action));
+                }
+            }
+
+            if (ctx.Permissions.Has(Permissions.WarehouseDocumentPost))
+            {
+                var visible = WarehouseScope.Visible(ctx, Permissions.WarehouseDocumentPost);
+                var drafts = await db.StockDocuments.AsNoTracking()
+                    .CountAsync(d => d.OrganizationId == ctx.OrganizationId && d.Status == StockDocumentStatus.Draft
+                                     && (visible == null || visible.Contains(d.WarehouseId)), ct);
+                var counts = await db.InventoryCounts.AsNoTracking()
+                    .CountAsync(d => d.OrganizationId == ctx.OrganizationId && d.Status == InventoryStatus.Draft
+                                     && (visible == null || visible.Contains(d.WarehouseId)), ct);
+                if (drafts > 0)
+                {
+                    result.Add(new($"Черновики складских документов к проведению: {drafts}", "stock-documents", null, NotificationLevel.Action));
+                }
+
+                if (counts > 0)
+                {
+                    result.Add(new($"Незавершённые инвентаризации: {counts}", "inventory", null, NotificationLevel.Action));
+                }
+            }
+
+            var answered = await db.SupportTickets.AsNoTracking()
+                .Where(t => t.OrganizationId == ctx.OrganizationId && t.AuthorUserId == ctx.UserId && t.UnreadByAuthor)
+                .Select(t => new { t.Number, t.Status }).ToListAsync(ct);
+            result.AddRange(answered.Select(t => new NotificationDto(
+                $"Обращение {t.Number}: {SupportTicket.StatusName(t.Status).ToLowerInvariant()}", null, ToolCatalog.Support, NotificationLevel.Info)));
+
+            if (ctx.Permissions.Has(Permissions.UserManage))
+            {
+                var fresh = await db.SupportTickets.AsNoTracking()
+                    .CountAsync(t => t.OrganizationId == ctx.OrganizationId && t.Status == SupportTicketStatus.Open, ct);
+                if (fresh > 0)
+                {
+                    result.Add(new($"Новые обращения в поддержку: {fresh}", null, ToolCatalog.Support, NotificationLevel.Action));
+                }
+            }
+        }
+
+        return result;
+    }
+}
+
+public enum SearchHitKind
+{
+    Section,
+    Item,
+    Document,
+    Help,
+}
+
+public sealed record SearchHitDto(SearchHitKind Kind, string Title, string? Subtitle, string? Href, string? HelpId);
+
+/// <summary>
+/// Быстрый поиск: номенклатура по коду и названию, документы по номеру (в области складов пользователя), справка.
+/// Разделы меню ищет интерфейс — он знает их список. Показывается только доступное по правам.
+/// </summary>
+public sealed class QuickSearchService(IKnitErpDbContextFactory factory, ICurrentUser currentUser, IClock clock)
+{
+    public const int MaxPerKind = 8;
+
+    public async Task<IReadOnlyList<SearchHitDto>> SearchAsync(string? query, CancellationToken ct = default)
+    {
+        var text = (query ?? string.Empty).Trim();
+        if (text.Length < 2)
+        {
+            return [];
+        }
+
+        var hits = new List<SearchHitDto>();
+        await using (var db = factory.Create())
+        {
+            var ctx = await new AccessGuard(db, currentUser, clock).CurrentAsync(ct);
+            var org = ctx.OrganizationId;
+
+            if (ctx.Permissions.Has(Permissions.CatalogView))
+            {
+                var items = await db.Items.AsNoTracking()
+                    .Where(i => i.OrganizationId == org && (i.Code.Contains(text) || i.Name.Contains(text)))
+                    .OrderBy(i => i.IsArchived).ThenBy(i => i.Code).Take(MaxPerKind)
+                    .Select(i => new { i.Code, i.Name, i.IsArchived }).ToListAsync(ct);
+                var stock = ctx.Permissions.Has(Permissions.WarehouseReportView);
+                hits.AddRange(items.Select(i => new SearchHitDto(SearchHitKind.Item, $"{i.Code} — {i.Name}",
+                    i.IsArchived ? "Номенклатура, в архиве" : stock ? "Номенклатура · открыть остатки" : "Номенклатура",
+                    stock ? $"stock?search={Uri.EscapeDataString(i.Code)}" : $"catalog?search={Uri.EscapeDataString(i.Code)}", null)));
+            }
+
+            string[] docPermissions = [Permissions.WarehouseDocumentCreate, Permissions.WarehouseDocumentPost, Permissions.WarehouseReportView];
+            if (docPermissions.Any(ctx.Permissions.Has))
+            {
+                var visible = WarehouseScope.Visible(ctx, docPermissions);
+                var docs = await db.StockDocuments.AsNoTracking()
+                    .Where(d => d.OrganizationId == org && d.Number.Contains(text)
+                                && (visible == null || visible.Contains(d.WarehouseId) || (d.TargetWarehouseId != null && visible.Contains(d.TargetWarehouseId.Value))))
+                    .OrderByDescending(d => d.Id).Take(MaxPerKind).Select(d => new { d.Id, d.Number, d.Kind, d.Status, d.DocumentDate }).ToListAsync(ct);
+                hits.AddRange(docs.Select(d => new SearchHitDto(SearchHitKind.Document, $"{StockDocument.KindName(d.Kind)} {d.Number}",
+                    $"{d.DocumentDate:dd.MM.yyyy} · {StockDocument.StatusName(d.Status)}", $"stock-documents/{d.Id}", null)));
+
+                var counts = await db.InventoryCounts.AsNoTracking()
+                    .Where(d => d.OrganizationId == org && d.Number.Contains(text) && (visible == null || visible.Contains(d.WarehouseId)))
+                    .OrderByDescending(d => d.Id).Take(MaxPerKind).Select(d => new { d.Id, d.Number, d.Status, d.CountDate }).ToListAsync(ct);
+                hits.AddRange(counts.Select(d => new SearchHitDto(SearchHitKind.Document, $"Инвентаризация {d.Number}",
+                    $"{d.CountDate:dd.MM.yyyy} · {InventoryCount.StatusName(d.Status)}", $"inventory/{d.Id}", null)));
+            }
+
+            string[] openingPermissions = [Permissions.OpeningBalanceCreate, Permissions.OpeningBalanceApprove, Permissions.WarehouseReportView];
+            if (openingPermissions.Any(ctx.Permissions.Has))
+            {
+                var visible = WarehouseScope.Visible(ctx, openingPermissions);
+                var opening = await db.OpeningBalances.AsNoTracking()
+                    .Where(d => d.OrganizationId == org && d.Number.Contains(text) && (visible == null || visible.Contains(d.WarehouseId)))
+                    .OrderByDescending(d => d.Id).Take(MaxPerKind).Select(d => new { d.Id, d.Number, d.Status, d.AsOfDate }).ToListAsync(ct);
+                hits.AddRange(opening.Select(d => new SearchHitDto(SearchHitKind.Document, $"Начальные остатки {d.Number}",
+                    $"{d.AsOfDate:dd.MM.yyyy} · {OpeningBalance.StatusName(d.Status)}", $"opening-balances/{d.Id}", null)));
+            }
+        }
+
+        hits.AddRange(HelpCenter.Search(text, 3).Select(a => new SearchHitDto(SearchHitKind.Help, a.Title, "Справка · " + a.Category, null, a.Id)));
+        return hits;
+    }
+}
+
+public sealed record AssistantReply(string Text, bool FromModel, IReadOnlyList<HelpArticle> Articles);
+
+/// <summary>
+/// ИИ-помощник по работе в системе. Модели передаются вопрос, раздел, роли и права пользователя и справка —
+/// данные фабрики (остатки, контрагенты, сотрудники) не передаются (допущение D49). Без настроенной модели или при
+/// её недоступности помощник отвечает статьями справочного центра — работа не останавливается.
+/// </summary>
+public sealed class AssistantService(IAssistantModel model, IKnitErpDbContextFactory factory, ICurrentUser currentUser, IClock clock)
+{
+    public const int MaxQuestionLength = 1000;
+    public const int MaxRequestsPerHour = 30;
+    private const int MaxHistoryTurns = 10;
+
+    private static readonly ConcurrentDictionary<long, Queue<DateTime>> Requests = new();
+
+    public bool ModelConfigured => model.IsConfigured;
+
+    public async Task<AssistantReply> AskAsync(string? question, string? route, IReadOnlyList<AssistantTurn> history, CancellationToken ct = default)
+    {
+        var text = question?.Trim() ?? string.Empty;
+        if (text.Length == 0)
+        {
+            throw new BusinessRuleException("field.required", "Напишите вопрос.");
+        }
+
+        if (text.Length > MaxQuestionLength)
+        {
+            throw new BusinessRuleException("field.too_long", $"Вопрос длиннее {MaxQuestionLength} символов.");
+        }
+
+        AccessContext ctx;
+        string roles;
+        await using (var db = factory.Create())
+        {
+            ctx = await new AccessGuard(db, currentUser, clock).CurrentAsync(ct);
+            var now = clock.UtcNow;
+            var roleIds = await db.RoleAssignments.AsNoTracking()
+                .Where(a => a.OrganizationId == ctx.OrganizationId && a.UserId == ctx.UserId && a.RoleId != null && a.RevokedAtUtc == null
+                            && a.ValidFromUtc <= now && (a.ValidToUtc == null || now < a.ValidToUtc))
+                .Select(a => a.RoleId!.Value).ToListAsync(ct);
+            roles = string.Join(", ", await db.Roles.AsNoTracking().Where(r => roleIds.Contains(r.Id)).Select(r => r.Name).ToListAsync(ct));
+        }
+
+        var current = HelpCenter.ForRoute(route);
+        var related = HelpCenter.Search(text, 3).Where(a => a != current).ToList();
+        var articles = (current is null ? related : [current, .. related]).Take(4).ToList();
+
+        if (!model.IsConfigured || !TryTakeQuota(ctx.UserId))
+        {
+            return Fallback(articles, model.IsConfigured ? "Лимит вопросов помощнику на этот час исчерпан. Вот что есть в справке:" : null);
+        }
+
+        var system = BuildSystemPrompt(roles, ctx, route, current, articles);
+        var conversation = history.TakeLast(MaxHistoryTurns).Append(new AssistantTurn(true, text)).ToList();
+        try
+        {
+            return new AssistantReply(await model.AskAsync(system, conversation, ct), true, articles);
+        }
+        catch (ExternalServiceUnavailableException ex)
+        {
+            return Fallback(articles, ex.Message + " Пока — ответ из справки:");
+        }
+    }
+
+    private static AssistantReply Fallback(IReadOnlyList<HelpArticle> articles, string? lead)
+    {
+        var sb = new StringBuilder();
+        if (lead is not null)
+        {
+            sb.AppendLine(lead);
+        }
+
+        if (articles.Count == 0)
+        {
+            sb.Append("В справке ничего не нашлось. Переформулируйте вопрос или создайте обращение в «Поддержке».");
+        }
+        else
+        {
+            sb.Append(lead is null ? "Нашёл в справке: " : "").Append(string.Join("; ", articles.Select(a => $"«{a.Title}»"))).Append('.');
+        }
+
+        return new AssistantReply(sb.ToString().Trim(), false, articles);
+    }
+
+    private static string BuildSystemPrompt(string roles, AccessContext ctx, string? route, HelpArticle? current, IReadOnlyList<HelpArticle> articles)
+    {
+        var granted = string.Join("; ", Permissions.All.Where(ctx.Permissions.Has).Select(Permissions.Describe));
+        var sb = new StringBuilder();
+        sb.AppendLine("Ты — помощник по работе в knitERP, системе учёта трикотажной фабрики. Отвечай по-русски, коротко и по шагам.");
+        sb.AppendLine("Отвечай только о работе в системе. Не выдумывай функции и данные: если в справке ответа нет, так и скажи и предложи создать обращение в «Поддержке».");
+        sb.AppendLine("Учитывай права пользователя: если для действия нужно право, которого у него нет, объясни, к кому обратиться (Владелец или Администратор), а не как обойти запрет.");
+        sb.AppendLine($"Роли пользователя: {(roles.Length > 0 ? roles : "не назначены")}.");
+        sb.AppendLine($"Права пользователя: {(granted.Length > 0 ? granted : "нет")}.");
+        sb.AppendLine($"Текущий раздел: {(string.IsNullOrWhiteSpace(route) ? "главная" : route.Split('?')[0])}{(current is null ? "" : $" ({current.Title})")}.");
+        sb.AppendLine("Справка:");
+        foreach (var a in articles.Count > 0 ? articles : HelpCenter.Articles.Take(2).ToList())
+        {
+            sb.AppendLine($"## {a.Title}").AppendLine(a.Text);
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>Не больше <see cref="MaxRequestsPerHour"/> обращений к модели в час на пользователя.</summary>
+    private bool TryTakeQuota(long userId)
+    {
+        var queue = Requests.GetOrAdd(userId, _ => new Queue<DateTime>());
+        lock (queue)
+        {
+            var now = clock.UtcNow;
+            while (queue.Count > 0 && now - queue.Peek() > TimeSpan.FromHours(1))
+            {
+                queue.Dequeue();
+            }
+
+            if (queue.Count >= MaxRequestsPerHour)
+            {
+                return false;
+            }
+
+            queue.Enqueue(now);
+            return true;
+        }
+    }
+}

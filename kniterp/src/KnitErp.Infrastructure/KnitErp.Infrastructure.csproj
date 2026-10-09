@@ -7,6 +7,9 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="ClosedXML" />
+    <!-- Официальный SDK Anthropic: ИИ-помощник (включается ключом в настройках, по умолчанию выключен). -->
+    <PackageReference Include="Anthropic" />
+    <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
     <!-- Только для команды dotnet ef: в сборку приложения не попадает. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">

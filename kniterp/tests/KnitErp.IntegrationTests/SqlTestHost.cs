@@ -6,6 +6,7 @@ using KnitErp.Application.Common;
 using KnitErp.Application.Organizations;
 using KnitErp.Application.Structure;
 using KnitErp.Application.Warehousing;
+using KnitErp.Application.Workspace;
 using KnitErp.Domain.Access;
 using KnitErp.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
@@ -56,6 +57,17 @@ public sealed class SqlTestHost : IAsyncLifetime
 
     public TestClock Clock { get; } = new();
 
+    /// <summary>Модель ИИ-помощника для тестов: по умолчанию не подключена.</summary>
+    public IAssistantModel AssistantModel { get; set; } = new DisabledAssistantModel();
+
+    /// <summary>Фабрика контекстов для инструментов панели — как в приложении, свой контекст на операцию.</summary>
+    public IKnitErpDbContextFactory Factory => new TestDbFactory(this);
+
+    private sealed class TestDbFactory(SqlTestHost host) : IKnitErpDbContextFactory
+    {
+        public IKnitErpDbContext Create() => host.NewDb();
+    }
+
     public KnitErpDbContext NewDb() =>
         new(new DbContextOptionsBuilder<KnitErpDbContext>()
             .UseSqlServer(_connectionString, KnitErp.Infrastructure.DependencyInjection.ConfigureSqlServer).Options);
@@ -84,7 +96,12 @@ public sealed class SqlTestHost : IAsyncLifetime
             new StockDocumentService(db, guard, Spreadsheet, user, Clock),
             new InventoryService(db, guard, Spreadsheet, user, Clock),
             new PeriodService(db, guard, user, Clock),
-            new StockReportService(db, guard));
+            new StockReportService(db, guard),
+            new PersonalToolsService(Factory, user, Clock),
+            new SupportService(Factory, user, Clock),
+            new NotificationService(Factory, new PersonalToolsService(Factory, user, Clock), user, Clock),
+            new QuickSearchService(Factory, user, Clock),
+            new AssistantService(AssistantModel, Factory, user, Clock));
     }
 
     private static readonly IPasswordHasher<UserAccount> Hasher = new PasswordHasher<UserAccount>();
@@ -133,7 +150,12 @@ public sealed record Services(
     StockDocumentService Documents,
     InventoryService Inventory,
     PeriodService Period,
-    StockReportService Reports) : IAsyncDisposable
+    StockReportService Reports,
+    PersonalToolsService Personal,
+    SupportService Support,
+    NotificationService Notifications,
+    QuickSearchService Search,
+    AssistantService Assistant) : IAsyncDisposable
 {
     public ValueTask DisposeAsync() => Db.DisposeAsync();
 }

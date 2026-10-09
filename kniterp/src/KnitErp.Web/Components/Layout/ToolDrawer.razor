@@ -1,0 +1,100 @@
+@* Боковая панель инструментов: на компьютере — справа поверх страницы, на телефоне — шторка снизу.
+   Открытые инструменты остаются в разметке (скрыты), поэтому закрытие и повторное открытие не сбрасывает
+   введённые данные; страница под панелью не перерисовывается и не теряет фильтры. *@
+
+<aside class="drawer @(Active is null ? "" : "open")" role="dialog" aria-modal="false" aria-labelledby="drawer-title" aria-hidden="@(Active is null ? "true" : "false")"
+       @onkeydown="OnKeyDown">
+    <div class="drawer-head">
+        <h2 id="drawer-title" tabindex="-1">
+            <Icon Name="@(Active ?? "")" Size="20" /> @Title(Active)
+        </h2>
+        <button type="button" class="secondary icon" @onclick="() => OnClose.InvokeAsync()" aria-label="Закрыть панель инструмента" title="Закрыть (Esc)"><Icon Name="close" /></button>
+    </div>
+    <div class="drawer-body">
+        @foreach (var id in Opened)
+        {
+            <section hidden="@(id != Active)" aria-label="@Title(id)">
+                @switch (id)
+                {
+                    case ToolCatalog.Search:
+                        <SearchTool Context="Context" />
+                        break;
+                    case ToolCatalog.Notifications:
+                        <NotificationsTool Context="Context" Active="@(id == Active)" OnCount="OnBadge" />
+                        break;
+                    case ToolCatalog.Calculator:
+                        <CalculatorTool />
+                        break;
+                    case ToolCatalog.Calendar:
+                        <TasksTool Context="Context" CalendarView="true" Active="@(id == Active)" />
+                        break;
+                    case ToolCatalog.Tasks:
+                        <TasksTool Context="Context" CalendarView="false" Active="@(id == Active)" />
+                        break;
+                    case ToolCatalog.Notes:
+                        <NotesTool Context="Context" />
+                        break;
+                    case ToolCatalog.Favorites:
+                        <FavoritesTool Context="Context" />
+                        break;
+                    case ToolCatalog.Links:
+                        <LinksTool />
+                        break;
+                    case ToolCatalog.Assistant:
+                        <AssistantTool Context="Context" />
+                        break;
+                    case ToolCatalog.Weather:
+                        <WeatherTool Context="Context" />
+                        break;
+                    case ToolCatalog.Support:
+                        <SupportTool Context="Context" Active="@(id == Active)" />
+                        break;
+                    case ToolCatalog.Help:
+                        <HelpTool Context="Context" ArticleId="@HelpArticleId" />
+                        break;
+                    case QuickBar.SettingsId:
+                        <PanelSettingsTool Settings="Settings" OnSave="OnSaveSettings" />
+                        break;
+                }
+            </section>
+        }
+    </div>
+</aside>
+
+@code {
+    [Parameter, EditorRequired]
+    public ToolContext Context { get; set; } = default!;
+
+    [Parameter, EditorRequired]
+    public PanelSettings Settings { get; set; } = default!;
+
+    [Parameter]
+    public string? Active { get; set; }
+
+    [Parameter]
+    public IReadOnlyCollection<string> Opened { get; set; } = [];
+
+    [Parameter]
+    public string? HelpArticleId { get; set; }
+
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnBadge { get; set; }
+
+    [Parameter]
+    public EventCallback<PanelSettings> OnSaveSettings { get; set; }
+
+    private static string Title(string? id) =>
+        id == QuickBar.SettingsId ? "Настройка панели" : id is null ? "" : ToolCatalog.Find(id)?.Title ?? id;
+
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            await OnClose.InvokeAsync();
+        }
+    }
+}

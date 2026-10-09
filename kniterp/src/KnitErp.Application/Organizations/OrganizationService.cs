@@ -17,10 +17,11 @@ public sealed record OrganizationDto(
     string? ActualAddress,
     string TimeZoneId,
     string CurrencyCode,
+    string? WebsiteUrl,
     bool CanEdit,
     byte[] RowVersion);
 
-public sealed record UpdateRequisitesCommand(string? ActualAddress, string TimeZoneId, byte[] RowVersion);
+public sealed record UpdateRequisitesCommand(string? ActualAddress, string TimeZoneId, byte[] RowVersion, string? WebsiteUrl = null);
 
 public sealed record CreateOrganizationCommand(
     string FullName,
@@ -66,7 +67,7 @@ public sealed class OrganizationService(IKnitErpDbContext db, IAccessGuard guard
             throw new ConcurrencyConflictException();
         }
 
-        var changes = org.UpdateRequisites(cmd.ActualAddress, cmd.TimeZoneId);
+        var changes = org.UpdateRequisites(cmd.ActualAddress, cmd.TimeZoneId, cmd.WebsiteUrl);
         foreach (var c in changes)
         {
             db.AuditEntries.Add(AuditEntry.Create(
@@ -136,6 +137,6 @@ public sealed class OrganizationService(IKnitErpDbContext db, IAccessGuard guard
         var o = await db.Organizations.AsNoTracking().SingleOrDefaultAsync(x => x.Id == organizationId, ct)
                 ?? throw new NotFoundException("Организация");
         return new OrganizationDto(o.Id, o.FullName, o.ShortName, o.Inn, o.Kpp, o.KppVerified, o.ActualAddress,
-            o.TimeZoneId, o.CurrencyCode, ctx.Permissions.Has(Permissions.OrganizationEdit), o.RowVersion);
+            o.TimeZoneId, o.CurrencyCode, o.WebsiteUrl, ctx.Permissions.Has(Permissions.OrganizationEdit), o.RowVersion);
     }
 }

@@ -1,0 +1,73 @@
+@inject PersonalToolsService Personal
+
+@if (_error is not null)
+{
+    <div class="error" role="alert">@_error</div>
+}
+
+@if (_items is null)
+{
+    <p class="muted">Загрузка…</p>
+}
+else
+{
+    var current = Context.Route.Split('?')[0];
+    var isFavorite = _items.Any(f => f.Href == current);
+    <button type="button" class="@(isFavorite ? "secondary" : "")" @onclick="ToggleCurrentAsync" disabled="@_busy">
+        @(isFavorite ? "☆ Убрать из избранного" : "★ Добавить текущий раздел")
+    </button>
+    <p class="muted">Текущий раздел: @Context.RouteTitle</p>
+
+    @if (_items.Count == 0)
+    {
+        <p class="muted">Избранных разделов пока нет.</p>
+    }
+    <ul class="plain link-list">
+        @foreach (var f in _items)
+        {
+            <li>
+                <button type="button" class="link" @onclick="() => Context.Navigate(f.Href)">@f.Title</button>
+                <button type="button" class="link" @onclick="() => RemoveAsync(f)" aria-label="Убрать из избранного: @f.Title">Убрать</button>
+            </li>
+        }
+    </ul>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public ToolContext Context { get; set; } = default!;
+
+    private IReadOnlyList<FavoriteItem>? _items;
+    private string? _error;
+    private bool _busy;
+
+    protected override Task OnInitializedAsync() => RunAsync(async () => _items = await Personal.GetFavoritesAsync());
+
+    private Task ToggleCurrentAsync() =>
+        RunAsync(async () => _items = await Personal.ToggleFavoriteAsync(Context.RouteTitle, Context.Route.Split('?')[0]));
+
+    private Task RemoveAsync(FavoriteItem f) => RunAsync(async () => _items = await Personal.ToggleFavoriteAsync(f.Title, f.Href));
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await action();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

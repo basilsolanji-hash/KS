@@ -1,0 +1,191 @@
+@using System.Globalization
+@inject PersonalToolsService Personal
+
+@* Календарь и задачи — один модуль с общими данными: задача с датой видна в календаре, без даты — только в списке. *@
+
+@if (_error is not null)
+{
+    <div class="error" role="alert">@_error</div>
+}
+
+@if (_items is null)
+{
+    <p class="muted">Загрузка…</p>
+}
+else if (CalendarView)
+{
+    <div class="cal-head">
+        <button type="button" class="secondary" @onclick="() => Shift(-1)" aria-label="Предыдущий месяц">‹</button>
+        <b>@_month.ToString("MMMM yyyy", Ru)</b>
+        <button type="button" class="secondary" @onclick="() => Shift(1)" aria-label="Следующий месяц">›</button>
+    </div>
+    <div class="cal-grid" role="grid" aria-label="Календарь">
+        @foreach (var d in new[] { "Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс" })
+        {
+            <div class="cal-dow" role="columnheader">@d</div>
+        }
+        @foreach (var day in MonthDays())
+        {
+            var count = _items.Count(t => t.Date == day && !t.Done);
+            <button type="button" role="gridcell"
+                    class="cal-day @(day.Month != _month.Month ? "other" : "") @(day == _today ? "today" : "") @(day == _selected ? "selected" : "")"
+                    aria-label="@($"{day.ToString("d MMMM", Ru)}{(count > 0 ? $", дел: {count}" : "")}")"
+                    aria-pressed="@(day == _selected ? "true" : "false")" @onclick="() => _selected = day">
+                @day.Day
+                @if (count > 0)
+                {
+                    <span class="cal-dot" aria-hidden="true"></span>
+                }
+            </button>
+        }
+    </div>
+    <h3>@_selected.ToString("dddd, d MMMM", Ru)</h3>
+    @RenderList(_items.Where(t => t.Date == _selected).OrderBy(t => t.Time).ToList(), "На этот день ничего нет.")
+}
+else
+{
+    <div class="tabs" role="tablist">
+        <button type="button" role="tab" aria-selected="@(!_showDone ? "true" : "false")" class="@(!_showDone ? "" : "secondary")" @onclick="() => _showDone = false">Активные</button>
+        <button type="button" role="tab" aria-selected="@(_showDone ? "true" : "false")" class="@(_showDone ? "" : "secondary")" @onclick="() => _showDone = true">Выполненные</button>
+    </div>
+    @RenderList(_items.Where(t => t.Done == _showDone).OrderBy(t => t.Date ?? DateOnly.MaxValue).ThenBy(t => t.Time).ToList(),
+        _showDone ? "Выполненных задач нет." : "Задач нет — добавьте первую.")
+}
+
+@if (_items is not null)
+{
+    <form class="tool-form" @onsubmit="AddAsync">
+        <h3>@(CalendarView ? "Новое событие" : "Новая задача")</h3>
+        <label>Что сделать <input @bind="_title" maxlength="200" required /></label>
+        <div class="tool-row">
+            <label>Дата <input type="date" @bind="_date" /></label>
+            <label>Время <input type="time" @bind="_time" /></label>
+        </div>
+        <label class="inline"><input type="checkbox" @bind="_remind" /> Напомнить в уведомлениях</label>
+        <button type="submit" disabled="@_busy">Добавить</button>
+    </form>
+}
+
+@code {
+    private static readonly CultureInfo Ru = CultureInfo.GetCultureInfo("ru-RU");
+
+    [Parameter, EditorRequired]
+    public ToolContext Context { get; set; } = default!;
+
+    /// <summary>true — вид «Календарь», false — вид «Задачи».</summary>
+    [Parameter]
+    public bool CalendarView { get; set; }
+
+    /// <summary>Инструмент снова на экране — данные могли измениться в соседнем виде (календарь ↔ задачи).</summary>
+    [Parameter]
+    public bool Active { get; set; }
+
+    private bool _wasActive;
+
+    private IReadOnlyList<TaskItem>? _items;
+    private DateOnly _today;
+    private DateOnly _month;
+    private DateOnly _selected;
+    private bool _showDone;
+    private bool _busy;
+    private string? _error;
+    private string _title = string.Empty;
+    private DateTime? _date;
+    private TimeOnly? _time;
+    private bool _remind;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _today = PersonalToolsService.Today(DateTime.UtcNow, Context.Access.TimeZoneId);
+        _selected = _today;
+        _month = new DateOnly(_today.Year, _today.Month, 1);
+        _date = CalendarView ? _today.ToDateTime(TimeOnly.MinValue) : null;
+        await RunAsync(async () => _items = await Personal.GetTasksAsync());
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Active && !_wasActive && _items is not null)
+        {
+            await RunAsync(async () => _items = await Personal.GetTasksAsync());
+        }
+
+        _wasActive = Active;
+    }
+
+    private RenderFragment RenderList(IReadOnlyList<TaskItem> list, string empty) => __builder =>
+    {
+        if (list.Count == 0)
+        {
+            <p class="muted">@empty</p>
+            return;
+        }
+
+        <ul class="task-list">
+            @foreach (var t in list)
+            {
+                <li class="@(t.Done ? "done" : "")">
+                    <label class="inline">
+                        <input type="checkbox" checked="@t.Done" disabled="@_busy" @onchange="e => SetDoneAsync(t, e.Value is true)" aria-label="Выполнено: @t.Title" />
+                        <span>@t.Title</span>
+                    </label>
+                    <span class="muted">
+                        @(t.Date is { } d ? d.ToString("d MMM", Ru) : "")@(t.Time is { } tm ? " " + tm.ToString("HH:mm") : "")@(t.Remind ? " · напомнить" : "")
+                    </span>
+                    <button type="button" class="link" @onclick="() => DeleteAsync(t)" aria-label="Удалить: @t.Title">Удалить</button>
+                </li>
+            }
+        </ul>
+    };
+
+    private IEnumerable<DateOnly> MonthDays()
+    {
+        var start = _month.AddDays(-(((int)_month.DayOfWeek + 6) % 7));
+        for (var i = 0; i < 42; i++)
+        {
+            yield return start.AddDays(i);
+        }
+    }
+
+    private void Shift(int months)
+    {
+        _month = _month.AddMonths(months);
+        _selected = _month.Month == _today.Month && _month.Year == _today.Year ? _today : _month;
+    }
+
+    private Task AddAsync() => RunAsync(async () =>
+    {
+        var date = CalendarView ? _selected : _date is { } d ? DateOnly.FromDateTime(d) : (DateOnly?)null;
+        _items = await Personal.SaveTaskAsync(new TaskItem(string.Empty, _title, date, _time, _remind, false, null));
+        _title = string.Empty;
+        _time = null;
+        _remind = false;
+    });
+
+    private Task SetDoneAsync(TaskItem t, bool done) => RunAsync(async () => _items = await Personal.SetTaskDoneAsync(t.Id, done));
+
+    private Task DeleteAsync(TaskItem t) => RunAsync(async () => _items = await Personal.DeleteTaskAsync(t.Id));
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await action();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

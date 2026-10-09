@@ -111,6 +111,139 @@
             .scroll table:not(.matrix) td[data-label]::before { content: attr(data-label); color: #A6A6AE; text-align: left; flex: 0 0 40%; }
             .scroll table:not(.matrix) td:not([data-label]) { justify-content: flex-start; text-align: left; }
             .scroll table:not(.matrix) td:empty { display: none; }
+            /* Приоритетные столбцы: второстепенные (th.opt) скрыты, строка раскрывается по нажатию «Подробнее». */
+            .scroll table:not(.matrix) td[data-opt] { display: none; }
+            .scroll table:not(.matrix) tr[data-open] td[data-opt] { display: flex; }
+            .scroll table:not(.matrix) tr[data-has-opt] { cursor: pointer; }
+            .scroll table:not(.matrix) tr[data-has-opt]::after { content: "Подробнее ▾"; display: block; padding-top: 6px; color: #2BA89A; font-size: 14px; }
+            .scroll table:not(.matrix) tr[data-has-opt][data-open]::after { content: "Свернуть ▴"; }
+        }
+
+        /* Колонка страницы: панель быстрого доступа сверху, затем содержимое. */
+        .main-col { flex: 999 1 600px; min-width: 0; display: flex; flex-direction: column; }
+        .main-col > .main { flex: 1 1 auto; }
+        .topbar { position: sticky; top: 0; z-index: 20; display: flex; justify-content: flex-end; align-items: center; box-sizing: border-box; height: 57px; padding: 0 24px; border-bottom: 1px solid #2E2E33; background: #1A1A1C; }
+        .quickbar { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; }
+        .quick-pinned { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+        .quick-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; min-width: 40px; padding: 6px 10px; border-radius: 8px;
+                     background: transparent; color: #C8C8CE; font-weight: 400; border: 1px solid transparent; text-decoration: none; position: relative; }
+        .quick-btn:hover, .quick-btn.active { background: #22302E; color: #ECECEE; }
+        .tool-icon { font-size: 17px; line-height: 1; width: 1.2em; text-align: center; }
+        .quick-btn .quick-label { font-size: 14px; }
+        @@media (max-width: 1399px) {
+            .quick-pinned .quick-btn .quick-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+            .quick-pinned > .quick-btn .badge { position: absolute; top: 1px; right: -2px; }
+        }
+        .badge { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 999px; background: #F0CF7A; color: #1A1A1C; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+        .icon-svg { flex: none; display: block; }
+        .menu .badge { margin-left: auto; }
+        .profile { display: inline-flex; align-items: center; gap: 10px; background: transparent; color: #ECECEE; padding: 4px 8px; font-weight: 400; border-left: 1px solid #2E2E33; border-radius: 0; margin-left: 6px; text-align: left; }
+        .avatar { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: #1E3A35; color: #8FE0D3; font-weight: 700; font-size: 14px; flex: none; }
+        .profile-text { display: flex; flex-direction: column; line-height: 1.25; max-width: 220px; }
+        .profile-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .profile-sub { font-size: 12px; color: #A6A6AE; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .menu-anchor { position: relative; }
+        .menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 70; min-width: 240px; max-height: 70vh; overflow-y: auto; padding: 6px; border-radius: 10px;
+                background: #202023; border: 1px solid #3A3A40; box-shadow: 0 12px 32px rgba(0,0,0,.45); display: flex; flex-direction: column; }
+        .menu-right { left: auto; right: 0; }
+        .menu-wide { min-width: 280px; }
+        .menu .menu-item, .menu a[role=menuitem] { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 8px 10px; border-radius: 6px;
+                background: transparent; color: #ECECEE; font-weight: 400; text-decoration: none; text-align: left; box-sizing: border-box; }
+        .menu .menu-item:hover, .menu a[role=menuitem]:hover { background: #22302E; }
+        .menu .menu-item.disabled { color: #8A8A92; cursor: default; }
+        .menu .menu-item.disabled:hover { background: transparent; }
+        .menu .quick-label { position: static !important; width: auto !important; height: auto !important; clip: auto !important; }
+        .menu-caption { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #8A8A92; padding: 8px 10px 4px; }
+        .menu-info { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px 10px; border-bottom: 1px solid #2E2E33; margin-bottom: 4px; }
+        .menu form { margin: 0; }
+        .menu-backdrop { position: fixed; inset: 0; z-index: 65; }
+        .quickbar .menu-anchor { z-index: 66; }
+        .side-tools { display: none; }
+
+        /* Панель инструмента. */
+        .drawer { position: fixed; top: 57px; right: 0; bottom: 0; z-index: 50; width: min(440px, 100vw); display: flex; flex-direction: column;
+                  background: #1E1E21; border-left: 1px solid #3A3A40; box-shadow: -12px 0 32px rgba(0,0,0,.4);
+                  transform: translateX(105%); transition: transform .18s ease-out; visibility: hidden; }
+        .drawer.open { transform: none; visibility: visible; }
+        @@media (prefers-reduced-motion: reduce) { .drawer { transition: none; } }
+        .drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid #2E2E33; }
+        .drawer-head h2 { margin: 0; font-size: 18px; }
+        .drawer-body { flex: 1 1 auto; overflow-y: auto; padding: 16px; overscroll-behavior: contain; }
+        .drawer-body h3 { font-size: 15px; margin: 18px 0 8px; }
+        button.icon { min-width: 40px; min-height: 40px; padding: 6px 10px; }
+        .tool-form { display: flex; flex-direction: column; gap: 10px; margin: 0 0 12px; }
+        .tool-form label { display: flex; flex-direction: column; gap: 6px; color: #C8C8CE; }
+        .tool-form label.inline { flex-direction: row; }
+        .tool-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+        .tool-row label { flex: 1 1 120px; }
+        textarea { font: inherit; padding: 10px 12px; border-radius: 6px; border: 1px solid #3A3A40; background: #232326; color: #ECECEE; resize: vertical; }
+        ul.plain { list-style: none; padding: 0; margin: 0 0 12px; }
+        .link-list li { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #2A2A2E; flex-wrap: wrap; }
+        .calc-keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+        .calc-keys button { min-height: 48px; font-size: 18px; }
+        .calc-result { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; padding: 12px; margin: 12px 0; border-radius: 8px; background: #1A2B28; }
+        .calc-result b { font-size: 24px; }
+        .cal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; text-transform: capitalize; }
+        .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+        .cal-dow { text-align: center; font-size: 12px; color: #8A8A92; }
+        .cal-day { position: relative; min-height: 40px; padding: 4px; border-radius: 6px; background: #232326; color: #ECECEE; font-weight: 400; }
+        .cal-day.other { color: #6A6A72; }
+        .cal-day.today { border: 1px solid #2BA89A; }
+        .cal-day.selected { background: #2BA89A; color: #0E1413; font-weight: 700; }
+        .cal-dot { position: absolute; bottom: 4px; left: 50%; width: 5px; height: 5px; margin-left: -2px; border-radius: 50%; background: #F0CF7A; }
+        .task-list { list-style: none; padding: 0; margin: 0 0 12px; }
+        .task-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 8px 0; border-bottom: 1px solid #2A2A2E; }
+        .task-list li > label { flex: 1 1 60%; }
+        .task-list li.done span:first-of-type { text-decoration: line-through; color: #8A8A92; }
+        .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+        .note-list { list-style: none; padding: 0; }
+        .note-list li { padding: 10px 0; border-bottom: 1px solid #2A2A2E; }
+        .note-text { white-space: pre-wrap; overflow-wrap: anywhere; margin-bottom: 6px; }
+        .notice { padding: 10px 12px; border-radius: 8px; background: #232326; margin-bottom: 8px; border-left: 3px solid #3A3A40; }
+        .notice.action { border-left-color: #2BA89A; }
+        .notice.warning { border-left-color: #F0CF7A; }
+        .notice button.link { text-align: left; color: #ECECEE; }
+        .chat { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+        .chat-msg { max-width: 92%; padding: 10px 12px; border-radius: 10px; }
+        .chat-msg.user { align-self: flex-end; background: #1E3A35; }
+        .chat-msg.bot { align-self: flex-start; background: #232326; }
+        .chat-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+        .chat-links { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+        .weather { padding: 14px; border-radius: 10px; background: #232326; margin: 12px 0; }
+        .weather-temp { font-size: 32px; font-weight: 700; }
+        .ticket { padding: 10px 0; border-bottom: 1px solid #2A2A2E; display: flex; flex-direction: column; gap: 4px; }
+        .ticket-text, .ticket-answer { white-space: pre-wrap; overflow-wrap: anywhere; }
+        .ticket-answer { padding: 8px 10px; border-radius: 6px; background: #1A2B28; }
+        .pin-list { padding: 0; list-style: none; margin: 0 0 12px; }
+        .pin-list li { display: flex; align-items: center; gap: 6px; padding: 6px 0; border-bottom: 1px solid #2A2A2E; }
+        .pin-list li.pin-more .pin-title { color: #A6A6AE; }
+        .pin-icon { width: 28px; display: inline-flex; justify-content: center; }
+        .pin-title { flex: 1 1 auto; min-width: 0; }
+        .help-article p, .help-current p { line-height: 1.5; }
+
+        /* Клавиатура: видимый фокус на всех элементах управления. */
+        :focus-visible { outline: 2px solid #2BA89A; outline-offset: 2px; }
+        /* Сенсорный экран: цели не меньше 44 px. */
+        @@media (pointer: coarse) { button, a.button, select, input:not([type=checkbox]), .quick-btn, .side a { min-height: 44px; } }
+        /* Большие мониторы: крупнее шрифт и поля, таблицы во всю ширину. */
+        @@media (min-width: 1600px) { body { font-size: 16px; } .main { padding: 28px 40px; } .topbar { padding: 0 40px; } }
+
+        @@media (max-width: 899px) {
+            .topbar { display: none; }
+            .side-head { gap: 8px; }
+            .side-head .logo { flex: 1 1 auto; }
+            .side-tools { display: block; }
+            .quickbar.compact .profile { border-left: 0; margin-left: 0; padding: 2px; }
+            .quickbar.compact .quick-btn { border: 1px solid #3A3A40; }
+            .drawer { top: auto; left: 0; width: 100vw; z-index: 80; height: 88vh; height: 88dvh; border-left: 0; border-top: 1px solid #3A3A40; border-radius: 14px 14px 0 0;
+                      transform: translateY(105%); box-shadow: 0 -12px 32px rgba(0,0,0,.45); }
+            .drawer.open { transform: none; }
+        }
+        @@media (max-width: 420px) { .quickbar.compact .quick-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); } }
+        /* Телефон боком: мало высоты — меню не прилипает, шторка во всю высоту. */
+        @@media (max-height: 500px) and (orientation: landscape) {
+            .side { position: static; }
+            .drawer { height: 100vh; height: 100dvh; border-radius: 0; }
         }
     </style>
     <HeadOutlet @rendermode="PageRenderMode" />
@@ -137,14 +270,75 @@
                     });
                 });
             }
+            // Второстепенные столбцы (th.opt): ячейки помечаются data-opt, строка получает «Подробнее» на телефоне.
+            function priority() {
+                document.querySelectorAll('.scroll table:not(.matrix)').forEach(function (table) {
+                    var opt = Array.prototype.map.call(table.querySelectorAll('thead th'), function (th) { return th.classList.contains('opt'); });
+                    if (opt.indexOf(true) < 0) return;
+                    table.querySelectorAll('tbody tr').forEach(function (tr) {
+                        var col = 0, has = false;
+                        Array.prototype.forEach.call(tr.children, function (td) {
+                            var span = td.colSpan || 1;
+                            if (span === 1 && opt[col]) { td.setAttribute('data-opt', ''); has = true; }
+                            col += span;
+                        });
+                        if (has && !tr.hasAttribute('data-has-opt')) {
+                            tr.setAttribute('data-has-opt', '');
+                            tr.setAttribute('tabindex', '0');
+                            tr.setAttribute('aria-expanded', 'false');
+                        }
+                    });
+                });
+            }
+            function toggleRow(tr) {
+                if (!window.matchMedia('(max-width: 599px)').matches) return;
+                var open = tr.hasAttribute('data-open');
+                if (open) tr.removeAttribute('data-open'); else tr.setAttribute('data-open', '');
+                tr.setAttribute('aria-expanded', open ? 'false' : 'true');
+            }
+            document.addEventListener('click', function (e) {
+                var tr = e.target.closest && e.target.closest('tr[data-has-opt]');
+                if (!tr || e.target.closest('a, button, input, select, textarea, label')) return;
+                toggleRow(tr);
+            });
+            document.addEventListener('keydown', function (e) {
+                if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('tr[data-has-opt]')) { e.preventDefault(); toggleRow(e.target); }
+            });
             var pending = false;
             new MutationObserver(function () {
                 if (pending) return;
                 pending = true;
-                requestAnimationFrame(function () { pending = false; label(); });
+                requestAnimationFrame(function () { pending = false; label(); priority(); });
             }).observe(document.documentElement, { childList: true, subtree: true });
-            document.addEventListener('DOMContentLoaded', label);
+            document.addEventListener('DOMContentLoaded', function () { label(); priority(); });
         })();
+
+        // Панель быстрого доступа: горячие клавиши, фокус в панели инструмента и обратно, буфер обмена.
+        window.kniterp = {
+            _returnFocus: null,
+            registerHotkeys: function (dotnet) {
+                document.addEventListener('keydown', function (e) {
+                    if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K' || e.key === 'л' || e.key === 'Л')) {
+                        e.preventDefault();
+                        dotnet.invokeMethodAsync('OnHotkey', 'search');
+                    } else if (e.key === 'Escape' && document.querySelector('.drawer.open')) {
+                        dotnet.invokeMethodAsync('OnHotkey', 'escape');
+                    }
+                });
+            },
+            focusDrawer: function (id) {
+                if (!document.querySelector('.drawer.open:focus-within')) kniterp._returnFocus = document.activeElement;
+                setTimeout(function () { var el = document.getElementById(id); if (el) el.focus(); }, 60);
+            },
+            restoreFocus: function () {
+                var el = kniterp._returnFocus;
+                kniterp._returnFocus = null;
+                if (el && document.contains(el)) el.focus();
+            },
+            copy: async function (text) {
+                try { await navigator.clipboard.writeText(text); return true; } catch (e) { return false; }
+            }
+        };
     </script>
 </body>
 </html>

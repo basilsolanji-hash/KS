@@ -156,7 +156,7 @@ else
         <table>
             <thead>
                 <tr>
-                    <th>Код</th><th>Наименование</th><th>Тип</th><th>Ед.</th>
+                    <th>Код</th><th>Наименование</th><th class="opt">Тип</th><th>Ед.</th>
                     @if (_list.CanEdit || _list.CanArchive)
                     {
                         <th>Действия</th>
@@ -266,8 +266,13 @@ else
     private string _search = string.Empty;
     private bool _includeArchived;
 
+    /// <summary>Поиск из ссылки (быстрый поиск панели): /stock?search=ПР-1.</summary>
+    [SupplyParameterFromQuery(Name = "search")]
+    public string? SearchQuery { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
+        _search = SearchQuery ?? _search;
         try
         {
             await LoadAsync();

@@ -35,6 +35,8 @@ public sealed class KnitErpDbContext(DbContextOptions<KnitErpDbContext> options)
     public DbSet<StockDocument> StockDocuments => Set<StockDocument>();
     public DbSet<InventoryCount> InventoryCounts => Set<InventoryCount>();
     public DbSet<PeriodClosure> PeriodClosures => Set<PeriodClosure>();
+    public DbSet<KnitErp.Domain.Workspace.UserToolData> UserToolData => Set<KnitErp.Domain.Workspace.UserToolData>();
+    public DbSet<KnitErp.Domain.Workspace.SupportTicket> SupportTickets => Set<KnitErp.Domain.Workspace.SupportTicket>();
     public DbSet<DocumentCounter> DocumentCounters => Set<DocumentCounter>();
 
     public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default) =>

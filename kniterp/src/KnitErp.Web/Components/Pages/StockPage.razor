@@ -46,7 +46,7 @@ else
 
     <div class="scroll">
         <table>
-            <thead><tr><th>Склад</th><th>Код</th><th>Наименование</th><th>Тип</th><th class="num">Остаток</th><th>Ед.</th></tr></thead>
+            <thead><tr><th>Склад</th><th>Код</th><th>Наименование</th><th class="opt">Тип</th><th class="num">Остаток</th><th>Ед.</th></tr></thead>
             <tbody>
                 @if (_rows.Count == 0)
                 {
@@ -77,8 +77,13 @@ else
     private string _type = string.Empty;
     private string _search = string.Empty;
 
+    /// <summary>Поиск из ссылки (быстрый поиск панели): /stock?search=ПР-1.</summary>
+    [SupplyParameterFromQuery(Name = "search")]
+    public string? SearchQuery { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
+        _search = SearchQuery ?? _search;
         try
         {
             _warehouses = await Stock.ListWarehousesAsync();
