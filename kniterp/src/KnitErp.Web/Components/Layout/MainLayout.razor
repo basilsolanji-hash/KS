@@ -83,6 +83,7 @@
         ("catalog", "Номенклатура", a => a.Has(Permissions.CatalogView)),
         ("warehouses", "Склады", a => a.Has(Permissions.CatalogView)),
         ("counterparties", "Контрагенты", a => a.Has(Permissions.CatalogView)),
+        ("vat-rates", "Ставки НДС", a => a.Has(Permissions.CatalogView)),
         ("opening-balances", "Начальные остатки", a => a.Has(Permissions.OpeningBalanceCreate) || a.Has(Permissions.OpeningBalanceApprove)
                                                    || a.Has(Permissions.WarehouseReportView)),
         ("stock-documents", "Складские документы", a => a.Has(Permissions.WarehouseDocumentCreate) || a.Has(Permissions.WarehouseDocumentPost)

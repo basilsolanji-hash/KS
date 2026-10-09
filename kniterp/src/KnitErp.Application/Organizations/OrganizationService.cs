@@ -19,7 +19,11 @@ public sealed record OrganizationDto(
     string CurrencyCode,
     string? WebsiteUrl,
     bool CanEdit,
-    byte[] RowVersion);
+    byte[] RowVersion,
+    string CountryCode = KnitErp.Domain.Organizations.Countries.Russia)
+{
+    public KnitErp.Domain.Organizations.CountryInfo Country => KnitErp.Domain.Organizations.Countries.Get(CountryCode);
+}
 
 public sealed record UpdateRequisitesCommand(string? ActualAddress, string TimeZoneId, byte[] RowVersion, string? WebsiteUrl = null);
 
@@ -31,7 +35,8 @@ public sealed record CreateOrganizationCommand(
     bool KppVerified,
     string TimeZoneId,
     string OwnerEmail,
-    string OwnerDisplayName);
+    string OwnerDisplayName,
+    string CountryCode = KnitErp.Domain.Organizations.Countries.Russia);
 
 /// <summary>OwnerSetupToken — ссылка установки пароля Владельца (null, если у него уже есть пароль).</summary>
 public sealed record CreatedOrganization(long OrganizationId, long OwnerUserId, string? OwnerSetupToken);
@@ -96,7 +101,7 @@ public sealed class OrganizationService(IKnitErpDbContext db, IAccessGuard guard
         var now = clock.UtcNow;
         await using var tx = await db.BeginTransactionAsync(ct);
 
-        var org = Organization.Create(cmd.FullName, cmd.ShortName, cmd.Inn, cmd.Kpp, cmd.KppVerified, cmd.TimeZoneId, now);
+        var org = Organization.Create(cmd.FullName, cmd.ShortName, cmd.Inn, cmd.Kpp, cmd.KppVerified, cmd.TimeZoneId, now, cmd.CountryCode);
         db.Organizations.Add(org);
 
         var normalized = cmd.OwnerEmail.Trim().ToUpperInvariant();
@@ -116,6 +121,7 @@ public sealed class OrganizationService(IKnitErpDbContext db, IAccessGuard guard
         db.Roles.AddRange(roles);
         Catalog.CatalogService.SeedDefaultUnits(db, org.Id);
         Warehousing.OperationReasonService.SeedDefaults(db, org.Id);
+        db.VatRates.AddRange(KnitErp.Domain.Catalog.VatRate.DefaultsFor(org.Id, org.CountryCode));
         db.OrganizationMembers.Add(OrganizationMember.Join(org.Id, owner.Id, now));
         await db.SaveChangesAsync(ct);
 
@@ -137,6 +143,6 @@ public sealed class OrganizationService(IKnitErpDbContext db, IAccessGuard guard
         var o = await db.Organizations.AsNoTracking().SingleOrDefaultAsync(x => x.Id == organizationId, ct)
                 ?? throw new NotFoundException("Организация");
         return new OrganizationDto(o.Id, o.FullName, o.ShortName, o.Inn, o.Kpp, o.KppVerified, o.ActualAddress,
-            o.TimeZoneId, o.CurrencyCode, o.WebsiteUrl, ctx.Permissions.Has(Permissions.OrganizationEdit), o.RowVersion);
+            o.TimeZoneId, o.CurrencyCode, o.WebsiteUrl, ctx.Permissions.Has(Permissions.OrganizationEdit), o.RowVersion, o.CountryCode);
     }
 }

@@ -159,6 +159,10 @@ public sealed class Item
     public ItemType Type { get; private set; }
     public long UnitId { get; private set; }
     public string? Description { get; private set; }
+
+    /// <summary>Вид ставки НДС (D60); процент — по дате документа из справочника ставок. Пусто — не указана.</summary>
+    public long? VatRateId { get; private set; }
+
     public bool IsArchived { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
     public DateTime? ArchivedAtUtc { get; private set; }
@@ -169,6 +173,19 @@ public sealed class Item
         var item = new Item { OrganizationId = organizationId, CreatedAtUtc = nowUtc };
         item.Set(code, name, type, unitId, description);
         return item;
+    }
+
+    /// <summary>Смена ставки НДС. Возвращает изменение для журнала (номера ставок) или null, если ставка та же.</summary>
+    public FieldChange? SetVatRate(long? vatRateId)
+    {
+        if (vatRateId == VatRateId)
+        {
+            return null;
+        }
+
+        var change = new FieldChange(nameof(VatRateId), VatRateId?.ToString(), vatRateId?.ToString());
+        VatRateId = vatRateId;
+        return change;
     }
 
     public IReadOnlyList<FieldChange> Update(string code, string name, ItemType type, long unitId, string? description)

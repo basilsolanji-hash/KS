@@ -17,8 +17,10 @@ internal sealed class OrganizationConfiguration : IEntityTypeConfiguration<Organ
     {
         b.ToTable("organizations", t =>
         {
-            t.HasCheckConstraint("ck_organizations_inn", "LEN([Inn]) = 10 AND [Inn] NOT LIKE '%[^0-9]%'");
-            t.HasCheckConstraint("ck_organizations_kpp", "[Kpp] IS NULL OR LEN([Kpp]) = 9");
+            // Налоговый номер страны (D60): ИНН 10, СТИР и УНП 9, БИН 12 цифр. КПП — только у российских.
+            t.HasCheckConstraint("ck_organizations_inn", "LEN([Inn]) BETWEEN 9 AND 12 AND [Inn] NOT LIKE '%[^0-9]%'");
+            t.HasCheckConstraint("ck_organizations_kpp", "[Kpp] IS NULL OR (LEN([Kpp]) = 9 AND [CountryCode] = 'RU')");
+            t.HasCheckConstraint("ck_organizations_country", "[CountryCode] IN ('RU', 'UZ', 'KZ', 'BY')");
             t.HasCheckConstraint("ck_organizations_kpp_verified", "[KppVerified] = 0 OR [Kpp] IS NOT NULL");
             t.HasCheckConstraint("ck_organizations_currency", "LEN([CurrencyCode]) = 3");
         });
@@ -26,7 +28,8 @@ internal sealed class OrganizationConfiguration : IEntityTypeConfiguration<Organ
         b.Property(x => x.Id).UseIdentityColumn();
         b.Property(x => x.FullName).HasMaxLength(Organization.NameMaxLength).IsRequired();
         b.Property(x => x.ShortName).HasMaxLength(Organization.ShortNameMaxLength).IsRequired();
-        b.Property(x => x.Inn).HasColumnType("char(10)").IsRequired();
+        b.Property(x => x.Inn).HasColumnType("varchar(12)").IsRequired();
+        b.Property(x => x.CountryCode).HasColumnType("char(2)").IsRequired().HasDefaultValue("RU");
         b.Property(x => x.Kpp).HasColumnType("char(9)");
         b.Property(x => x.ActualAddress).HasMaxLength(Organization.AddressMaxLength);
         b.Property(x => x.WebsiteUrl).HasMaxLength(Organization.WebsiteMaxLength);
@@ -34,7 +37,7 @@ internal sealed class OrganizationConfiguration : IEntityTypeConfiguration<Organ
         b.Property(x => x.CurrencyCode).HasColumnType("char(3)").IsRequired();
         b.Property(x => x.RowVersion).IsRowVersion();
         b.Ignore(x => x.PrintableKpp);
-        b.HasIndex(x => x.Inn).IsUnique().HasDatabaseName("ux_organizations_inn");
+        b.HasIndex(x => new { x.CountryCode, x.Inn }).IsUnique().HasDatabaseName("ux_organizations_country_inn");
     }
 }
 
@@ -297,6 +300,9 @@ internal sealed class ItemConfiguration : IEntityTypeConfiguration<Item>
         // Код уникален навсегда, включая архив: старые документы не должны указывать на другую вещь.
         b.HasIndex(x => new { x.OrganizationId, x.Code }).IsUnique().HasDatabaseName("ux_items_org_code");
         b.HasIndex(x => new { x.OrganizationId, x.Type, x.Name }).HasDatabaseName("ix_items_org_type_name");
+        b.HasOne<VatRate>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.VatRateId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_items_vat_rate");
     }
 }
 
@@ -343,22 +349,55 @@ internal sealed class CounterpartyConfiguration : IEntityTypeConfiguration<Count
         b.ToTable("counterparties", t =>
         {
             t.HasCheckConstraint("ck_counterparties_role", "[IsSupplier] = 1 OR [IsCustomer] = 1");
-            t.HasCheckConstraint("ck_counterparties_inn", "[Inn] IS NULL OR ((LEN([Inn]) = 10 OR LEN([Inn]) = 12) AND [Inn] NOT LIKE '%[^0-9]%')");
-            t.HasCheckConstraint("ck_counterparties_kpp", "[Kpp] IS NULL OR (LEN([Kpp]) = 9 AND LEN([Inn]) = 10)");
+            t.HasCheckConstraint("ck_counterparties_inn", "[Inn] IS NULL OR (LEN([Inn]) BETWEEN 9 AND 14 AND [Inn] NOT LIKE '%[^0-9]%')");
+            t.HasCheckConstraint("ck_counterparties_kpp", "[Kpp] IS NULL OR (LEN([Kpp]) = 9 AND LEN([Inn]) = 10 AND [CountryCode] = 'RU')");
+            t.HasCheckConstraint("ck_counterparties_country", "[CountryCode] IN ('RU', 'UZ', 'KZ', 'BY')");
         });
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).UseIdentityColumn();
         b.Property(x => x.Name).HasMaxLength(Counterparty.NameMaxLength).IsRequired();
-        b.Property(x => x.Inn).HasColumnType("varchar(12)");
+        b.Property(x => x.Inn).HasColumnType("varchar(14)");
         b.Property(x => x.Kpp).HasColumnType("char(9)");
+        b.Property(x => x.CountryCode).HasColumnType("char(2)").IsRequired().HasDefaultValue("RU");
         b.Property(x => x.Comment).HasMaxLength(Counterparty.CommentMaxLength);
         b.Property(x => x.RowVersion).IsRowVersion();
         b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
         b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_counterparties_org_id");
         // Филиалы одной организации отличаются КПП, поэтому уникальна пара ИНН + КПП среди действующих.
-        b.HasIndex(x => new { x.OrganizationId, x.Inn, x.Kpp }).IsUnique()
-            .HasFilter("[Inn] IS NOT NULL AND [IsArchived] = 0").HasDatabaseName("ux_counterparties_org_inn_kpp_active");
+        b.HasIndex(x => new { x.OrganizationId, x.CountryCode, x.Inn, x.Kpp }).IsUnique()
+            .HasFilter("[Inn] IS NOT NULL AND [IsArchived] = 0").HasDatabaseName("ux_counterparties_org_country_inn_kpp_active");
         b.HasIndex(x => new { x.OrganizationId, x.Name }).HasDatabaseName("ix_counterparties_org_name");
+    }
+}
+
+internal sealed class VatRateConfiguration : IEntityTypeConfiguration<VatRate>
+{
+    public void Configure(EntityTypeBuilder<VatRate> b)
+    {
+        b.ToTable("vat_rates", t => t.HasCheckConstraint("ck_vat_rates_kind", "[Kind] IN (1, 2, 3, 4)"));
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Kind).HasConversion<byte>();
+        b.Property(x => x.Name).HasMaxLength(VatRate.NameMaxLength).IsRequired();
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_vat_rates_org_id");
+        b.HasIndex(x => new { x.OrganizationId, x.Name }).IsUnique().HasFilter("[IsArchived] = 0")
+            .HasDatabaseName("ux_vat_rates_org_name_active");
+        b.HasMany(x => x.Periods).WithOne().HasForeignKey(x => x.VatRateId).OnDelete(DeleteBehavior.Restrict);
+        b.Navigation(x => x.Periods).UsePropertyAccessMode(PropertyAccessMode.Field).HasField("_periods");
+    }
+}
+
+internal sealed class VatRatePeriodConfiguration : IEntityTypeConfiguration<VatRatePeriod>
+{
+    public void Configure(EntityTypeBuilder<VatRatePeriod> b)
+    {
+        b.ToTable("vat_rate_periods", t => t.HasCheckConstraint("ck_vat_rate_periods_percent", "[Percent] BETWEEN 0 AND 100"));
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Percent).HasColumnType("decimal(5,2)");
+        b.HasIndex(x => new { x.VatRateId, x.ValidFrom }).IsUnique().HasDatabaseName("ux_vat_rate_periods_rate_from");
     }
 }
 

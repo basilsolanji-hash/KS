@@ -305,7 +305,7 @@ static async Task<int> CreateOrganizationAsync(WebApplication app, string[] args
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<KnitErpDbContext>();
     var inn = request.Command.Inn.Trim();
-    if (await db.Organizations.AnyAsync(o => o.Inn == inn))
+    if (await db.Organizations.AnyAsync(o => o.CountryCode == request.Command.CountryCode && o.Inn == inn))
     {
         Console.Error.WriteLine($"Организация с ИНН {inn} уже есть. Ничего не создано.");
         return 1;

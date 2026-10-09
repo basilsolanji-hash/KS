@@ -34,6 +34,9 @@ public sealed class Organization
     /// <summary>Часовой пояс учёта (IANA). Время хранится в UTC, показывается в этом поясе.</summary>
     public string TimeZoneId { get; private set; } = "Europe/Moscow";
 
+    /// <summary>Страна регистрации (D60): определяет налоговый номер, валюту и ставки НДС. После создания не меняется.</summary>
+    public string CountryCode { get; private set; } = Countries.Russia;
+
     public string CurrencyCode { get; private set; } = "RUB";
     public bool IsArchived { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
@@ -49,19 +52,23 @@ public sealed class Organization
         string? kpp,
         bool kppVerified,
         string timeZoneId,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        string countryCode = Countries.Russia)
     {
+        var country = Countries.Get(countryCode);
         var org = new Organization
         {
             FullName = RequireText(fullName, NameMaxLength, "Полное наименование"),
             ShortName = RequireText(shortName, ShortNameMaxLength, "Сокращённое наименование"),
             Inn = inn?.Trim() ?? string.Empty,
+            CountryCode = country.Code,
+            CurrencyCode = country.CurrencyCode,
             CreatedAtUtc = nowUtc,
         };
 
-        if (!RussianRequisites.IsValidLegalEntityInn(org.Inn))
+        if (!Countries.IsValidOrganizationTaxId(country.Code, org.Inn))
         {
-            throw new BusinessRuleException("org.inn.invalid", "ИНН юридического лица указан неверно: 10 цифр с верной контрольной суммой.");
+            throw new BusinessRuleException("org.inn.invalid", $"{Countries.TaxIdRule(country.Code, organization: true)} — номер указан неверно.");
         }
 
         org.SetKpp(kpp, kppVerified);
@@ -138,6 +145,11 @@ public sealed class Organization
     private void SetKpp(string? kpp, bool verified)
     {
         var value = string.IsNullOrWhiteSpace(kpp) ? null : kpp.Trim().ToUpperInvariant();
+        if (value is not null && !Countries.Get(CountryCode).HasKpp)
+        {
+            throw new BusinessRuleException("org.kpp.not_applicable", "КПП бывает только у российских организаций.");
+        }
+
         if (value is not null && !RussianRequisites.IsValidKpp(value))
         {
             throw new BusinessRuleException("org.kpp.invalid", "КПП указан неверно: 9 символов.");

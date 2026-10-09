@@ -9,12 +9,16 @@ using Microsoft.EntityFrameworkCore;
 namespace KnitErp.Application.Catalog;
 
 public sealed record CounterpartyDto(
-    long Id, string Name, string? Inn, string? Kpp, bool IsSupplier, bool IsCustomer, string? Comment, bool IsArchived, byte[] RowVersion)
+    long Id, string Name, string? Inn, string? Kpp, bool IsSupplier, bool IsCustomer, string? Comment, bool IsArchived, byte[] RowVersion,
+    string CountryCode = KnitErp.Domain.Organizations.Countries.Russia)
 {
     public string RolesText => Counterparty.RolesText(IsSupplier, IsCustomer);
+    public KnitErp.Domain.Organizations.CountryInfo Country => KnitErp.Domain.Organizations.Countries.Get(CountryCode);
 }
 
-public sealed record CounterpartyCommand(string Name, string? Inn, string? Kpp, bool IsSupplier, bool IsCustomer, string? Comment);
+/// <summary>CountryCode — страна регистрации (D60); null — страна организации при создании, прежняя при изменении.</summary>
+public sealed record CounterpartyCommand(
+    string Name, string? Inn, string? Kpp, bool IsSupplier, bool IsCustomer, string? Comment, string? CountryCode = null);
 
 public sealed record CounterpartyFilter(bool? Suppliers = null, bool? Customers = null, string? Search = null, bool IncludeArchived = false);
 
@@ -49,7 +53,7 @@ public sealed class CounterpartyService(IKnitErpDbContext db, IAccessGuard guard
         }
 
         var rows = await q.OrderBy(c => c.Name).Take(2000)
-            .Select(c => new CounterpartyDto(c.Id, c.Name, c.Inn, c.Kpp, c.IsSupplier, c.IsCustomer, c.Comment, c.IsArchived, c.RowVersion))
+            .Select(c => new CounterpartyDto(c.Id, c.Name, c.Inn, c.Kpp, c.IsSupplier, c.IsCustomer, c.Comment, c.IsArchived, c.RowVersion, c.CountryCode))
             .ToListAsync(ct);
         return new CounterpartyListDto(rows, ctx.Permissions.Has(Permissions.CatalogEdit), ctx.Permissions.Has(Permissions.CatalogArchive));
     }
@@ -57,8 +61,9 @@ public sealed class CounterpartyService(IKnitErpDbContext db, IAccessGuard guard
     public async Task<long> CreateAsync(CounterpartyCommand cmd, CancellationToken ct = default)
     {
         var ctx = await guard.DemandAsync(Permissions.CatalogEdit, ct);
-        var c = Counterparty.Create(ctx.OrganizationId, cmd.Name, cmd.Inn, cmd.Kpp, cmd.IsSupplier, cmd.IsCustomer, cmd.Comment);
-        await EnsureInnFreeAsync(ctx, c.Inn, c.Kpp, null, ct);
+        var country = cmd.CountryCode ?? await db.Organizations.Where(o => o.Id == ctx.OrganizationId).Select(o => o.CountryCode).SingleAsync(ct);
+        var c = Counterparty.Create(ctx.OrganizationId, cmd.Name, cmd.Inn, cmd.Kpp, cmd.IsSupplier, cmd.IsCustomer, cmd.Comment, country);
+        await EnsureInnFreeAsync(ctx, c.CountryCode, c.Inn, c.Kpp, null, ct);
         db.Counterparties.Add(c);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.CatalogCreated, c.Id, null, c.Inn is null ? c.Name : $"{c.Name}, ИНН {c.Inn}", c.RolesText());
@@ -71,8 +76,8 @@ public sealed class CounterpartyService(IKnitErpDbContext db, IAccessGuard guard
         var ctx = await guard.DemandAsync(Permissions.CatalogEdit, ct);
         var c = await FindAsync(ctx, id, ct);
         c.EnsureVersion(c.RowVersion, rowVersion);
-        var changes = c.Update(cmd.Name, cmd.Inn, cmd.Kpp, cmd.IsSupplier, cmd.IsCustomer, cmd.Comment);
-        await EnsureInnFreeAsync(ctx, c.Inn, c.Kpp, id, ct);
+        var changes = c.Update(cmd.Name, cmd.Inn, cmd.Kpp, cmd.IsSupplier, cmd.IsCustomer, cmd.Comment, cmd.CountryCode);
+        await EnsureInnFreeAsync(ctx, c.CountryCode, c.Inn, c.Kpp, id, ct);
         foreach (var change in changes)
         {
             Audit(ctx, AuditActions.CatalogChanged, id, change.Before, change.After, change.Field);
@@ -96,7 +101,7 @@ public sealed class CounterpartyService(IKnitErpDbContext db, IAccessGuard guard
         var ctx = await guard.DemandAsync(Permissions.CatalogArchive, ct);
         var c = await FindAsync(ctx, id, ct);
         c.EnsureVersion(c.RowVersion, rowVersion);
-        await EnsureInnFreeAsync(ctx, c.Inn, c.Kpp, id, ct);
+        await EnsureInnFreeAsync(ctx, c.CountryCode, c.Inn, c.Kpp, id, ct);
         c.Restore();
         Audit(ctx, AuditActions.CatalogRestored, id, "в архиве", c.Name, null);
         await db.SaveOrConflictAsync(ct);
@@ -106,7 +111,7 @@ public sealed class CounterpartyService(IKnitErpDbContext db, IAccessGuard guard
         await db.Counterparties.SingleOrDefaultAsync(c => c.Id == id && c.OrganizationId == ctx.OrganizationId, ct)
         ?? throw new NotFoundException("Контрагент");
 
-    private async Task EnsureInnFreeAsync(AccessContext ctx, string? inn, string? kpp, long? exceptId, CancellationToken ct)
+    private async Task EnsureInnFreeAsync(AccessContext ctx, string country, string? inn, string? kpp, long? exceptId, CancellationToken ct)
     {
         if (inn is null)
         {
@@ -114,7 +119,7 @@ public sealed class CounterpartyService(IKnitErpDbContext db, IAccessGuard guard
         }
 
         var existing = await db.Counterparties.AsNoTracking()
-            .Where(c => c.OrganizationId == ctx.OrganizationId && !c.IsArchived && c.Inn == inn && c.Kpp == kpp && c.Id != exceptId)
+            .Where(c => c.OrganizationId == ctx.OrganizationId && !c.IsArchived && c.CountryCode == country && c.Inn == inn && c.Kpp == kpp && c.Id != exceptId)
             .Select(c => c.Name).FirstOrDefaultAsync(ct);
         if (existing is not null)
         {

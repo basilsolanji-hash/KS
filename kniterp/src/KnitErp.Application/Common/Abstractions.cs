@@ -59,6 +59,7 @@ public interface IKnitErpDbContext : IAsyncDisposable
     DbSet<Site> Sites { get; }
     DbSet<Warehouse> Warehouses { get; }
     DbSet<Counterparty> Counterparties { get; }
+    DbSet<VatRate> VatRates { get; }
     DbSet<OperationReason> OperationReasons { get; }
     DbSet<OpeningBalance> OpeningBalances { get; }
     DbSet<StockMovement> StockMovements { get; }

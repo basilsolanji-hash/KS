@@ -31,8 +31,11 @@ public static class TableImport
 {
     public const int MaxRows = 5000;
 
-    /// <summary>Строки с данными первого листа. Заголовок должен совпадать с шаблоном.</summary>
-    public static IReadOnlyList<ImportRow> Read(ISpreadsheetFormat spreadsheet, Stream file, IReadOnlyList<string> columns)
+    /// <summary>
+    /// Строки с данными первого листа. Заголовок должен совпадать с шаблоном; последние столбцы после
+    /// <paramref name="requiredColumns"/> необязательны — так файлы по старому шаблону остаются годными.
+    /// </summary>
+    public static IReadOnlyList<ImportRow> Read(ISpreadsheetFormat spreadsheet, Stream file, IReadOnlyList<string> columns, int? requiredColumns = null)
     {
         var sheet = spreadsheet.ReadFirstSheet(file, MaxRows);
         if (sheet.Count == 0)
@@ -44,6 +47,11 @@ public static class TableImport
         for (var c = 0; c < columns.Count; c++)
         {
             var actual = c < header.Count ? header[c].Trim() : "";
+            if (actual.Length == 0 && c >= (requiredColumns ?? columns.Count))
+            {
+                continue;
+            }
+
             if (!string.Equals(actual, columns[c], StringComparison.OrdinalIgnoreCase))
             {
                 throw new BusinessRuleException("import.header",

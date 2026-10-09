@@ -30,11 +30,15 @@ else
     <EditForm Model="_draft" OnValidSubmit="SaveAsync" FormName="organization">
         <table>
             <tr><td class="muted">Полное наименование</td><td>@_org.FullName</td></tr>
-            <tr><td class="muted">ИНН</td><td>@_org.Inn</td></tr>
+            <tr><td class="muted">Страна</td><td>@_org.Country.Name</td></tr>
+            <tr><td class="muted">@_org.Country.TaxIdName</td><td>@_org.Inn</td></tr>
+            @if (_org.Country.HasKpp)
+            {
             <tr>
                 <td class="muted">КПП</td>
                 <td>@(_org.Kpp ?? "—") @if (_org.Kpp is not null && !_org.KppVerified) { <span class="tag">требует сверки · D15</span><div class="muted">До сверки по документу организации КПП не выводится в печатные формы.</div> }</td>
             </tr>
+            }
             <tr>
                 <td class="muted"><label for="org-address">Фактический адрес</label></td>
                 <td>
@@ -84,7 +88,7 @@ else
                     }
                 </td>
             </tr>
-            <tr><td class="muted">Валюта учёта</td><td>@_org.CurrencyCode</td></tr>
+            <tr><td class="muted">Валюта учёта</td><td>@_org.CurrencyCode — @_org.Country.CurrencyName</td></tr>
         </table>
 
         @if (_editing)

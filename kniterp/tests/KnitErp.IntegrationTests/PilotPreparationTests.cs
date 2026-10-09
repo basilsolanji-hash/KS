@@ -49,7 +49,7 @@ public sealed class PilotPreparationTests(SqlTestHost host) : IClassFixture<SqlT
         Assert.Contains("в архиве", string.Join(" ", plan.Rows[2].Errors));
         Assert.Contains("повторяется в строках 3, 5", string.Join(" ", plan.Rows[1].Errors));
         Assert.Contains(plan.Rows[4].Errors, e => e.Contains("поставщик это или покупатель"));
-        Assert.Contains(plan.Rows[5].Errors, e => e.Contains("ИНН указан неверно"));
+        Assert.Contains(plan.Rows[5].Errors, e => e.Contains("номер указан неверно"));
         Assert.Contains(plan.Rows[6].Errors, e => e.Contains("«да» или «нет»"));
         Assert.False(plan.CanApply);
 

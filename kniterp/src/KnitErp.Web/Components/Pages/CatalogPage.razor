@@ -4,6 +4,7 @@
 @using KnitErp.Web.Components.Shared
 @inject CatalogService Catalog
 @inject ItemExchangeService Exchange
+@inject VatRateService VatRates
 
 <PageTitle>Номенклатура — knitERP</PageTitle>
 
@@ -54,6 +55,16 @@ else
                             @foreach (var u in _units.Where(u => !u.IsArchived))
                             {
                                 <option value="@u.Id">@u.Name (@u.Symbol)</option>
+                            }
+                        </InputSelect>
+                    </label>
+                    <label>
+                        Ставка НДС
+                        <InputSelect @bind-Value="_form.VatRateId">
+                            <option value="">не указана</option>
+                            @foreach (var r in _vatRates)
+                            {
+                                <option value="@r.Id">@r.Name — @r.CurrentText</option>
                             }
                         </InputSelect>
                     </label>
@@ -156,7 +167,7 @@ else
         <table>
             <thead>
                 <tr>
-                    <th>Код</th><th>Наименование</th><th class="opt">Тип</th><th>Ед.</th>
+                    <th>Код</th><th>Наименование</th><th class="opt">Тип</th><th>Ед.</th><th class="opt">НДС</th>
                     @if (_list.CanEdit || _list.CanArchive)
                     {
                         <th>Действия</th>
@@ -166,7 +177,7 @@ else
             <tbody>
                 @if (_list.Items.Count == 0)
                 {
-                    <tr><td colspan="5" class="muted">Позиций не найдено.</td></tr>
+                    <tr><td colspan="6" class="muted">Позиций не найдено.</td></tr>
                 }
                 @foreach (var i in _list.Items)
                 {
@@ -175,6 +186,7 @@ else
                         <td>@i.Name @if (i.IsArchived) { <span class="tag">архив</span> }@if (i.Description is not null) { <div class="muted">@i.Description</div> }</td>
                         <td>@i.TypeName</td>
                         <td>@i.UnitSymbol</td>
+                        <td>@(i.VatRateName ?? "—")</td>
                         @if (_list.CanEdit || _list.CanArchive)
                         {
                             <td>
@@ -248,6 +260,7 @@ else
 
     private ItemListDto? _list;
     private IReadOnlyList<UnitDto> _units = [];
+    private IReadOnlyList<VatRateDto> _vatRates = [];
     private ItemForm _form = new();
     private UnitCommandForm _unit = new();
     private ItemDto? _target;
@@ -288,6 +301,7 @@ else
         ItemType? type = byte.TryParse(_typeFilter, out var t) ? (ItemType)t : null;
         _list = await Catalog.ListItemsAsync(new ItemFilter(type, _search, _includeArchived));
         _units = await Catalog.ListUnitsAsync(_includeArchived);
+        _vatRates = await VatRates.ActiveAsync();
     }
 
     private Task ReloadAsync() => RunAsync(() => Task.CompletedTask, null);
@@ -298,7 +312,11 @@ else
         _flashIsError = false;
         _formError = null;
         _target = null;
-        _form = new ItemForm { UnitId = _units.FirstOrDefault(u => u.Code == "796")?.Id ?? 0 };
+        _form = new ItemForm
+        {
+            UnitId = _units.FirstOrDefault(u => u.Code == "796")?.Id ?? 0,
+            VatRateId = _vatRates.FirstOrDefault(r => r.Kind == KnitErp.Domain.Catalog.VatRateKind.Standard)?.Id,
+        };
         _mode = Mode.Create;
     }
 
@@ -308,7 +326,7 @@ else
         _flashIsError = false;
         _formError = null;
         _target = i;
-        _form = new ItemForm { Code = i.Code, Name = i.Name, Type = i.Type, UnitId = i.UnitId, Description = i.Description };
+        _form = new ItemForm { Code = i.Code, Name = i.Name, Type = i.Type, UnitId = i.UnitId, Description = i.Description, VatRateId = i.VatRateId };
         _mode = Mode.Edit;
     }
 
@@ -321,7 +339,7 @@ else
 
     private Task SaveItemAsync() => RunAsync(async () =>
     {
-        var cmd = new ItemCommand(_form.Code, _form.Name, _form.Type, _form.UnitId, _form.Description);
+        var cmd = new ItemCommand(_form.Code, _form.Name, _form.Type, _form.UnitId, _form.Description, _form.VatRateId);
         if (_mode == Mode.Create)
         {
             await Catalog.CreateItemAsync(cmd);
@@ -435,6 +453,7 @@ else
         public ItemType Type { get; set; } = ItemType.RawMaterial;
         public long UnitId { get; set; }
         public string? Description { get; set; }
+        public long? VatRateId { get; set; }
     }
 
     private sealed class UnitCommandForm

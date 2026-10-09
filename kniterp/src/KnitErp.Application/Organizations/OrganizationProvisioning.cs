@@ -16,13 +16,13 @@ public static class OrganizationProvisioning
     [
         $"dotnet KnitErp.Web.dll {CommandName} \\",
         "  --name \"Общество с ограниченной ответственностью «…»\" --short-name \"ООО «…»\" \\",
-        "  --inn 1234567890 --kpp 123456789 --kpp-verified=yes \\",
+        "  [--country RU|UZ|KZ|BY] --inn 1234567890 --kpp 123456789 --kpp-verified=yes \\",
         "  --owner-email owner@factory.example --owner-name \"Фамилия Имя\" \\",
         "  [--timezone Europe/Moscow] [--url https://erp.factory.example]",
     ];
 
     private static readonly HashSet<string> Known =
-        ["name", "short-name", "inn", "kpp", "kpp-verified", "owner-email", "owner-name", "timezone", "url"];
+        ["name", "short-name", "country", "inn", "kpp", "kpp-verified", "owner-email", "owner-name", "timezone", "url"];
 
     /// <summary>Аргументы после имени команды. Ошибки — понятным списком, без исключений.</summary>
     public static (ProvisioningRequest? Request, IReadOnlyList<string> Errors) Parse(IReadOnlyList<string> args)
@@ -111,9 +111,20 @@ public static class OrganizationProvisioning
             return (null, errors);
         }
 
-        var timeZone = values.GetValueOrDefault("timezone") is { Length: > 0 } tz ? tz : "Europe/Moscow";
+        var country = KnitErp.Domain.Organizations.Countries.Parse(values.GetValueOrDefault("country") is { Length: > 0 } c ? c : "RU");
+        if (country is null)
+        {
+            return (null, ["--country: укажите RU, UZ, KZ или BY (Россия, Узбекистан, Казахстан, Беларусь)."]);
+        }
+
+        if (kpp is not null && !country.HasKpp)
+        {
+            return (null, [$"--kpp: КПП бывает только у российских организаций, а страна — {country.Name}."]);
+        }
+
+        var timeZone = values.GetValueOrDefault("timezone") is { Length: > 0 } tz ? tz : country.DefaultTimeZone;
         return (new ProvisioningRequest(
-            new CreateOrganizationCommand(name, shortName, inn, kpp, verified == true, timeZone, ownerEmail, ownerName), url), errors);
+            new CreateOrganizationCommand(name, shortName, inn, kpp, verified == true, timeZone, ownerEmail, ownerName, country.Code), url), errors);
     }
 
     /// <summary>Ссылка установки пароля Владельца: полная, если известен адрес программы.</summary>

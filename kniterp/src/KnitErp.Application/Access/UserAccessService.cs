@@ -55,7 +55,8 @@ public sealed record CurrentAccessDto(
     IReadOnlySet<string> Granted,
     IReadOnlySet<string> OwnOnly,
     string? PositionName = null,
-    string? WebsiteUrl = null)
+    string? WebsiteUrl = null,
+    string CountryCode = KnitErp.Domain.Organizations.Countries.Russia)
 {
     /// <summary>Инициалы для значка профиля (фотографий в системе пока нет — допущение D50).</summary>
     public string Initials => string.Concat(DisplayName.Split(' ', StringSplitOptions.RemoveEmptyEntries)
@@ -146,7 +147,7 @@ public sealed class UserAccessService(IKnitErpDbContext db, IAccessGuard guard, 
             .Join(db.Positions.AsNoTracking(), e => e.PositionId, p => p.Id, (e, p) => p.Name)
             .FirstOrDefaultAsync(ct);
         return new CurrentAccessDto(ctx.UserId, user.DisplayName, org.ShortName, org.TimeZoneId, roles.Select(r => r.Code).ToList(), roles.Select(r => r.Name).ToList(),
-            ctx.Permissions.GrantedCodes.ToHashSet(), ownOnly, position, org.WebsiteUrl);
+            ctx.Permissions.GrantedCodes.ToHashSet(), ownOnly, position, org.WebsiteUrl, org.CountryCode);
     }
 
     /// <summary>Роли организации для формы: какие текущий пользователь вправе выдать и почему нет.</summary>

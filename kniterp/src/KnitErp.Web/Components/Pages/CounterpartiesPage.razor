@@ -36,8 +36,20 @@ else
             <EditForm Model="_form" OnValidSubmit="SaveAsync" FormName="counterparty">
                 <div class="grid">
                     <label>Наименование <InputText @bind-Value="_form.Name" maxlength="300" required placeholder="ООО «Пряжа»" /></label>
-                    <label>ИНН <InputText @bind-Value="_form.Inn" maxlength="12" inputmode="numeric" placeholder="10 цифр у организации, 12 у ИП" /></label>
-                    <label>КПП <InputText @bind-Value="_form.Kpp" maxlength="9" placeholder="только у организации" /></label>
+                    <label>
+                        Страна
+                        <InputSelect @bind-Value="_form.CountryCode">
+                            @foreach (var country in KnitErp.Domain.Organizations.Countries.All)
+                            {
+                                <option value="@country.Code">@country.Name</option>
+                            }
+                        </InputSelect>
+                    </label>
+                    <label>@FormCountry.TaxIdName <InputText @bind-Value="_form.Inn" maxlength="14" inputmode="numeric" placeholder="@KnitErp.Domain.Organizations.Countries.TaxIdRule(FormCountry.Code, organization: false)" /></label>
+                    @if (FormCountry.HasKpp)
+                    {
+                        <label>КПП <InputText @bind-Value="_form.Kpp" maxlength="9" placeholder="только у организации" /></label>
+                    }
                     <label>Комментарий <InputText @bind-Value="_form.Comment" maxlength="1000" /></label>
                     <label class="inline"><InputCheckbox @bind-Value="_form.IsSupplier" /> Поставщик</label>
                     <label class="inline"><InputCheckbox @bind-Value="_form.IsCustomer" /> Покупатель</label>
@@ -74,7 +86,7 @@ else
 
     <div class="scroll">
         <table>
-            <thead><tr><th>Наименование</th><th>ИНН / КПП</th><th>Роль</th>@if (_list.CanEdit || _list.CanArchive) { <th>Действия</th> }</tr></thead>
+            <thead><tr><th>Наименование</th><th>Налоговый номер</th><th>Роль</th>@if (_list.CanEdit || _list.CanArchive) { <th>Действия</th> }</tr></thead>
             <tbody>
                 @if (_list.Counterparties.Count == 0)
                 {
@@ -84,7 +96,7 @@ else
                 {
                     <tr class="@(c.IsArchived ? "archived" : null)">
                         <td>@c.Name @if (c.IsArchived) { <span class="tag">архив</span> }@if (c.Comment is not null) { <div class="muted">@c.Comment</div> }</td>
-                        <td>@(c.Inn ?? "—")@if (c.Kpp is not null) { <span class="muted"> / @c.Kpp</span> }</td>
+                        <td>@if (c.Inn is not null) { <span class="muted">@c.Country.TaxIdName </span>@c.Inn } else { <span>—</span> }@if (c.Kpp is not null) { <span class="muted"> / @c.Kpp</span> }@if (c.CountryCode != _orgCountry) { <div class="muted">@c.Country.Name</div> }</td>
                         <td>@c.RolesText</td>
                         @if (_list.CanEdit || _list.CanArchive)
                         {
@@ -125,6 +137,9 @@ else
     [CascadingParameter]
     public CurrentAccessDto CurrentAccess { get; set; } = default!;
 
+    private string _orgCountry => CurrentAccess.CountryCode;
+    private KnitErp.Domain.Organizations.CountryInfo FormCountry => KnitErp.Domain.Organizations.Countries.Get(_form.CountryCode);
+
     private bool _busy;
     private string? _denied;
     private string? _formError;
@@ -157,7 +172,7 @@ else
         _flash = null;
         _formError = null;
         _target = null;
-        _form = new CounterpartyForm { IsSupplier = true };
+        _form = new CounterpartyForm { IsSupplier = true, CountryCode = _orgCountry };
         _mode = Mode.Create;
     }
 
@@ -168,7 +183,7 @@ else
         _target = c;
         _form = new CounterpartyForm
         {
-            Name = c.Name, Inn = c.Inn, Kpp = c.Kpp, IsSupplier = c.IsSupplier, IsCustomer = c.IsCustomer, Comment = c.Comment,
+            Name = c.Name, Inn = c.Inn, Kpp = c.Kpp, IsSupplier = c.IsSupplier, IsCustomer = c.IsCustomer, Comment = c.Comment, CountryCode = c.CountryCode,
         };
         _mode = Mode.Edit;
     }
@@ -182,7 +197,8 @@ else
 
     private Task SaveAsync() => RunAsync(async () =>
     {
-        var cmd = new CounterpartyCommand(_form.Name, _form.Inn, _form.Kpp, _form.IsSupplier, _form.IsCustomer, _form.Comment);
+        var cmd = new CounterpartyCommand(_form.Name, _form.Inn, FormCountry.HasKpp ? _form.Kpp : null, _form.IsSupplier, _form.IsCustomer, _form.Comment,
+            _form.CountryCode);
         if (_mode == Mode.Create)
         {
             await Counterparties.CreateAsync(cmd);
@@ -249,5 +265,6 @@ else
         public bool IsSupplier { get; set; }
         public bool IsCustomer { get; set; }
         public string? Comment { get; set; }
+        public string CountryCode { get; set; } = KnitErp.Domain.Organizations.Countries.Russia;
     }
 }

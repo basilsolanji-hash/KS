@@ -12,7 +12,8 @@ namespace KnitErp.Application.Catalog;
 public sealed record UnitDto(long Id, string Code, string Name, string Symbol, byte Precision, int ItemCount, bool IsArchived, byte[] RowVersion);
 
 public sealed record ItemDto(
-    long Id, string Code, string Name, ItemType Type, long UnitId, string UnitSymbol, string? Description, bool IsArchived, byte[] RowVersion)
+    long Id, string Code, string Name, ItemType Type, long UnitId, string UnitSymbol, string? Description, bool IsArchived, byte[] RowVersion,
+    long? VatRateId = null, string? VatRateName = null)
 {
     public string TypeName => ItemTypes.Name(Type);
 }
@@ -21,7 +22,8 @@ public sealed record ItemFilter(ItemType? Type = null, string? Search = null, bo
 
 public sealed record ItemListDto(IReadOnlyList<ItemDto> Items, int Total, bool CanEdit, bool CanArchive);
 
-public sealed record ItemCommand(string Code, string Name, ItemType Type, long UnitId, string? Description);
+/// <summary>VatRateId — вид ставки НДС (D60); null — не указана.</summary>
+public sealed record ItemCommand(string Code, string Name, ItemType Type, long UnitId, string? Description, long? VatRateId = null);
 
 public sealed record UnitCommand(string Code, string Name, string Symbol, byte Precision);
 
@@ -105,8 +107,11 @@ public sealed class CatalogService(IKnitErpDbContext db, IAccessGuard guard, ICu
         var items = await query
             .OrderBy(i => i.Type).ThenBy(i => i.Name)
             .Take(Math.Clamp(filter.Take, 1, 2000))
-            .Join(db.Units.AsNoTracking(), i => i.UnitId, u => u.Id, (i, u) => new ItemDto(
-                i.Id, i.Code, i.Name, i.Type, i.UnitId, u.Symbol, i.Description, i.IsArchived, i.RowVersion))
+            .Join(db.Units.AsNoTracking(), i => i.UnitId, u => u.Id, (i, u) => new { i, u.Symbol })
+            .GroupJoin(db.VatRates.AsNoTracking(), x => x.i.VatRateId, r => (long?)r.Id, (x, rates) => new { x.i, x.Symbol, rates })
+            .SelectMany(x => x.rates.DefaultIfEmpty(), (x, r) => new ItemDto(
+                x.i.Id, x.i.Code, x.i.Name, x.i.Type, x.i.UnitId, x.Symbol, x.i.Description, x.i.IsArchived, x.i.RowVersion,
+                x.i.VatRateId, r == null ? null : r.Name))
             .ToListAsync(ct);
         return new ItemListDto(items, total, ctx.Permissions.Has(Permissions.CatalogEdit), ctx.Permissions.Has(Permissions.CatalogArchive));
     }
@@ -116,6 +121,8 @@ public sealed class CatalogService(IKnitErpDbContext db, IAccessGuard guard, ICu
         var ctx = await guard.DemandAsync(Permissions.CatalogEdit, ct);
         await RequireActiveUnitAsync(ctx, cmd.UnitId, ct);
         var item = Item.Create(ctx.OrganizationId, cmd.Code, cmd.Name, cmd.Type, cmd.UnitId, cmd.Description, clock.UtcNow);
+        await RequireActiveVatRateAsync(ctx, cmd.VatRateId, ct);
+        item.SetVatRate(cmd.VatRateId);
         await EnsureCodeFreeAsync(ctx, item.Code, null, ct);
         db.Items.Add(item);
         await db.SaveChangesAsync(ct);
@@ -131,7 +138,22 @@ public sealed class CatalogService(IKnitErpDbContext db, IAccessGuard guard, ICu
         item.EnsureVersion(item.RowVersion, rowVersion);
         await RequireActiveUnitAsync(ctx, cmd.UnitId, ct);
         var oldUnit = item.UnitId;
+        var oldVat = item.VatRateId;
         var changes = item.Update(cmd.Code, cmd.Name, cmd.Type, cmd.UnitId, cmd.Description);
+        if (cmd.VatRateId != oldVat)
+        {
+            await RequireActiveVatRateAsync(ctx, cmd.VatRateId, ct);
+            var vatChange = item.SetVatRate(cmd.VatRateId)!;
+            var vatNames = await db.VatRates.AsNoTracking().Where(r => r.OrganizationId == ctx.OrganizationId && (r.Id == oldVat || r.Id == cmd.VatRateId))
+                .ToDictionaryAsync(r => r.Id, r => r.Name, ct);
+            changes = [.. changes, vatChange with
+            {
+                Field = "Ставка НДС",
+                Before = oldVat is { } b ? vatNames.GetValueOrDefault(b) : "не указана",
+                After = cmd.VatRateId is { } a ? vatNames.GetValueOrDefault(a) : "не указана",
+            }];
+        }
+
         await EnsureCodeFreeAsync(ctx, item.Code, id, ct);
         var unitNames = await db.Units.AsNoTracking().Where(u => u.OrganizationId == ctx.OrganizationId && (u.Id == oldUnit || u.Id == cmd.UnitId))
             .ToDictionaryAsync(u => u.Id.ToString(), u => u.Symbol, ct);
@@ -145,6 +167,22 @@ public sealed class CatalogService(IKnitErpDbContext db, IAccessGuard guard, ICu
         }
 
         await db.SaveOrConflictAsync(ct);
+    }
+
+    /// <summary>Ставка НДС своей организации и не в архиве (чужая — «не найдено»).</summary>
+    private async Task RequireActiveVatRateAsync(AccessContext ctx, long? vatRateId, CancellationToken ct)
+    {
+        if (vatRateId is not { } id)
+        {
+            return;
+        }
+
+        var rate = await db.VatRates.AsNoTracking().SingleOrDefaultAsync(r => r.Id == id && r.OrganizationId == ctx.OrganizationId, ct)
+                   ?? throw new NotFoundException("Ставка НДС");
+        if (rate.IsArchived)
+        {
+            throw new BusinessRuleException("vat.archived", $"Ставка «{rate.Name}» в архиве.");
+        }
     }
 
     public async Task ArchiveItemAsync(long id, byte[] rowVersion, CancellationToken ct = default)
