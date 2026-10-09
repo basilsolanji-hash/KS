@@ -5,21 +5,20 @@
 @inject SignInService SignIn
 @inject NavigationManager Navigation
 
-<PageTitle>Двухфакторная аутентификация — knitERP</PageTitle>
-<h1>Подключите второй фактор</h1>
+<PageTitle>@L("Двухфакторная аутентификация") — knitERP</PageTitle>
+<h1>@L("Подключите второй фактор")</h1>
 <p class="muted">
-    Ваша роль даёт административные права, поэтому вход возможен только с кодом из приложения-аутентификатора
-    (Яндекс Ключ, Google Authenticator или аналог).
+    @L("Ваша роль даёт административные права, поэтому вход возможен только с кодом из приложения-аутентификатора (Яндекс Ключ, Google Authenticator или аналог).")
 </p>
 
 @if (_setup is not null)
 {
     <ol>
-        <li>Отсканируйте QR-код в приложении или введите ключ вручную.</li>
-        <li>Введите 6 цифр, которые покажет приложение.</li>
+        <li>@L("Отсканируйте QR-код в приложении или введите ключ вручную.")</li>
+        <li>@L("Введите 6 цифр, которые покажет приложение.")</li>
     </ol>
-    <img class="qr" src="@_qr" alt="QR-код для приложения-аутентификатора" />
-    <p>Ключ: <span class="key">@FormatKey(_setup.Key)</span></p>
+    <img class="qr" src="@_qr" alt="@L("QR-код для приложения-аутентификатора")" />
+    <p>@L("Ключ"): <span class="key">@FormatKey(_setup.Key)</span></p>
 }
 
 @if (_message is not null)
@@ -28,8 +27,8 @@
 }
 
 <EditForm Model="Input" method="post" FormName="setup-2fa" OnValidSubmit="SubmitAsync">
-    <label>Код из приложения <InputText @bind-Value="Input.Code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required /></label>
-    <button type="submit">Подключить и войти</button>
+    <label>@L("Код из приложения") <InputText @bind-Value="Input.Code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required /></label>
+    <button type="submit">@L("Подключить и войти")</button>
 </EditForm>
 
 @code {
@@ -86,7 +85,7 @@
             return;
         }
 
-        _message = result.Status == SignInStatus.Failed ? "Код не подошёл. Проверьте время на телефоне и введите новый код." : SignInMessages.For(result.Status);
+        _message = result.Status == SignInStatus.Failed ? L("Код не подошёл. Проверьте время на телефоне и введите новый код.") : SignInMessages.For(result.Status);
         Input.Code = string.Empty;
     }
 

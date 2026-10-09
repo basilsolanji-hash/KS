@@ -45,6 +45,16 @@ public sealed class PersonalToolsService(IKnitErpDbContextFactory factory, ICurr
 
     // --- Панель быстрого доступа -------------------------------------------------------------
 
+    /// <summary>Язык интерфейса (D60) — в профиле, действует на любом устройстве после входа.</summary>
+    public async Task SetLanguageAsync(string code, CancellationToken ct = default)
+    {
+        var userId = currentUser.UserId ?? throw new NotFoundException("Пользователь");
+        await using var db = factory.Create();
+        var user = await db.Users.SingleAsync(u => u.Id == userId, ct);
+        user.SetLanguage(code);
+        await db.SaveChangesAsync(ct);
+    }
+
     public async Task<PanelSettings> GetPanelAsync(CancellationToken ct = default)
     {
         var stored = await LoadAsync<PanelSettings>(PanelKind, ct);

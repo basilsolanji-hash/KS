@@ -46,6 +46,12 @@ public static class PendingSignInCookie
     {
         await http.SignOutAsync(AuthSchemes.Pending);
         await http.SignInAsync(AuthSchemes.Session, SessionClaims.Create(session));
+        // Язык из профиля — на любом устройстве после входа (D60). Если в профиле язык не выбран,
+        // остаётся выбранный на странице входа.
+        if (session.Language is not null)
+        {
+            KnitErp.Web.Localization.Text.SetCookie(http, session.Language);
+        }
     }
 }
 

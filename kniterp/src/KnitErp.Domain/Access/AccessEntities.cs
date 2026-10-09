@@ -49,6 +49,9 @@ public sealed class UserAccount
     public long? LastTotpStep { get; private set; }
 
     /// <summary>SHA-256 ссылки приглашения или первичной установки пароля. Сама ссылка не хранится.</summary>
+    /// <summary>Язык интерфейса (D60); null — русский.</summary>
+    public string? Language { get; private set; }
+
     public byte[]? SetupTokenHash { get; private set; }
 
     public DateTime? SetupTokenExpiresAtUtc { get; private set; }
@@ -90,6 +93,13 @@ public sealed class UserAccount
         }
 
         Status = UserStatus.Active;
+    }
+
+    public void SetLanguage(string? code)
+    {
+        var language = UiLanguages.Find(code)
+                       ?? throw new BusinessRuleException("user.language", "Неизвестный язык интерфейса.");
+        Language = language.Code == UiLanguages.Default ? null : language.Code;
     }
 
     /// <summary>Смена штампа закрывает все сессии пользователя (блокировка, смена прав).</summary>

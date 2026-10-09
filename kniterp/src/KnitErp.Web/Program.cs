@@ -168,6 +168,14 @@ else
     app.UseHttpsRedirection();
 }
 app.Use(SecurityHeaders.Apply);
+// Язык интерфейса (D60) — из cookie; форматы чисел и дат у всех русские.
+app.UseRequestLocalization(o =>
+{
+    o.DefaultRequestCulture = new Microsoft.AspNetCore.Localization.RequestCulture("ru-RU");
+    o.SupportedCultures = [new System.Globalization.CultureInfo("ru-RU")];
+    o.SupportedUICultures = KnitErp.Domain.Access.UiLanguages.All.Select(l => new System.Globalization.CultureInfo(l.Culture)).ToList();
+    o.RequestCultureProviders = [new Microsoft.AspNetCore.Localization.CookieRequestCultureProvider()];
+});
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
@@ -193,6 +201,18 @@ app.MapPost("/account/logout", async (HttpContext http, IAntiforgery antiforgery
 }).AllowAnonymous();
 
 // Файлы Excel отдаются обычными ссылками: права проверяет сервис, отказ — 403 и запись в журнал.
+// Смена языка: ставит cookie и возвращает на страницу. Сохранение в профиль делает меню профиля (D60).
+app.MapGet("/language/{code}", (string code, string? returnUrl, HttpContext http) =>
+{
+    KnitErp.Web.Localization.Text.SetCookie(http, code);
+    // Страницы входа — тоже назад на себя (ReturnUrls.Safe их не пропускает: после входа на них не возвращают).
+    var back = returnUrl is not null && returnUrl.StartsWith("/account/", StringComparison.OrdinalIgnoreCase)
+               && !returnUrl.Contains("://", StringComparison.Ordinal) && !returnUrl.Contains('\\')
+        ? returnUrl
+        : ReturnUrls.Safe(returnUrl);
+    return Results.LocalRedirect(back);
+}).AllowAnonymous();
+
 app.MapGet("/catalog/items.xlsx", (ItemExchangeService exchange, CancellationToken ct) =>
     FileOrForbid(() => exchange.ExportAsync(ct), $"nomenklatura-{DateTime.UtcNow:yyyy-MM-dd}.xlsx"));
 app.MapGet("/catalog/items-template.xlsx", (ItemExchangeService exchange, CancellationToken ct) =>

@@ -24,7 +24,9 @@ public enum SignInStatus
 }
 
 /// <summary>Кто входит: штамп безопасности закрывает сессию при блокировке и смене прав.</summary>
-public sealed record SessionIdentity(long UserId, string DisplayName, Guid SecurityStamp, long OrganizationId, bool UsedTwoFactor);
+/// <summary>Language — язык интерфейса пользователя (D60), ставится в cookie при входе.</summary>
+public sealed record SessionIdentity(
+    long UserId, string DisplayName, Guid SecurityStamp, long OrganizationId, bool UsedTwoFactor, string? Language = null);
 
 /// <summary>Состояние между паролем и вторым фактором. Подписано и хранится в отдельной короткой cookie.</summary>
 public sealed record PendingSignIn(long UserId, Guid SecurityStamp);
@@ -307,7 +309,7 @@ public sealed class SignInService(
             user.Id.ToString(), after: usedTwoFactor ? "пароль и 2FA" : "пароль", reason: WithAddress(null), correlationId: currentUser.CorrelationId));
         await db.SaveChangesAsync(ct);
         return new SignInResult(SignInStatus.Succeeded,
-            new SessionIdentity(user.Id, user.DisplayName, user.SecurityStamp, organizationId, usedTwoFactor));
+            new SessionIdentity(user.Id, user.DisplayName, user.SecurityStamp, organizationId, usedTwoFactor, user.Language));
     }
 
     private async Task<UserAccount?> LoadPendingAsync(PendingSignIn pending, CancellationToken ct) =>

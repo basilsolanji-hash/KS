@@ -4,31 +4,31 @@
 @layout AccountLayout
 @inject SignInService SignIn
 
-<PageTitle>Приглашение — knitERP</PageTitle>
+<PageTitle>@L("Приглашение") — knitERP</PageTitle>
 <HeadContent><meta name="referrer" content="no-referrer" /></HeadContent>
-<h1>Установка пароля</h1>
+<h1>@L("Установка пароля")</h1>
 
 @if (_done)
 {
-    <p>Пароль установлен. Теперь можно <a href="account/login">войти</a>.</p>
+    <p>@L("Пароль установлен.") <a href="account/login">@L("Войти")</a></p>
 }
 else if (_email is null)
 {
-    <div class="error" role="alert">Ссылка недействительна или срок приглашения истёк. Попросите администратора отправить новое.</div>
+    <div class="error" role="alert">@L("Ссылка недействительна или срок приглашения истёк. Попросите администратора отправить новое.")</div>
 }
 else
 {
-    <p class="muted">Учётная запись: @_email</p>
+    <p class="muted">@L("Учётная запись"): @_email</p>
     @if (_message is not null)
     {
         <div class="error" role="alert">@_message</div>
     }
 
     <EditForm Model="Input" method="post" FormName="accept-invitation" OnValidSubmit="SubmitAsync">
-        <label>Новый пароль <InputText @bind-Value="Input.Password" type="password" autocomplete="new-password" minlength="@SignInPolicy.PasswordMinLength" required /></label>
-        <label>Повторите пароль <InputText @bind-Value="Input.Confirmation" type="password" autocomplete="new-password" required /></label>
-        <p class="muted">Не короче @SignInPolicy.PasswordMinLength символов. Удобно взять фразу из нескольких слов.</p>
-        <button type="submit">Сохранить пароль</button>
+        <label>@L("Новый пароль") <InputText @bind-Value="Input.Password" type="password" autocomplete="new-password" minlength="@SignInPolicy.PasswordMinLength" required /></label>
+        <label>@L("Повторите пароль") <InputText @bind-Value="Input.Confirmation" type="password" autocomplete="new-password" required /></label>
+        <p class="muted">@L("Не короче {0} символов. Удобно взять фразу из нескольких слов.", SignInPolicy.PasswordMinLength)</p>
+        <button type="submit">@L("Сохранить пароль")</button>
     </EditForm>
 }
 

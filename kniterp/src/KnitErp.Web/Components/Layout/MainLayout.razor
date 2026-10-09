@@ -7,7 +7,7 @@
 @inject IJSRuntime JS
 
 <div class="shell">
-    <nav class="side" aria-label="Разделы">
+    <nav class="side" aria-label="@L("Разделы")">
         <div class="side-head">
             <div class="logo">knit<span style="color: #2BA89A">ERP</span></div>
             @if (_access is not null && _panel is not null)
@@ -19,7 +19,7 @@
             }
             @* На телефоне меню свёрнуто в кнопку, чтобы не занимать экран над страницей. *@
             <button type="button" class="secondary menu-toggle" aria-expanded="@(_menuOpen ? "true" : "false")" aria-controls="nav-body"
-                    @onclick="() => _menuOpen = !_menuOpen">@(_menuOpen ? "Закрыть" : "Меню")</button>
+                    @onclick="() => _menuOpen = !_menuOpen">@(_menuOpen ? L("Закрыть") : L("Меню"))</button>
         </div>
         <div id="nav-body" class="nav-body @(_menuOpen ? "open" : "")">
         @if (_access is not null)
@@ -28,13 +28,13 @@
             {
                 @if (Sections.TryGetValue(item.Href, out var groupTitle))
                 {
-                    <div class="nav-section">@groupTitle</div>
+                    <div class="nav-section">@L(groupTitle)</div>
                 }
                 <NavLink href="@item.Href" Match="@(item.Href == "" ? NavLinkMatch.All : NavLinkMatch.Prefix)">
-                    @item.Label
+                    @L(item.Label)
                     @if (!item.Allowed(_access))
                     {
-                        <span class="tag">нет доступа</span>
+                        <span class="tag">@L("нет доступа")</span>
                     }
                 </NavLink>
             }
@@ -51,7 +51,7 @@
         <main class="main">
             @if (_access is null)
             {
-                <p class="muted">Загрузка…</p>
+                <p class="muted">@L("Загрузка…")</p>
             }
             else
             {

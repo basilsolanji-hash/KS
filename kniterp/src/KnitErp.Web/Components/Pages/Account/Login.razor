@@ -5,8 +5,8 @@
 @inject SignInService SignIn
 @inject NavigationManager Navigation
 
-<PageTitle>Вход — knitERP</PageTitle>
-<h1>Вход</h1>
+<PageTitle>@L("Вход") — knitERP</PageTitle>
+<h1>@L("Вход")</h1>
 
 @if (_message is not null)
 {
@@ -14,12 +14,12 @@
 }
 
 <EditForm Model="Input" method="post" FormName="login" OnValidSubmit="SubmitAsync">
-    <label>Email <InputText @bind-Value="Input.Email" type="email" autocomplete="username" required /></label>
-    <label>Пароль <InputText @bind-Value="Input.Password" type="password" autocomplete="current-password" required /></label>
-    <button type="submit">Войти</button>
+    <label>@L("Эл. почта") <InputText @bind-Value="Input.Email" type="email" autocomplete="username" required /></label>
+    <label>@L("Пароль") <InputText @bind-Value="Input.Password" type="password" autocomplete="current-password" required /></label>
+    <button type="submit">@L("Войти")</button>
 </EditForm>
 
-<p class="muted" style="margin-top: 24px">Нет пароля? Попросите администратора организации прислать приглашение.</p>
+<p class="muted" style="margin-top: 24px">@L("Нет пароля? Попросите администратора организации прислать приглашение.")</p>
 
 @code {
     [CascadingParameter]

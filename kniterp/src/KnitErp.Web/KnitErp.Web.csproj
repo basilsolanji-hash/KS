@@ -9,4 +9,8 @@
   <ItemGroup>
     <PackageReference Include="QRCoder" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Переводы интерфейса (D60): ключ — русский текст. -->
+    <EmbeddedResource Include="Localization\*.json" />
+  </ItemGroup>
 </Project>

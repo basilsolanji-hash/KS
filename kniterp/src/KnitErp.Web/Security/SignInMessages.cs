@@ -1,3 +1,4 @@
+using KnitErp.Web.Localization;
 using KnitErp.Application.Authentication;
 using KnitErp.Domain.Access;
 using QRCoder;
@@ -10,9 +11,9 @@ public static class SignInMessages
     public static string For(SignInStatus status) => status switch
     {
         SignInStatus.LockedOut =>
-            $"Слишком много неудачных попыток. Вход закрыт на {SignInPolicy.LockoutDuration.TotalMinutes:0} минут, попробуйте позже.",
-        SignInStatus.NoOrganization => "Нет доступа ни к одной организации. Обратитесь к администратору.",
-        _ => "Неверный email или пароль.",
+            Text.L("Слишком много неудачных попыток. Вход закрыт на {0} минут, попробуйте позже.", SignInPolicy.LockoutDuration.TotalMinutes),
+        SignInStatus.NoOrganization => Text.L("Нет доступа ни к одной организации. Обратитесь к администратору."),
+        _ => Text.L("Неверный email или пароль."),
     };
 }
 

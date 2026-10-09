@@ -5,9 +5,9 @@
 @inject SignInService SignIn
 @inject NavigationManager Navigation
 
-<PageTitle>Код подтверждения — knitERP</PageTitle>
-<h1>Код подтверждения</h1>
-<p class="muted">Введите 6 цифр из приложения-аутентификатора. Телефона нет под рукой — введите один из резервных кодов (вида ABCD-EFGH-JKLM).</p>
+<PageTitle>@L("Код подтверждения") — knitERP</PageTitle>
+<h1>@L("Код подтверждения")</h1>
+<p class="muted">@L("Введите 6 цифр из приложения-аутентификатора. Телефона нет под рукой — введите один из резервных кодов (вида ABCD-EFGH-JKLM).")</p>
 
 @if (_message is not null)
 {
@@ -15,11 +15,11 @@
 }
 
 <EditForm Model="Input" method="post" FormName="login-2fa" OnValidSubmit="SubmitAsync">
-    <label>Код <InputText @bind-Value="Input.Code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="20" required /></label>
-    <button type="submit">Подтвердить</button>
+    <label>@L("Код") <InputText @bind-Value="Input.Code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="20" required /></label>
+    <button type="submit">@L("Подтвердить")</button>
 </EditForm>
 
-<p style="margin-top: 24px"><a href="account/login">Войти другим пользователем</a></p>
+<p style="margin-top: 24px"><a href="account/login">@L("Войти другим пользователем")</a></p>
 
 @code {
     [CascadingParameter]
@@ -60,7 +60,7 @@
             return;
         }
 
-        _message = result.Status == SignInStatus.Failed ? "Неверный код. Проверьте время на телефоне и введите новый код." : SignInMessages.For(result.Status);
+        _message = result.Status == SignInStatus.Failed ? L("Неверный код. Проверьте время на телефоне и введите новый код.") : SignInMessages.For(result.Status);
         Input.Code = string.Empty;
     }
 

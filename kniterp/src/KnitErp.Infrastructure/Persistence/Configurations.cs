@@ -60,6 +60,7 @@ internal sealed class UserAccountConfiguration : IEntityTypeConfiguration<UserAc
         b.Property(x => x.DisplayName).HasMaxLength(UserAccount.DisplayNameMaxLength).IsRequired();
         b.Property(x => x.Status).HasConversion<byte>();
         b.Property(x => x.PasswordHash).HasColumnType("varchar(256)");
+        b.Property(x => x.Language).HasColumnType("varchar(5)");
         // Секрет 2FA хранится зашифрованным (AES-256-GCM, мастер-ключ вне базы): копия базы не даёт выпускать коды входа.
         b.Property(x => x.AuthenticatorKey).HasColumnType("varchar(200)")
             .HasConversion(v => v == null ? null : SecretCipher.Encrypt(v), v => v == null ? null : SecretCipher.Decrypt(v));

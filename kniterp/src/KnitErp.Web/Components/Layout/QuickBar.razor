@@ -1,10 +1,12 @@
+@inject PersonalToolsService Personal
+@inject NavigationManager Navigation
 @* Панель быстрого доступа рядом с профилем. Полный вид — закреплённые ярлыки, «Ещё», «Все инструменты», настройка и
    профиль; компактный (телефон, узкий планшет) — одна кнопка «Инструменты» с меню и значок профиля. *@
 
 <div class="quickbar @(Compact ? "compact" : "")" @onkeydown="OnKeyDown">
     @if (!Compact)
     {
-        <div class="quick-pinned" role="toolbar" aria-label="Быстрый доступ">
+        <div class="quick-pinned" role="toolbar" aria-label="@L("Быстрый доступ")">
             @foreach (var tool in Visible)
             {
                 @RenderTool(tool, asMenuItem: false)
@@ -12,12 +14,12 @@
             @if (More.Count > 0)
             {
                 <div class="menu-anchor">
-                    <button type="button" class="quick-btn" aria-haspopup="menu" aria-expanded="@Expanded("more")" @onclick="@(() => Toggle("more"))" title="Остальные закреплённые инструменты">
-                        <Icon Name="more" /><span class="quick-label">Ещё</span>
+                    <button type="button" class="quick-btn" aria-haspopup="menu" aria-expanded="@Expanded("more")" @onclick="@(() => Toggle("more"))" title="@L("Остальные закреплённые инструменты")">
+                        <Icon Name="more" /><span class="quick-label">@L("Ещё")</span>
                     </button>
                     @if (_menu == "more")
                     {
-                        <div class="menu" role="menu" aria-label="Ещё">
+                        <div class="menu" role="menu" aria-label="@L("Ещё")">
                             @foreach (var tool in More)
                             {
                                 @RenderTool(tool, asMenuItem: true)
@@ -27,15 +29,15 @@
                 </div>
             }
             <div class="menu-anchor">
-                <button type="button" class="quick-btn" aria-haspopup="menu" aria-expanded="@Expanded("all")" @onclick="@(() => Toggle("all"))" title="Все инструменты">
-                    <Icon Name="all" /><span class="quick-label">Все инструменты</span>
+                <button type="button" class="quick-btn" aria-haspopup="menu" aria-expanded="@Expanded("all")" @onclick="@(() => Toggle("all"))" title="@L("Все инструменты")">
+                    <Icon Name="all" /><span class="quick-label">@L("Все инструменты")</span>
                 </button>
                 @if (_menu == "all")
                 {
                     @RenderAllMenu()
                 }
             </div>
-            <button type="button" class="quick-btn" @onclick="@(() => Open(SettingsId))" title="Настроить панель" aria-label="Настроить панель">
+            <button type="button" class="quick-btn" @onclick="@(() => Open(SettingsId))" title="@L("Настроить панель")" aria-label="@L("Настроить панель")">
                 <Icon Name="settings" />
             </button>
         </div>
@@ -43,11 +45,11 @@
     else
     {
         <div class="menu-anchor">
-            <button type="button" class="quick-btn" aria-haspopup="menu" aria-expanded="@Expanded("all")" @onclick="@(() => Toggle("all"))" title="Инструменты">
-                <Icon Name="all" /><span class="quick-label">Инструменты</span>
+            <button type="button" class="quick-btn" aria-haspopup="menu" aria-expanded="@Expanded("all")" @onclick="@(() => Toggle("all"))" title="@L("Инструменты")">
+                <Icon Name="all" /><span class="quick-label">@L("Инструменты")</span>
                 @if (Badge > 0)
                 {
-                    <span class="badge" aria-label="Уведомлений: @Badge">@Badge</span>
+                    <span class="badge" aria-label="@L("Уведомлений: {0}", Badge)">@Badge</span>
                 }
             </button>
             @if (_menu == "all")
@@ -68,22 +70,30 @@
                     <span class="profile-sub">@Access.Subtitle</span>
                 </span>
             }
-            <span class="sr-only">Профиль</span>
+            <span class="sr-only">@L("Профиль")</span>
         </button>
         @if (_menu == "profile")
         {
-            <div class="menu menu-right" role="menu" aria-label="Профиль">
+            <div class="menu menu-right" role="menu" aria-label="@L("Профиль")">
                 <div class="menu-info">
                     <b>@Access.DisplayName</b>
                     <span class="muted">@Access.Subtitle</span>
                     <span class="muted">@string.Join(", ", Access.RoleNames) · @Access.OrganizationName</span>
                 </div>
-                <a role="menuitem" href="account/organizations" data-enhance-nav="false">Сменить организацию</a>
-                <a role="menuitem" href="security">Вход и резервные коды</a>
-                <button type="button" role="menuitem" class="menu-item" @onclick="@(() => Open(SettingsId))">Настроить панель</button>
+                <a role="menuitem" href="account/organizations" data-enhance-nav="false">@L("Сменить организацию")</a>
+                <a role="menuitem" href="security">@L("Вход и резервные коды")</a>
+                <div class="menu-caption">@L("Язык")</div>
+                <div class="lang-row">
+                    @foreach (var lang in KnitErp.Domain.Access.UiLanguages.All)
+                    {
+                        <button type="button" role="menuitemradio" aria-checked="@(lang.Code == CurrentCode ? "true" : "false")"
+                                class="@(lang.Code == CurrentCode ? "chip added" : "chip")" @onclick="() => ChangeLanguageAsync(lang.Code)">@lang.NativeName</button>
+                    }
+                </div>
+                <button type="button" role="menuitem" class="menu-item" @onclick="@(() => Open(SettingsId))">@L("Настроить панель")</button>
                 <form method="post" action="account/logout">
                     <AntiforgeryToken />
-                    <button type="submit" role="menuitem" class="menu-item">Выйти</button>
+                    <button type="submit" role="menuitem" class="menu-item">@L("Выйти")</button>
                 </form>
             </div>
         }
@@ -135,18 +145,18 @@
         var css = asMenuItem ? "menu-item" : $"quick-btn{(ActiveTool == tool.Id ? " active" : "")}";
         if (tool.Mode == ToolOpenMode.NewTab)
         {
-            <a class="@css" href="@Access.WebsiteUrl" target="_blank" rel="noopener noreferrer" title="@tool.Hint" role="@(asMenuItem ? "menuitem" : null)" @onclick="Close">
-                <Icon Name="@tool.Id" /><span class="quick-label">@tool.Title</span>
+            <a class="@css" href="@Access.WebsiteUrl" target="_blank" rel="noopener noreferrer" title="@L(tool.Hint)" role="@(asMenuItem ? "menuitem" : null)" @onclick="Close">
+                <Icon Name="@tool.Id" /><span class="quick-label">@L(tool.Title)</span>
             </a>
         }
         else
         {
-            <button type="button" class="@css" title="@tool.Hint" role="@(asMenuItem ? "menuitem" : null)" aria-pressed="@(asMenuItem ? null : ActiveTool == tool.Id ? "true" : "false")"
+            <button type="button" class="@css" title="@L(tool.Hint)" role="@(asMenuItem ? "menuitem" : null)" aria-pressed="@(asMenuItem ? null : ActiveTool == tool.Id ? "true" : "false")"
                     @onclick="@(() => Open(tool.Id))">
-                <Icon Name="@tool.Id" /><span class="quick-label">@tool.Title</span>
+                <Icon Name="@tool.Id" /><span class="quick-label">@L(tool.Title)</span>
                 @if (tool.Id == ToolCatalog.Notifications && Badge > 0)
                 {
-                    <span class="badge" aria-label="новых: @Badge">@Badge</span>
+                    <span class="badge" aria-label="@L("новых: {0}", Badge)">@Badge</span>
                 }
             </button>
         }
@@ -154,15 +164,15 @@
 
     private RenderFragment RenderAllMenu() => __builder =>
     {
-        <div class="menu menu-wide menu-right" role="menu" aria-label="Все инструменты">
+        <div class="menu menu-wide menu-right" role="menu" aria-label="@L("Все инструменты")">
             @if (Compact && Pinned.Count > 0)
             {
-                <div class="menu-caption">Закреплённые</div>
+                <div class="menu-caption">@L("Закреплённые")</div>
                 @foreach (var tool in Pinned)
                 {
                     @RenderTool(tool, asMenuItem: true)
                 }
-                <div class="menu-caption">Все инструменты</div>
+                <div class="menu-caption">@L("Все инструменты")</div>
             }
             @foreach (var tool in Available.Where(t => !Compact || !Pinned.Contains(t)))
             {
@@ -170,15 +180,24 @@
             }
             @if (Access.WebsiteUrl is null)
             {
-                <span class="menu-item disabled" title="Адрес сайта задаёт Владелец в разделе «Организация»">
-                    <Icon Name="@ToolCatalog.Site" /><span class="quick-label">Сайт фабрики — адрес не задан</span>
+                <span class="menu-item disabled" title="@L("Адрес сайта задаёт Владелец в разделе «Организация»")">
+                    <Icon Name="@ToolCatalog.Site" /><span class="quick-label">@L("Сайт фабрики — адрес не задан")</span>
                 </span>
             }
             <button type="button" role="menuitem" class="menu-item" @onclick="@(() => Open(SettingsId))">
-                <Icon Name="settings" /><span class="quick-label">Настроить панель</span>
+                <Icon Name="settings" /><span class="quick-label">@L("Настроить панель")</span>
             </button>
         </div>
     };
+
+    /// <summary>Язык сохраняется в профиле и ставится в cookie; страница перезагружается уже на новом языке.</summary>
+    private async Task ChangeLanguageAsync(string code)
+    {
+        _menu = null;
+        await Personal.SetLanguageAsync(code);
+        var back = "/" + Navigation.ToBaseRelativePath(Navigation.Uri);
+        Navigation.NavigateTo($"language/{code}?returnUrl={Uri.EscapeDataString(back)}", forceLoad: true);
+    }
 
     private string Expanded(string menu) => _menu == menu ? "true" : "false";
 

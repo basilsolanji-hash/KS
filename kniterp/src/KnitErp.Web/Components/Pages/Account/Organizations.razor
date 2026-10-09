@@ -5,8 +5,8 @@
 @inject SignInService SignIn
 @inject NavigationManager Navigation
 
-<PageTitle>Организация — knitERP</PageTitle>
-<h1>Выберите организацию</h1>
+<PageTitle>@L("Организация") — knitERP</PageTitle>
+<h1>@L("Выберите организацию")</h1>
 
 @if (_organizations is { Count: > 0 })
 {
@@ -15,13 +15,13 @@
         @foreach (var o in _organizations)
         {
             <button type="submit" name="OrganizationId" value="@o.OrganizationId" disabled="@(o.OrganizationId == _session?.OrganizationId)">
-                @o.ShortName @(o.OrganizationId == _session?.OrganizationId ? "(текущая)" : "")
+                @o.ShortName @(o.OrganizationId == _session?.OrganizationId ? L("(текущая)") : "")
             </button>
         }
     </form>
 }
 
-<p style="margin-top: 24px"><a href="">Вернуться</a></p>
+<p style="margin-top: 24px"><a href="">@L("Вернуться")</a></p>
 
 @code {
     [CascadingParameter]

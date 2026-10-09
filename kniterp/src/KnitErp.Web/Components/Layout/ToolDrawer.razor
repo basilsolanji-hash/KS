@@ -87,7 +87,7 @@
     public EventCallback<PanelSettings> OnSaveSettings { get; set; }
 
     private static string Title(string? id) =>
-        id == QuickBar.SettingsId ? "Настройка панели" : id is null ? "" : ToolCatalog.Find(id)?.Title ?? id;
+        id == QuickBar.SettingsId ? L("Настройка панели") : id is null ? "" : ToolCatalog.Find(id) is { } tool ? L(tool.Title) : id;
 
 
     private async Task OnKeyDown(KeyboardEventArgs e)
