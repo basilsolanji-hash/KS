@@ -48,6 +48,13 @@ public sealed class SqlTestHost : IAsyncLifetime
 
     public SqlTestHost()
     {
+        // Мастер-ключ тестов — случайный на каждый запуск: ключей в репозитории нет (CLAUDE.md).
+        if (!KnitErp.Infrastructure.Security.KeyRing.IsConfigured)
+        {
+            KnitErp.Infrastructure.Security.KeyRing.Configure(
+                new KnitErp.Infrastructure.Security.KeyRing(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)));
+        }
+
         var builder = new SqlConnectionStringBuilder(Environment.GetEnvironmentVariable(EnvVar) ?? "Server=.")
         {
             InitialCatalog = "kniterp_test_" + Guid.NewGuid().ToString("N")[..12],
@@ -101,7 +108,8 @@ public sealed class SqlTestHost : IAsyncLifetime
             new SupportService(Factory, user, Clock),
             new NotificationService(Factory, new PersonalToolsService(Factory, user, Clock), user, Clock),
             new QuickSearchService(Factory, user, Clock),
-            new AssistantService(AssistantModel, Factory, user, Clock));
+            new AssistantService(AssistantModel, Factory, user, Clock),
+            new KnitErp.Application.Security.IntegrityService(db, guard, new KnitErp.Infrastructure.Security.IntegrityVerifier(Factory), user, Clock));
     }
 
     private static readonly IPasswordHasher<UserAccount> Hasher = new PasswordHasher<UserAccount>();
@@ -155,7 +163,8 @@ public sealed record Services(
     SupportService Support,
     NotificationService Notifications,
     QuickSearchService Search,
-    AssistantService Assistant) : IAsyncDisposable
+    AssistantService Assistant,
+    KnitErp.Application.Security.IntegrityService Integrity) : IAsyncDisposable
 {
     public ValueTask DisposeAsync() => Db.DisposeAsync();
 }

@@ -225,6 +225,12 @@ public sealed class StockMovement
     public long SourceId { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
 
+    /// <summary>Подпись записи в цепочке организации (как у журнала аудита) — ставит хранилище при вставке.</summary>
+    public byte[]? ChainHash { get; private set; }
+
+    /// <summary>Номер записи в цепочке организации: пропуск номера — удалённое движение.</summary>
+    public long? ChainSeq { get; private set; }
+
     public static StockMovement Create(
         long organizationId, long warehouseId, long itemId, decimal quantity, DateOnly occurredOn, StockSource source, long sourceId, DateTime nowUtc)
     {

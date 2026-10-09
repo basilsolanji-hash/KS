@@ -77,6 +77,7 @@ public sealed class AuditQueryService(IKnitErpDbContext db, IAccessGuard guard)
         "InventoryCount" => $"Инвентаризация №{e.EntityId}",
         "PeriodClosure" => "Закрытый период",
         "SupportTicket" => $"Обращение №{e.EntityId}",
+        "Integrity" => "Журнал аудита и движения склада",
         "Permission" when e.After is { } code => $"Право «{Permissions.Describe(code)}»",
         "Permission" => "Право доступа",
         _ => $"{e.EntityType} {e.EntityId}".Trim(),

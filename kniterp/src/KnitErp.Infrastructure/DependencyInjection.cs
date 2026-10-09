@@ -25,6 +25,7 @@ public static class DependencyInjection
         // Внешние сервисы панели быстрого доступа: короткие таймауты, ошибка — не ошибка системы.
         services.AddHttpClient<IWeatherProvider, OpenMeteoWeatherProvider>(c => c.Timeout = TimeSpan.FromSeconds(4));
         services.AddSingleton<IAssistantModel>(new ClaudeAssistantModel(assistantApiKey, assistantModel));
+        services.AddSingleton<KnitErp.Application.Security.IIntegrityVerifier, Security.IntegrityVerifier>();
         return services;
     }
 

@@ -49,6 +49,7 @@ public static class AuditLabels
         [AuditActions.PeriodReopened] = "Период открыт",
         [AuditActions.SupportTicketCreated] = "Обращение в поддержку",
         [AuditActions.SupportTicketChanged] = "Обращение: изменён статус",
+        [AuditActions.IntegrityChecked] = "Проверка целостности",
         [AuditActions.OrganizationCreated] = "Создана организация",
         [AuditActions.OrganizationRequisitesChanged] = "Изменены реквизиты",
     };

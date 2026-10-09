@@ -27,6 +27,15 @@ public sealed class AuditEntry
     public string? Reason { get; private set; }
     public string? CorrelationId { get; private set; }
 
+    /// <summary>
+    /// Подпись записи в цепочке организации: HMAC от подписи предыдущей записи и полей этой. Ставит хранилище при вставке;
+    /// изменение, удаление или вставка записи в обход приложения обнаруживается проверкой целостности.
+    /// </summary>
+    public byte[]? ChainHash { get; private set; }
+
+    /// <summary>Номер записи в цепочке организации (1, 2, 3…): пропуск номера — удалённая запись.</summary>
+    public long? ChainSeq { get; private set; }
+
     public static AuditEntry Create(
         DateTime nowUtc,
         long? organizationId,
@@ -107,6 +116,7 @@ public static class AuditActions
     public const string PeriodReopened = "period.reopened";
     public const string SupportTicketCreated = "support.ticket.created";
     public const string SupportTicketChanged = "support.ticket.changed";
+    public const string IntegrityChecked = "security.integrity.checked";
     public const string OrganizationCreated = "organization.created";
     public const string OrganizationRequisitesChanged = "organization.requisites.changed";
 }

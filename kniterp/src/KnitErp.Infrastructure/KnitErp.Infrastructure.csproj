@@ -10,6 +10,8 @@
     <!-- Официальный SDK Anthropic: ИИ-помощник (включается ключом в настройках, по умолчанию выключен). -->
     <PackageReference Include="Anthropic" />
     <PackageReference Include="Microsoft.Extensions.Http" />
+    <!-- Ключи защиты cookie хранятся в базе, зашифрованные мастер-ключом. -->
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
     <!-- Только для команды dotnet ef: в сборку приложения не попадает. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">

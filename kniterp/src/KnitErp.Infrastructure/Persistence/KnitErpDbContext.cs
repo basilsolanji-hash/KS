@@ -6,12 +6,14 @@ using KnitErp.Domain.Catalog;
 using KnitErp.Domain.Common;
 using KnitErp.Domain.Structure;
 using KnitErp.Domain.Warehousing;
+using KnitErp.Infrastructure.Security;
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
 namespace KnitErp.Infrastructure.Persistence;
 
-public sealed class KnitErpDbContext(DbContextOptions<KnitErpDbContext> options) : DbContext(options), IKnitErpDbContext
+public sealed class KnitErpDbContext(DbContextOptions<KnitErpDbContext> options) : DbContext(options), IKnitErpDbContext, IDataProtectionKeyContext
 {
     public const string Schema = "kniterp";
 
@@ -37,6 +39,9 @@ public sealed class KnitErpDbContext(DbContextOptions<KnitErpDbContext> options)
     public DbSet<PeriodClosure> PeriodClosures => Set<PeriodClosure>();
     public DbSet<KnitErp.Domain.Workspace.UserToolData> UserToolData => Set<KnitErp.Domain.Workspace.UserToolData>();
     public DbSet<KnitErp.Domain.Workspace.SupportTicket> SupportTickets => Set<KnitErp.Domain.Workspace.SupportTicket>();
+
+    /// <summary>Ключи защиты cookie и антиподделки; XML ключа зашифрован мастер-ключом (MasterKeyXmlEncryptor).</summary>
+    public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
     public DbSet<DocumentCounter> DocumentCounters => Set<DocumentCounter>();
 
     public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default) =>
@@ -69,13 +74,38 @@ public sealed class KnitErpDbContext(DbContextOptions<KnitErpDbContext> options)
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         GuardImmutableAudit();
+        if (IntegrityChain.HasChained(this))
+        {
+            // Подпись цепочки требует блокировки и чтения последней подписи — это делает только асинхронное сохранение.
+            throw new InvalidOperationException("Журнал аудита и движения склада сохраняются только через SaveChangesAsync.");
+        }
+
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 
-    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Новые записи журнала аудита и движений подписываются в той же транзакции, что и сохраняются: если транзакции
+    /// нет, она открывается здесь — подпись и вставка не могут разойтись.
+    /// </summary>
+    public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
         GuardImmutableAudit();
-        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        if (!IntegrityChain.HasChained(this))
+        {
+            return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        }
+
+        if (Database.CurrentTransaction is not null)
+        {
+            await IntegrityChain.SealAsync(this, cancellationToken);
+            return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        }
+
+        await using var tx = await Database.BeginTransactionAsync(cancellationToken);
+        await IntegrityChain.SealAsync(this, cancellationToken);
+        var saved = await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        await tx.CommitAsync(cancellationToken);
+        return saved;
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

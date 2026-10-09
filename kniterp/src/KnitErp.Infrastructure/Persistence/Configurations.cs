@@ -1,3 +1,4 @@
+using KnitErp.Infrastructure.Security;
 using KnitErp.Domain.Access;
 using KnitErp.Domain.Audit;
 using KnitErp.Domain.Organizations;
@@ -56,7 +57,9 @@ internal sealed class UserAccountConfiguration : IEntityTypeConfiguration<UserAc
         b.Property(x => x.DisplayName).HasMaxLength(UserAccount.DisplayNameMaxLength).IsRequired();
         b.Property(x => x.Status).HasConversion<byte>();
         b.Property(x => x.PasswordHash).HasColumnType("varchar(256)");
-        b.Property(x => x.AuthenticatorKey).HasColumnType("varchar(64)");
+        // Секрет 2FA хранится зашифрованным (AES-256-GCM, мастер-ключ вне базы): копия базы не даёт выпускать коды входа.
+        b.Property(x => x.AuthenticatorKey).HasColumnType("varchar(200)")
+            .HasConversion(v => v == null ? null : SecretCipher.Encrypt(v), v => v == null ? null : SecretCipher.Decrypt(v));
         b.Property(x => x.SetupTokenHash).HasColumnType("binary(32)");
         b.Property(x => x.RowVersion).IsRowVersion();
         b.Ignore(x => x.HasPassword);
@@ -160,6 +163,8 @@ internal sealed class AuditEntryConfiguration : IEntityTypeConfiguration<AuditEn
         b.Property(x => x.Reason).HasMaxLength(AuditEntry.ReasonMaxLength);
         b.Property(x => x.CorrelationId).HasMaxLength(64);
         b.HasIndex(x => new { x.OrganizationId, x.OccurredAtUtc }).HasDatabaseName("ix_audit_log_org_time");
+        b.Property(x => x.ChainHash).HasColumnType("binary(32)");
+        b.HasIndex(x => new { x.OrganizationId, x.ChainSeq }).IsUnique().HasFilter("[ChainSeq] IS NOT NULL").HasDatabaseName("ux_audit_log_org_chain");
     }
 }
 
@@ -441,6 +446,8 @@ internal sealed class StockMovementConfiguration : IEntityTypeConfiguration<Stoc
             .HasConstraintName("fk_stock_movements_item");
         b.HasIndex(x => new { x.OrganizationId, x.WarehouseId, x.ItemId }).HasDatabaseName("ix_stock_movements_org_wh_item");
         b.HasIndex(x => new { x.Source, x.SourceId }).HasDatabaseName("ix_stock_movements_source");
+        b.Property(x => x.ChainHash).HasColumnType("binary(32)");
+        b.HasIndex(x => new { x.OrganizationId, x.ChainSeq }).IsUnique().HasFilter("[ChainSeq] IS NOT NULL").HasDatabaseName("ux_stock_movements_org_chain");
     }
 }
 
@@ -608,4 +615,10 @@ internal sealed class SupportTicketConfiguration : IEntityTypeConfiguration<Knit
         b.HasIndex(x => new { x.OrganizationId, x.Number }).IsUnique().HasDatabaseName("ux_support_tickets_org_number");
         b.HasIndex(x => new { x.OrganizationId, x.AuthorUserId, x.Status }).HasDatabaseName("ix_support_tickets_org_author_status");
     }
+}
+
+internal sealed class DataProtectionKeyConfiguration : IEntityTypeConfiguration<Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.DataProtectionKey>
+{
+    public void Configure(EntityTypeBuilder<Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.DataProtectionKey> b) =>
+        b.ToTable("data_protection_keys");
 }

@@ -95,6 +95,7 @@
         ("users", "Пользователи", a => a.Has(Permissions.UserView)),
         ("roles", "Роли и права", a => a.Has(Permissions.UserView)),
         ("audit", "Журнал аудита", a => a.HasOwnOnly(Permissions.AuditLogView)),
+        ("integrity", "Проверка целостности", a => a.Has(Permissions.AuditLogView)),
     ];
 
     /// <summary>Заголовки групп меню: ставятся перед пунктом с этим адресом.</summary>

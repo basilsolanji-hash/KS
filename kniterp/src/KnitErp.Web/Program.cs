@@ -6,6 +6,9 @@ using KnitErp.Application.Organizations;
 using KnitErp.Application.Warehousing;
 using KnitErp.Infrastructure;
 using KnitErp.Infrastructure.Persistence;
+using KnitErp.Infrastructure.Security;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.DataProtection;
 using KnitErp.Web.Components;
 using KnitErp.Web.Security;
 using Microsoft.AspNetCore.Antiforgery;
@@ -14,13 +17,32 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.EntityFrameworkCore;
 
+// «dotnet KnitErp.Web.dll new-master-key» — создать мастер-ключ для секретов сервера и выйти. Ключ печатается один раз.
+if (args.Contains("new-master-key", StringComparer.OrdinalIgnoreCase))
+{
+    Console.WriteLine(KeyRing.NewKeyBase64());
+    return;
+}
+
 var builder = WebApplication.CreateBuilder(args);
+
+// Мастер-ключ: шифрование секретов 2FA и ключей cookie, подпись журнала аудита и движений склада.
+// Хранится в секретах сервера, не в базе и не в репозитории; рабочая среда без него не запускается.
+var masterKey = SecuritySetup.LoadMasterKey(
+    builder.Configuration["Security:MasterKey"], builder.Configuration["Security:PreviousMasterKeys"], builder.Environment.IsDevelopment());
+KeyRing.Configure(masterKey.Ring);
+
+var connectionString = builder.Configuration.GetConnectionString("KnitErp")
+                       ?? throw new InvalidOperationException("Не задана строка подключения ConnectionStrings:KnitErp.");
+if (!builder.Environment.IsDevelopment())
+{
+    SecuritySetup.EnsureEncryptedConnection(connectionString, builder.Configuration.GetValue<bool>("Security:AllowUnencryptedDatabase"));
+}
 
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddKnitErpApplication();
 builder.Services.AddKnitErpInfrastructure(
-    builder.Configuration.GetConnectionString("KnitErp")
-    ?? throw new InvalidOperationException("Не задана строка подключения ConnectionStrings:KnitErp."),
+    connectionString,
     // ИИ-помощник включается ключом из секретов сервера; без ключа он отвечает по справочному центру.
     builder.Configuration["Assistant:ApiKey"] ?? builder.Configuration["ANTHROPIC_API_KEY"],
     builder.Configuration["Assistant:Model"]);
@@ -60,7 +82,32 @@ builder.Services.AddAuthorizationBuilder()
 
 builder.Services.AddHealthChecks();
 
+// Ключи cookie и антиподделки — в базе, зашифрованные мастер-ключом: сессии переживают перезапуск и несколько серверов,
+// а копия базы ключей не раскрывает.
+builder.Services.AddDataProtection()
+    .SetApplicationName("knitERP")
+    .PersistKeysToDbContext<KnitErpDbContext>()
+    .AddKeyManagementOptions(o => o.XmlEncryptor = new MasterKeyXmlEncryptor());
+
+// Подбор паролей и кодов: не больше 10 отправок форм входа в минуту с одного адреса (плюс блокировка учётной записи D25).
+builder.Services.AddRateLimiter(o =>
+{
+    o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    o.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(http =>
+        HttpMethods.IsPost(http.Request.Method) && http.Request.Path.StartsWithSegments("/account")
+                                                && !http.Request.Path.StartsWithSegments("/account/logout")
+            ? RateLimitPartition.GetFixedWindowLimiter(http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 })
+            : RateLimitPartition.GetNoLimiter("other"));
+    o.OnRejected = async (context, ct) =>
+    {
+        context.HttpContext.Response.ContentType = "text/plain; charset=utf-8";
+        await context.HttpContext.Response.WriteAsync("Слишком много попыток входа с этого адреса. Подождите минуту и попробуйте снова.", ct);
+    };
+});
+
 var app = builder.Build();
+app.Logger.LogInformation("Защита данных: {Source}", masterKey.Description);
 
 // «dotnet KnitErp.Web.dll migrate» — отдельный шаг выпуска: применить миграции и выйти.
 if (args.Contains("migrate", StringComparer.OrdinalIgnoreCase))
@@ -82,6 +129,8 @@ else
 }
 
 app.UseHttpsRedirection();
+app.Use(SecurityHeaders.Apply);
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
@@ -118,7 +167,8 @@ app.MapGet("/stock-documents/template.xlsx", (StockDocumentService documents, Ca
 app.MapGet("/inventory/{id:long}/sheet.xlsx", (long id, InventoryService inventory, CancellationToken ct) =>
     FileOrForbid(() => inventory.CountSheetAsync(id, ct), $"blank-inventarizacii-{id}.xlsx"));
 
-app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
+// Встраивать страницы knitERP в чужие сайты запрещено (как и в общей CSP).
+app.MapRazorComponents<App>().AddInteractiveServerRenderMode(o => o.ContentSecurityFrameAncestorsPolicy = "'none'");
 
 app.Run();
 
@@ -145,6 +195,11 @@ static async Task MigrateAsync(WebApplication app)
     var pending = await KnitErp.Infrastructure.DependencyInjection.PendingMigrationsAsync(db);
     await KnitErp.Infrastructure.DependencyInjection.MigrateDatabaseAsync(db);
     app.Logger.LogInformation("Применено миграций: {Count} ({Names})", pending.Count, string.Join(", ", pending));
+    var encrypted = await SecuritySetup.EncryptLegacySecretsAsync(db);
+    if (encrypted > 0)
+    {
+        app.Logger.LogInformation("Зашифровано секретов 2FA, записанных до включения шифрования: {Count}", encrypted);
+    }
 }
 
 // Рабочая среда сама схему не меняет: при неприменённых миграциях приложение не запускается,
