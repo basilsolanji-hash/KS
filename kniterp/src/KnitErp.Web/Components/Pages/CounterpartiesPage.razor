@@ -67,7 +67,7 @@ else
     }
 
     <ImportPanel ExportHref="counterparties.xlsx" TemplateHref="counterparties-template.xlsx" CanImport="@CurrentAccess.Has(Permissions.CatalogImport)"
-                 Hint="Загрузка создаёт новых контрагентов и обновляет существующих: по ИНН и КПП, а без ИНН — по наименованию."
+                 Hint="@L("Загрузка создаёт новых контрагентов и обновляет существующих: по ИНН и КПП, а без ИНН — по наименованию.")"
                  ShownColumns="@([0, 1, 2])" Preview="s => Exchange.PreviewAsync(s)" Apply="r => Exchange.ApplyAsync(r)" Applied="ReloadAsync" />
 
     <form class="inline-form" @onsubmit="ReloadAsync">
@@ -157,7 +157,7 @@ else
         }
         catch (AccessDeniedException ex)
         {
-            _denied = ex.Message;
+            _denied = UiErrors.Message(ex);
         }
     }
 

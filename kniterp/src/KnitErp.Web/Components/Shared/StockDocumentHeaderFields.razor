@@ -3,7 +3,7 @@
 
 @* Поля шапки складского документа — общие для создания и правки черновика. *@
 <label>
-    @(Kind == StockOperationKind.Receipt ? "Склад-получатель" : "Склад-отправитель")
+    @(Kind == StockOperationKind.Receipt ? L("Склад-получатель") : L("Склад-отправитель"))
     <select @bind="Form.WarehouseId">
         @foreach (var w in Options.Warehouses)
         {
@@ -14,9 +14,9 @@
 @if (Kind == StockOperationKind.Transfer)
 {
     <label>
-        Куда
+        @L("Куда")
         <select @bind="Form.TargetWarehouseId">
-            <option value="">— выберите склад —</option>
+            <option value="">@L("— выберите склад —")</option>
             @foreach (var w in Options.TargetWarehouses)
             {
                 <option value="@w.Id">@w.Name</option>
@@ -27,9 +27,9 @@
 @if (Kind == StockOperationKind.Receipt)
 {
     <label>
-        Поставщик
+        @L("Поставщик")
         <select @bind="Form.CounterpartyId">
-            <option value="">— без поставщика —</option>
+            <option value="">@L("— без поставщика —")</option>
             @foreach (var c in Options.Suppliers)
             {
                 <option value="@c.Id">@c.Name</option>
@@ -38,17 +38,17 @@
     </label>
 }
 <label>
-    Причина
+    @L("Причина")
     <select @bind="Form.ReasonId">
-        <option value="">— выберите —</option>
+        <option value="">@L("— выберите —")</option>
         @foreach (var r in Options.Reasons)
         {
-            <option value="@r.Id">@r.Name@(r.RequiresComment ? " (нужно пояснение)" : "")</option>
+            <option value="@r.Id">@r.Name@(r.RequiresComment ? " " + L("(нужно пояснение)") : "")</option>
         }
     </select>
 </label>
-<label>Дата <input type="date" @bind="Form.Date" /></label>
-<label>Комментарий <input @bind="Form.Comment" maxlength="1000" /></label>
+<label>@L("Дата") <input type="date" @bind="Form.Date" /></label>
+<label>@L("Комментарий") <input @bind="Form.Comment" maxlength="1000" /></label>
 
 @code {
     [Parameter, EditorRequired]

@@ -1,5 +1,7 @@
 using KnitErp.Application.Common;
+using KnitErp.Domain.Access;
 using KnitErp.Domain.Common;
+using static KnitErp.Web.Localization.Text;
 
 namespace KnitErp.Web.Components.Shared;
 
@@ -9,5 +11,15 @@ public static class UiErrors
     public static bool IsUserFacing(Exception ex) =>
         ex is BusinessRuleException or AccessDeniedException or NotFoundException or ConcurrencyConflictException;
 
-    public static string Message(Exception ex) => ex.Message;
+    /// <summary>
+    /// Текст ошибки на языке пользователя (D60): отказ в доступе, «не найдено» и конфликт правки переводятся;
+    /// сообщения правил сервисов пока выводятся по-русски.
+    /// </summary>
+    public static string Message(Exception ex) => ex switch
+    {
+        AccessDeniedException denied => L("Недостаточно прав: {0}. Обратитесь к администратору.", L(Permissions.Describe(denied.PermissionCode))),
+        NotFoundException notFound => L("{0}: не найдено.", L(notFound.Entity)),
+        ConcurrencyConflictException => L("Данные изменены другим пользователем. Обновите страницу и повторите."),
+        _ => ex.Message,
+    };
 }

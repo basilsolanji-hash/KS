@@ -5,7 +5,7 @@
 @inject InventoryService Inventory
 @inject NavigationManager Navigation
 
-<PageTitle>Инвентаризация — knitERP</PageTitle>
+<PageTitle>@L("Инвентаризация") — knitERP</PageTitle>
 
 @if (_denied is not null)
 {
@@ -13,20 +13,19 @@
 }
 else if (_rows is null)
 {
-    <p class="muted">Загрузка…</p>
+    <p class="muted">@L("Загрузка…")</p>
 }
 else
 {
     <div class="page-head">
-        <h1>Инвентаризация</h1>
+        <h1>@L("Инвентаризация")</h1>
         @if (CurrentAccess.Has(Permissions.WarehouseDocumentCreate) && !_creating)
         {
-            <button type="button" @onclick="OpenCreateAsync" disabled="@_busy">Новая инвентаризация</button>
+            <button type="button" @onclick="OpenCreateAsync" disabled="@_busy">@L("Новая инвентаризация")</button>
         }
     </div>
     <p class="muted">
-        Документ сразу заполняется остатками по учёту. Внесите фактическое количество (вручную или из Excel) и проведите:
-        излишки придут на склад, недостачи спишутся. Недостачу нужно пояснить в комментарии.
+        @L("Документ сразу заполняется остатками по учёту. Внесите фактическое количество (вручную или из Excel) и проведите: излишки придут на склад, недостачи спишутся. Недостачу нужно пояснить в комментарии.")
     </p>
 
     @if (_error is not null)
@@ -37,17 +36,17 @@ else
     @if (_creating)
     {
         <div class="panel">
-            <h2>Новая инвентаризация</h2>
+            <h2>@L("Новая инвентаризация")</h2>
             @if (_warehouses.Count == 0)
             {
-                <p class="muted">Нет складов, доступных вам для документов.</p>
-                <button type="button" class="secondary" @onclick="() => _creating = false">Закрыть</button>
+                <p class="muted">@L("Нет складов, доступных вам для документов.")</p>
+                <button type="button" class="secondary" @onclick="() => _creating = false">@L("Закрыть")</button>
             }
             else
             {
                 <form class="inline-form" @onsubmit="CreateAsync">
                     <label>
-                        Склад
+                        @L("Склад")
                         <select @bind="_warehouseId">
                             @foreach (var w in _warehouses)
                             {
@@ -55,10 +54,10 @@ else
                             }
                         </select>
                     </label>
-                    <label>Дата <input type="date" @bind="_date" /></label>
-                    <label>Комментарий <input @bind="_comment" maxlength="1000" size="30" /></label>
-                    <button type="submit" disabled="@_busy">Создать</button>
-                    <button type="button" class="secondary" @onclick="() => _creating = false">Отмена</button>
+                    <label>@L("Дата") <input type="date" @bind="_date" /></label>
+                    <label>@L("Комментарий") <input @bind="_comment" maxlength="1000" size="30" /></label>
+                    <button type="submit" disabled="@_busy">@L("Создать")</button>
+                    <button type="button" class="secondary" @onclick="() => _creating = false">@L("Отмена")</button>
                 </form>
             }
         </div>
@@ -66,11 +65,11 @@ else
 
     <div class="scroll">
         <table>
-            <thead><tr><th>Номер</th><th>Дата</th><th>Склад</th><th class="opt num">Позиций</th><th class="opt num">Излишков</th><th class="opt num">Недостач</th><th>Статус</th><th class="opt">Автор</th></tr></thead>
+            <thead><tr><th>@L("Номер")</th><th>@L("Дата")</th><th>@L("Склад")</th><th class="opt num">@L("Позиций")</th><th class="opt num">@L("Излишков")</th><th class="opt num">@L("Недостач")</th><th>@L("Статус")</th><th class="opt">@L("Автор")</th></tr></thead>
             <tbody>
                 @if (_rows.Count == 0)
                 {
-                    <tr><td colspan="8" class="muted">Инвентаризаций пока нет.</td></tr>
+                    <tr><td colspan="8" class="muted">@L("Инвентаризаций пока нет.")</td></tr>
                 }
                 @foreach (var d in _rows)
                 {
@@ -81,7 +80,7 @@ else
                         <td class="num">@d.LineCount</td>
                         <td class="num">@d.SurplusCount</td>
                         <td class="num">@d.ShortageCount</td>
-                        <td><span class="tag @StatusClass(d.Status)">@d.StatusName</span></td>
+                        <td><span class="tag @StatusClass(d.Status)">@L(d.StatusName)</span></td>
                         <td>@d.CreatedBy</td>
                     </tr>
                 }
@@ -112,7 +111,7 @@ else
         }
         catch (AccessDeniedException ex)
         {
-            _denied = ex.Message;
+            _denied = UiErrors.Message(ex);
         }
     }
 

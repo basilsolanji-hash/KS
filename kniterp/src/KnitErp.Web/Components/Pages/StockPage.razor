@@ -4,7 +4,7 @@
 @using KnitErp.Web.Components.Shared
 @inject StockService Stock
 
-<PageTitle>Остатки — knitERP</PageTitle>
+<PageTitle>@L("Остатки") — knitERP</PageTitle>
 
 @if (_denied is not null)
 {
@@ -12,18 +12,18 @@
 }
 else if (_rows is null)
 {
-    <p class="muted">Загрузка…</p>
+    <p class="muted">@L("Загрузка…")</p>
 }
 else
 {
-    <h1>Остатки</h1>
-    <p class="muted">Текущий остаток — сумма движений по складу: начальные остатки и проведённые поступления, перемещения и списания.</p>
+    <h1>@L("Остатки")</h1>
+    <p class="muted">@L("Текущий остаток — сумма движений по складу: начальные остатки и проведённые поступления, перемещения и списания.")</p>
 
     <form class="inline-form" @onsubmit="ReloadAsync">
         <label>
-            Склад
+            @L("Склад")
             <select @bind="_warehouse">
-                <option value="">Все доступные</option>
+                <option value="">@L("Все доступные")</option>
                 @foreach (var w in _warehouses)
                 {
                     <option value="@w.Id">@w.Name</option>
@@ -31,27 +31,27 @@ else
             </select>
         </label>
         <label>
-            Тип
+            @L("Тип")
             <select @bind="_type">
-                <option value="">Все типы</option>
+                <option value="">@L("Все типы")</option>
                 @foreach (var t in ItemTypes.All)
                 {
-                    <option value="@((byte)t)">@ItemTypes.Name(t)</option>
+                    <option value="@((byte)t)">@L(ItemTypes.Name(t))</option>
                 }
             </select>
         </label>
-        <label>Поиск <input @bind="_search" placeholder="Код или наименование" /></label>
-        <button type="submit" class="secondary" disabled="@_busy">Показать</button>
-        <a class="button secondary" href="@ExportHref" download data-enhance-nav="false" title="Выгрузить с текущими фильтрами">Excel</a>
+        <label>@L("Поиск") <input @bind="_search" placeholder="@L("Код или наименование")" /></label>
+        <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
+        <a class="button secondary" href="@ExportHref" download data-enhance-nav="false" title="@L("Выгрузить с текущими фильтрами")">Excel</a>
     </form>
 
     <div class="scroll">
         <table>
-            <thead><tr><th>Склад</th><th>Код</th><th>Наименование</th><th class="opt">Тип</th><th class="num">Остаток</th><th>Ед.</th></tr></thead>
+            <thead><tr><th>@L("Склад")</th><th>@L("Код")</th><th>@L("Наименование")</th><th class="opt">@L("Тип")</th><th class="num">@L("Остаток")</th><th>@L("Ед.")</th></tr></thead>
             <tbody>
                 @if (_rows.Count == 0)
                 {
-                    <tr><td colspan="6" class="muted">Остатков нет.</td></tr>
+                    <tr><td colspan="6" class="muted">@L("Остатков нет.")</td></tr>
                 }
                 @foreach (var r in _rows)
                 {
@@ -59,7 +59,7 @@ else
                         <td>@r.WarehouseName</td>
                         <td>@r.Code</td>
                         <td>@r.Name</td>
-                        <td>@r.TypeName</td>
+                        <td>@L(r.TypeName)</td>
                         <td class="num">@Quantities.Format(r.Quantity)</td>
                         <td>@r.UnitSymbol</td>
                     </tr>
@@ -92,7 +92,7 @@ else
         }
         catch (AccessDeniedException ex)
         {
-            _denied = ex.Message;
+            _denied = UiErrors.Message(ex);
         }
     }
 

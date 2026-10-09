@@ -250,7 +250,7 @@ else
         }
         catch (AccessDeniedException ex)
         {
-            _denied = ex.Message;
+            _denied = UiErrors.Message(ex);
         }
     }
 

@@ -2,23 +2,22 @@
 @using KnitErp.Web.Components.Shared
 @inject RecoveryCodeService Recovery
 
-<PageTitle>Вход и резервные коды — knitERP</PageTitle>
+<PageTitle>@L("Вход и резервные коды") — knitERP</PageTitle>
 
 @if (_status is null)
 {
-    <p class="muted">Загрузка…</p>
+    <p class="muted">@L("Загрузка…")</p>
 }
 else
 {
-    <h1>Вход и резервные коды</h1>
+    <h1>@L("Вход и резервные коды")</h1>
 
     @if (Left is { } left)
     {
         <div class="@(left <= 3 ? "flash error" : "flash")" role="status">
             <span>
-                Вы вошли по резервному коду, он больше не действует. Осталось кодов: <b>@left</b>.
-                Если телефон потерян — попросите Владельца или Администратора сбросить вход с кодом (2FA) и подключите приложение
-                на новом телефоне. Коды заканчиваются — выпустите новые ниже.
+                @L("Вы вошли по резервному коду, он больше не действует. Осталось кодов:") <b>@left</b>.
+                @L("Если телефон потерян — попросите Владельца или Администратора сбросить вход с кодом (2FA) и подключите приложение на новом телефоне. Коды заканчиваются — выпустите новые ниже.")
             </span>
         </div>
     }
@@ -30,15 +29,15 @@ else
 
     @if (!_status.TwoFactorEnabled)
     {
-        <p>Вход с кодом из приложения (2FA) у вас не подключён. Резервные коды нужны только тем, кто входит с кодом.</p>
+        <p>@L("Вход с кодом из приложения (2FA) у вас не подключён. Резервные коды нужны только тем, кто входит с кодом.")</p>
     }
     else if (_codes is not null)
     {
-        <div class="panel" role="region" aria-label="Новые резервные коды">
-            <h2>Ваши резервные коды</h2>
+        <div class="panel" role="region" aria-label="@L("Новые резервные коды")">
+            <h2>@L("Ваши резервные коды")</h2>
             <p>
-                Перепишите или распечатайте и храните отдельно от телефона — например, в сейфе. <b>Коды показываются один раз.</b>
-                Каждый код действует один раз вместо кода из приложения. Прежние коды больше не действуют.
+                @L("Перепишите или распечатайте и храните отдельно от телефона — например, в сейфе.") <b>@L("Коды показываются один раз.")</b>
+                @L("Каждый код действует один раз вместо кода из приложения. Прежние коды больше не действуют.")
             </p>
             <ol class="codes">
                 @foreach (var c in _codes)
@@ -47,31 +46,30 @@ else
                 }
             </ol>
             <div class="actions">
-                <button type="button" @onclick="() => _codes = null">Я сохранил коды</button>
+                <button type="button" @onclick="() => _codes = null">@L("Я сохранил коды")</button>
             </div>
         </div>
     }
     else
     {
         <div class="totals" role="status">
-            <span>Неиспользованных кодов: <b class="@(_status.Remaining <= 3 ? "bad" : null)">@_status.Remaining из @RecoveryCode.SetSize</b></span>
+            <span>@L("Неиспользованных кодов:") <b class="@(_status.Remaining <= 3 ? "bad" : null)">@L("{0} из {1}", _status.Remaining, RecoveryCode.SetSize)</b></span>
             @if (_status.IssuedAtUtc is { } issued)
             {
-                <span class="muted">выданы @TimeZones.ToLocal(issued, CurrentAccess.TimeZoneId).ToString("dd.MM.yyyy HH:mm")</span>
+                <span class="muted">@L("выданы {0}", TimeZones.ToLocal(issued, CurrentAccess.TimeZoneId).ToString("dd.MM.yyyy HH:mm"))</span>
             }
         </div>
         @if (_status.Remaining == 0)
         {
             <div class="flash error" role="alert">
-                <span>@(Setup ? "Вход с кодом подключён. " : "")У вас нет резервных кодов: если телефон потеряется, войти будет нечем. Выпустите их сейчас.</span>
+                <span>@(Setup ? L("Вход с кодом подключён.") + " " : "")@L("У вас нет резервных кодов: если телефон потеряется, войти будет нечем. Выпустите их сейчас.")</span>
             </div>
         }
         <p class="muted">
-            Резервный код вводится на странице «Код подтверждения» вместо 6 цифр из приложения, если телефона нет под рукой.
-            Новый набор заменяет прежний.
+            @L("Резервный код вводится на странице «Код подтверждения» вместо 6 цифр из приложения, если телефона нет под рукой. Новый набор заменяет прежний.")
         </p>
         <div class="actions">
-            <button type="button" @onclick="IssueAsync" disabled="@_busy">@(_status.Remaining == 0 ? "Выпустить резервные коды" : "Выпустить новые коды")</button>
+            <button type="button" @onclick="IssueAsync" disabled="@_busy">@(_status.Remaining == 0 ? L("Выпустить резервные коды") : L("Выпустить новые коды"))</button>
         </div>
     }
 }

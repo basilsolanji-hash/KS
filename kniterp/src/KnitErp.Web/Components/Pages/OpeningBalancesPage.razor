@@ -5,7 +5,7 @@
 @inject OpeningBalanceService Balances
 @inject NavigationManager Navigation
 
-<PageTitle>Начальные остатки — knitERP</PageTitle>
+<PageTitle>@L("Начальные остатки") — knitERP</PageTitle>
 
 @if (_denied is not null)
 {
@@ -13,20 +13,19 @@
 }
 else if (_rows is null)
 {
-    <p class="muted">Загрузка…</p>
+    <p class="muted">@L("Загрузка…")</p>
 }
 else
 {
     <div class="page-head">
-        <h1>Начальные остатки</h1>
+        <h1>@L("Начальные остатки")</h1>
         @if (CurrentAccess.Has(Permissions.OpeningBalanceCreate) && !_creating)
         {
-            <button type="button" @onclick="OpenCreateAsync" disabled="@_busy">Новый документ</button>
+            <button type="button" @onclick="OpenCreateAsync" disabled="@_busy">@L("Новый документ")</button>
         }
     </div>
     <p class="muted">
-        Остатки на дату начала учёта. Документ заполняет старший кладовщик, утверждает другой человек — владелец или руководитель.
-        После утверждения остатки появляются в разделе «Остатки», документ больше не меняется.
+        @L("Остатки на дату начала учёта. Документ заполняет старший кладовщик, утверждает другой человек — владелец или руководитель. После утверждения остатки появляются в разделе «Остатки», документ больше не меняется.")
     </p>
 
     @if (_error is not null)
@@ -37,16 +36,16 @@ else
     @if (_creating)
     {
         <div class="panel">
-            <h2>Новый документ</h2>
+            <h2>@L("Новый документ")</h2>
             @if (_warehouses.Count == 0)
             {
-                <p class="muted">Нет складов, доступных вам для ввода остатков. Склады заводятся в разделе «Склады».</p>
+                <p class="muted">@L("Нет складов, доступных вам для ввода остатков. Склады заводятся в разделе «Склады».")</p>
             }
             else
             {
                 <form class="inline-form" @onsubmit="CreateAsync">
                     <label>
-                        Склад
+                        @L("Склад")
                         <select @bind="_warehouseId">
                             @foreach (var w in _warehouses)
                             {
@@ -54,10 +53,10 @@ else
                             }
                         </select>
                     </label>
-                    <label>Остатки на дату <input type="date" @bind="_asOf" /></label>
-                    <label>Комментарий <input @bind="_comment" maxlength="1000" size="30" /></label>
-                    <button type="submit" disabled="@_busy">Создать</button>
-                    <button type="button" class="secondary" @onclick="() => _creating = false">Отмена</button>
+                    <label>@L("Остатки на дату") <input type="date" @bind="_asOf" /></label>
+                    <label>@L("Комментарий") <input @bind="_comment" maxlength="1000" size="30" /></label>
+                    <button type="submit" disabled="@_busy">@L("Создать")</button>
+                    <button type="button" class="secondary" @onclick="() => _creating = false">@L("Отмена")</button>
                 </form>
             }
         </div>
@@ -65,11 +64,11 @@ else
 
     <div class="scroll">
         <table>
-            <thead><tr><th>Номер</th><th>Склад</th><th>На дату</th><th class="opt">Строк</th><th>Статус</th><th class="opt">Автор</th></tr></thead>
+            <thead><tr><th>@L("Номер")</th><th>@L("Склад")</th><th>@L("На дату")</th><th class="opt">@L("Строк")</th><th>@L("Статус")</th><th class="opt">@L("Автор")</th></tr></thead>
             <tbody>
                 @if (_rows.Count == 0)
                 {
-                    <tr><td colspan="6" class="muted">Документов пока нет.</td></tr>
+                    <tr><td colspan="6" class="muted">@L("Документов пока нет.")</td></tr>
                 }
                 @foreach (var d in _rows)
                 {
@@ -78,7 +77,7 @@ else
                         <td>@d.WarehouseName</td>
                         <td>@d.AsOfDate.ToString("dd.MM.yyyy")</td>
                         <td>@d.LineCount</td>
-                        <td><span class="tag @StatusClass(d.Status)">@d.StatusName</span></td>
+                        <td><span class="tag @StatusClass(d.Status)">@L(d.StatusName)</span></td>
                         <td>@d.CreatedBy</td>
                     </tr>
                 }
@@ -109,7 +108,7 @@ else
         }
         catch (AccessDeniedException ex)
         {
-            _denied = ex.Message;
+            _denied = UiErrors.Message(ex);
         }
     }
 

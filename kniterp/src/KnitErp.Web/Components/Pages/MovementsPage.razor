@@ -4,7 +4,7 @@
 @inject StockReportService Reports
 @inject StockService Stock
 
-<PageTitle>Движения — knitERP</PageTitle>
+<PageTitle>@L("Движения") — knitERP</PageTitle>
 
 @if (_denied is not null)
 {
@@ -12,12 +12,12 @@
 }
 else if (_report is null)
 {
-    <p class="muted">Загрузка…</p>
+    <p class="muted">@L("Загрузка…")</p>
 }
 else
 {
-    <h1>Движения</h1>
-    <p class="muted">Каждый приход и расход по складу с документом, который его создал. Новые сверху.</p>
+    <h1>@L("Движения")</h1>
+    <p class="muted">@L("Каждый приход и расход по складу с документом, который его создал. Новые сверху.")</p>
 
     @if (_error is not null)
     {
@@ -26,34 +26,34 @@ else
 
     <form class="inline-form" @onsubmit="ReloadAsync">
         <label>
-            Склад
+            @L("Склад")
             <select @bind="_warehouse">
-                <option value="">Все доступные</option>
+                <option value="">@L("Все доступные")</option>
                 @foreach (var w in _warehouses)
                 {
                     <option value="@w.Id">@w.Name</option>
                 }
             </select>
         </label>
-        <label>С <input type="date" @bind="_from" /></label>
-        <label>По <input type="date" @bind="_to" /></label>
-        <label>Позиция <input @bind="_search" placeholder="Код или наименование" /></label>
-        <button type="submit" class="secondary" disabled="@_busy">Показать</button>
-        <a class="button secondary" href="@ExportHref" download data-enhance-nav="false" title="Выгрузить с текущими фильтрами">Excel</a>
+        <label>@L("С") <input type="date" @bind="_from" /></label>
+        <label>@L("По") <input type="date" @bind="_to" /></label>
+        <label>@L("Позиция") <input @bind="_search" placeholder="@L("Код или наименование")" /></label>
+        <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
+        <a class="button secondary" href="@ExportHref" download data-enhance-nav="false" title="@L("Выгрузить с текущими фильтрами")">Excel</a>
     </form>
 
     @if (_report.Truncated)
     {
-        <p class="muted">Показаны последние @StockReportService.MaxMovementRows строк — сузьте период или выберите склад.</p>
+        <p class="muted">@L("Показаны последние {0} строк — сузьте период или выберите склад.", StockReportService.MaxMovementRows)</p>
     }
 
     <div class="scroll">
         <table>
-            <thead><tr><th>Дата</th><th>Документ</th><th class="opt">Склад</th><th>Код</th><th class="opt">Наименование</th><th class="num">Приход</th><th class="num">Расход</th><th>Ед.</th></tr></thead>
+            <thead><tr><th>@L("Дата")</th><th>@L("Документ")</th><th class="opt">@L("Склад")</th><th>@L("Код")</th><th class="opt">@L("Наименование")</th><th class="num">@L("Приход")</th><th class="num">@L("Расход")</th><th>@L("Ед.")</th></tr></thead>
             <tbody>
                 @if (_report.Rows.Count == 0)
                 {
-                    <tr><td colspan="8" class="muted">Движений нет.</td></tr>
+                    <tr><td colspan="8" class="muted">@L("Движений нет.")</td></tr>
                 }
                 @foreach (var r in _report.Rows)
                 {
@@ -93,7 +93,7 @@ else
         }
         catch (AccessDeniedException ex)
         {
-            _denied = ex.Message;
+            _denied = UiErrors.Message(ex);
         }
     }
 

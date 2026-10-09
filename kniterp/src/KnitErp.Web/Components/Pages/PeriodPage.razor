@@ -3,7 +3,7 @@
 @using KnitErp.Web.Components.Shared
 @inject PeriodService Period
 
-<PageTitle>Закрытие периода — knitERP</PageTitle>
+<PageTitle>@L("Закрытие периода") — knitERP</PageTitle>
 
 @if (_denied is not null)
 {
@@ -11,14 +11,13 @@
 }
 else if (_period is null)
 {
-    <p class="muted">Загрузка…</p>
+    <p class="muted">@L("Загрузка…")</p>
 }
 else
 {
-    <h1>Закрытие периода</h1>
+    <h1>@L("Закрытие периода")</h1>
     <p class="muted">
-        После сверки остатков за месяц период закрывается: документы с датой в закрытом периоде не проводятся и не сторнируются,
-        начальные остатки не утверждаются. Так сверенные цифры не меняются задним числом.
+        @L("После сверки остатков за месяц период закрывается: документы с датой в закрытом периоде не проводятся и не сторнируются, начальные остатки не утверждаются. Так сверенные цифры не меняются задним числом.")
     </p>
 
     @if (_message is not null)
@@ -27,40 +26,40 @@ else
     }
 
     <dl class="facts">
-        <dt>Сейчас</dt>
-        <dd>@(_period.ClosedThrough is { } c ? $"закрыт по {c:dd.MM.yyyy} включительно" : "закрытого периода нет")</dd>
+        <dt>@L("Сейчас")</dt>
+        <dd>@(_period.ClosedThrough is { } c ? L("закрыт по {0:dd.MM.yyyy} включительно", c) : L("закрытого периода нет"))</dd>
         @if (_period.ChangedBy is not null)
         {
-            <dt>Изменил</dt><dd>@_period.ChangedBy, @TimeZones.ToLocal(_period.ChangedAtUtc!.Value, CurrentAccess.TimeZoneId).ToString("dd.MM.yyyy HH:mm")</dd>
+            <dt>@L("Изменил")</dt><dd>@_period.ChangedBy, @TimeZones.ToLocal(_period.ChangedAtUtc!.Value, CurrentAccess.TimeZoneId).ToString("dd.MM.yyyy HH:mm")</dd>
         }
     </dl>
 
     @if (_period.CanManage)
     {
         <div class="panel">
-            <h2>Закрыть период</h2>
+            <h2>@L("Закрыть период")</h2>
             <form class="inline-form" @onsubmit="CloseAsync">
-                <label>Закрыть по (включительно) <input type="date" @bind="_closeThrough" /></label>
-                <button type="submit" disabled="@_busy">Закрыть</button>
+                <label>@L("Закрыть по (включительно)") <input type="date" @bind="_closeThrough" /></label>
+                <button type="submit" disabled="@_busy">@L("Закрыть")</button>
             </form>
         </div>
 
         @if (_period.ClosedThrough is not null)
         {
             <div class="panel">
-                <h2>Открыть период</h2>
-                <p class="muted">Граница сдвигается назад. Пустая дата — закрытого периода не будет. Причина попадёт в журнал аудита.</p>
+                <h2>@L("Открыть период")</h2>
+                <p class="muted">@L("Граница сдвигается назад. Пустая дата — закрытого периода не будет. Причина попадёт в журнал аудита.")</p>
                 <form class="inline-form" @onsubmit="ReopenAsync">
-                    <label>Новая граница <input type="date" @bind="_reopenThrough" /></label>
-                    <label>Причина <input @bind="_reason" maxlength="500" size="40" /></label>
-                    <button type="submit" class="secondary" disabled="@_busy">Открыть</button>
+                    <label>@L("Новая граница") <input type="date" @bind="_reopenThrough" /></label>
+                    <label>@L("Причина") <input @bind="_reason" maxlength="500" size="40" /></label>
+                    <button type="submit" class="secondary" disabled="@_busy">@L("Открыть")</button>
                 </form>
             </div>
         }
     }
     else
     {
-        <p class="muted">Закрывает и открывает период Владелец организации.</p>
+        <p class="muted">@L("Закрывает и открывает период Владелец организации.")</p>
     }
 }
 
@@ -85,7 +84,7 @@ else
         }
         catch (AccessDeniedException ex)
         {
-            _denied = ex.Message;
+            _denied = UiErrors.Message(ex);
         }
     }
 
@@ -98,13 +97,13 @@ else
         _reopenThrough = null;
     }
 
-    private Task CloseAsync() => RunAsync(() => Period.CloseAsync(DateOnly.FromDateTime(_closeThrough), _period!.RowVersion), "Период закрыт.");
+    private Task CloseAsync() => RunAsync(() => Period.CloseAsync(DateOnly.FromDateTime(_closeThrough), _period!.RowVersion), L("Период закрыт."));
 
     private Task ReopenAsync() => RunAsync(async () =>
     {
         await Period.ReopenAsync(_reopenThrough is { } d ? DateOnly.FromDateTime(d) : null, _reason, _period!.RowVersion);
         _reason = string.Empty;
-    }, "Период открыт.");
+    }, L("Период открыт."));
 
     private async Task RunAsync(Func<Task> action, string success)
     {

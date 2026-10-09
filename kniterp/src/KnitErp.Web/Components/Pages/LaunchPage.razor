@@ -2,7 +2,7 @@
 @using KnitErp.Web.Components.Shared
 @inject LaunchReadinessService Readiness
 
-<PageTitle>Готовность к запуску — knitERP</PageTitle>
+<PageTitle>@L("Готовность к запуску") — knitERP</PageTitle>
 
 @if (_denied is not null)
 {
@@ -10,17 +10,16 @@
 }
 else if (_dto is null)
 {
-    <p class="muted">Загрузка…</p>
+    <p class="muted">@L("Загрузка…")</p>
 }
 else
 {
     <div class="page-head">
-        <h1>Готовность к запуску</h1>
-        <button type="button" class="secondary" @onclick="ReloadAsync" disabled="@_busy">Обновить</button>
+        <h1>@L("Готовность к запуску")</h1>
+        <button type="button" class="secondary" @onclick="ReloadAsync" disabled="@_busy">@L("Обновить")</button>
     </div>
     <p class="muted">
-        Что уже сделано, чтобы склад фабрики работал в программе. Пункты проверяются по данным; последние два — вручную.
-        Порядок и сроки — в плане пилота (docs/pilot.md).
+        @L("Что уже сделано, чтобы склад фабрики работал в программе. Пункты проверяются по данным; последние два — вручную. Порядок и сроки — в плане пилота (docs/pilot.md).")
     </p>
 
     @if (_error is not null)
@@ -29,8 +28,8 @@ else
     }
 
     <div class="totals" role="status">
-        <span>Готово: <b>@_dto.Completed из @_dto.Checked</b></span>
-        <span class="@(_dto.Ready ? null : "bad")">@(_dto.Ready ? "Можно начинать пилот" : "Есть незавершённые пункты")</span>
+        <span>@L("Готово:") <b>@L("{0} из {1}", _dto.Completed, _dto.Checked)</b></span>
+        <span class="@(_dto.Ready ? null : "bad")">@(_dto.Ready ? L("Можно начинать пилот") : L("Есть незавершённые пункты"))</span>
     </div>
 
     <ol class="checklist">
@@ -39,13 +38,13 @@ else
             <li class="@StateClass(i.Done)">
                 <span class="mark" aria-hidden="true">@(i.Done switch { true => "✓", false => "✗", null => "?" })</span>
                 <div>
-                    <b>@i.Title</b>
-                    <span class="sr-only">@(i.Done switch { true => "выполнено", false => "не выполнено", null => "проверить вручную" })</span>
+                    <b>@L(i.Title)</b>
+                    <span class="sr-only">@(i.Done switch { true => L("выполнено"), false => L("не выполнено"), null => L("проверить вручную") })</span>
                     <div class="muted">@i.Detail</div>
                 </div>
                 @if (i.Link is not null)
                 {
-                    <a class="button secondary" href="@(i.Link.Length == 0 ? "./" : i.Link)">Открыть</a>
+                    <a class="button secondary" href="@(i.Link.Length == 0 ? "./" : i.Link)">@L("Открыть")</a>
                 }
             </li>
         }
@@ -66,7 +65,7 @@ else
         }
         catch (AccessDeniedException ex)
         {
-            _denied = ex.Message;
+            _denied = UiErrors.Message(ex);
         }
     }
 

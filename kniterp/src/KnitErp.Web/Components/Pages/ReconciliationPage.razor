@@ -2,13 +2,11 @@
 @using KnitErp.Application.Warehousing
 @inject ReconciliationService Reconciliation
 
-<PageTitle>Сверка — knitERP</PageTitle>
+<PageTitle>@L("Сверка") — knitERP</PageTitle>
 
-<h1>Сверка регистра с документами</h1>
+<h1>@L("Сверка регистра с документами")</h1>
 <p class="muted">
-    Каждое движение остатков должно быть ровно таким, каким его требует свой документ: начальные остатки, поступления, перемещения,
-    списания, сторно и инвентаризации. Сверка находит лишние, пропавшие и изменённые движения, движения без документа и отрицательные
-    остатки. Запускайте её перед закрытием периода вместе с «Проверкой целостности».
+    @L("Каждое движение остатков должно быть ровно таким, каким его требует свой документ: начальные остатки, поступления, перемещения, списания, сторно и инвентаризации. Сверка находит лишние, пропавшие и изменённые движения, движения без документа и отрицательные остатки. Запускайте её перед закрытием периода вместе с «Проверкой целостности».")
 </p>
 
 @if (_denied is not null)
@@ -17,23 +15,23 @@
 }
 else
 {
-    <button type="button" @onclick="RunAsync" disabled="@_busy">@(_busy ? "Сверяю…" : "Сверить сейчас")</button>
+    <button type="button" @onclick="RunAsync" disabled="@_busy">@(_busy ? L("Сверяю…") : L("Сверить сейчас"))</button>
 
     @if (_result is not null)
     {
         <div class="@(_result.Ok ? "flash" : "flash error")" role="status" style="margin-top: 16px">
-            @(_result.Ok ? "Расхождений нет: регистр совпадает с документами." : $"Найдено расхождений: {_result.Problems.Count}.")
+            @(_result.Ok ? L("Расхождений нет: регистр совпадает с документами.") : L("Найдено расхождений: {0}.", _result.Problems.Count))
         </div>
         <div class="totals">
-            <span>Документов: <b>@_result.DocumentsChecked</b></span>
-            <span>Движений: <b>@_result.MovementsChecked</b></span>
-            <span>Позиций по документам: <b>@_result.PositionsChecked</b></span>
+            <span>@L("Документов:") <b>@_result.DocumentsChecked</b></span>
+            <span>@L("Движений:") <b>@_result.MovementsChecked</b></span>
+            <span>@L("Позиций по документам:") <b>@_result.PositionsChecked</b></span>
         </div>
         @if (_result.Problems.Count > 0)
         {
             <div class="scroll">
                 <table>
-                    <thead><tr><th>Документ</th><th>Расхождение</th></tr></thead>
+                    <thead><tr><th>@L("Документ")</th><th>@L("Расхождение")</th></tr></thead>
                     <tbody>
                         @foreach (var p in _result.Problems)
                         {
@@ -68,7 +66,7 @@ else
         }
         catch (AccessDeniedException ex)
         {
-            _denied = ex.Message;
+            _denied = UiErrors.Message(ex);
         }
         finally
         {

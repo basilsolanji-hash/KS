@@ -5,7 +5,7 @@
 @inject StockDocumentService Documents
 @inject NavigationManager Navigation
 
-<PageTitle>Складские документы — knitERP</PageTitle>
+<PageTitle>@L("Складские документы") — knitERP</PageTitle>
 
 @if (_denied is not null)
 {
@@ -13,12 +13,12 @@
 }
 else if (_rows is null)
 {
-    <p class="muted">Загрузка…</p>
+    <p class="muted">@L("Загрузка…")</p>
 }
 else
 {
     <div class="page-head">
-        <h1>Складские документы</h1>
+        <h1>@L("Складские документы")</h1>
         @if (CurrentAccess.Has(Permissions.WarehouseDocumentCreate) && _form is null)
         {
             <div class="actions">
@@ -30,8 +30,7 @@ else
         }
     </div>
     <p class="muted">
-        Черновик можно править сколько угодно. Проведение записывает движения в остатки — после этого документ не меняется.
-        Ошибку в проведённом документе исправляет сторно и новый документ.
+        @L("Черновик можно править сколько угодно. Проведение записывает движения в остатки — после этого документ не меняется. Ошибку в проведённом документе исправляет сторно и новый документ.")
     </p>
 
     @if (_error is not null)
@@ -45,8 +44,8 @@ else
             <h2>@NewLabel(_form.Kind)</h2>
             @if (_form.Options.Warehouses.Count == 0)
             {
-                <p class="muted">Нет складов, доступных вам для документов. Склады заводятся в разделе «Склады», доступ к ним — в «Пользователях».</p>
-                <button type="button" class="secondary" @onclick="() => _form = null">Закрыть</button>
+                <p class="muted">@L("Нет складов, доступных вам для документов. Склады заводятся в разделе «Склады», доступ к ним — в «Пользователях».")</p>
+                <button type="button" class="secondary" @onclick="() => _form = null">@L("Закрыть")</button>
             }
             else
             {
@@ -55,8 +54,8 @@ else
                         <StockDocumentHeaderFields Form="_form.Header" Kind="_form.Kind" Options="_form.Options" />
                     </div>
                     <div class="actions">
-                        <button type="submit" disabled="@_busy">Создать черновик</button>
-                        <button type="button" class="secondary" @onclick="() => _form = null">Отмена</button>
+                        <button type="submit" disabled="@_busy">@L("Создать черновик")</button>
+                        <button type="button" class="secondary" @onclick="() => _form = null">@L("Отмена")</button>
                     </div>
                 </form>
             }
@@ -65,47 +64,47 @@ else
 
     <form class="inline-form" @onsubmit="ReloadAsync">
         <label>
-            Вид
+            @L("Вид")
             <select @bind="_kind">
-                <option value="">Все</option>
+                <option value="">@L("Все")</option>
                 @foreach (var k in StockDocument.Kinds)
                 {
-                    <option value="@((byte)k)">@StockDocument.KindName(k)</option>
+                    <option value="@((byte)k)">@L(StockDocument.KindName(k))</option>
                 }
             </select>
         </label>
         <label>
-            Статус
+            @L("Статус")
             <select @bind="_status">
-                <option value="">Все</option>
+                <option value="">@L("Все")</option>
                 @foreach (var st in Statuses)
                 {
-                    <option value="@((byte)st)">@StockDocument.StatusName(st)</option>
+                    <option value="@((byte)st)">@L(StockDocument.StatusName(st))</option>
                 }
             </select>
         </label>
-        <button type="submit" class="secondary" disabled="@_busy">Показать</button>
+        <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
     </form>
 
     <div class="scroll">
         <table>
-            <thead><tr><th>Номер</th><th>Дата</th><th>Вид</th><th>Склад</th><th>Поставщик / получатель</th><th class="opt">Причина</th><th class="opt num">Строк</th><th>Статус</th></tr></thead>
+            <thead><tr><th>@L("Номер")</th><th>@L("Дата")</th><th>@L("Вид")</th><th>@L("Склад")</th><th>@L("Поставщик / получатель")</th><th class="opt">@L("Причина")</th><th class="opt num">@L("Строк")</th><th>@L("Статус")</th></tr></thead>
             <tbody>
                 @if (_rows.Count == 0)
                 {
-                    <tr><td colspan="8" class="muted">Документов нет.</td></tr>
+                    <tr><td colspan="8" class="muted">@L("Документов нет.")</td></tr>
                 }
                 @foreach (var d in _rows)
                 {
                     <tr>
                         <td><a href="stock-documents/@d.Id">@d.Number</a></td>
                         <td>@d.DocumentDate.ToString("dd.MM.yyyy")</td>
-                        <td>@d.KindName</td>
+                        <td>@L(d.KindName)</td>
                         <td>@d.WarehouseName</td>
                         <td>@(d.TargetWarehouseName is { } t ? $"→ {t}" : d.CounterpartyName)</td>
                         <td>@d.ReasonName</td>
                         <td class="num">@d.LineCount</td>
-                        <td><span class="tag @StatusClass(d.Status)">@d.StatusName</span></td>
+                        <td><span class="tag @StatusClass(d.Status)">@L(d.StatusName)</span></td>
                     </tr>
                 }
             </tbody>
@@ -138,7 +137,7 @@ else
         }
         catch (AccessDeniedException ex)
         {
-            _denied = ex.Message;
+            _denied = UiErrors.Message(ex);
         }
     }
 
@@ -187,10 +186,10 @@ else
 
     private static string NewLabel(StockOperationKind kind) => kind switch
     {
-        StockOperationKind.Receipt => "Новое поступление",
-        StockOperationKind.Transfer => "Новое перемещение",
-        StockOperationKind.WriteOff => "Новое списание",
-        _ => "Новый документ",
+        StockOperationKind.Receipt => L("Новое поступление"),
+        StockOperationKind.Transfer => L("Новое перемещение"),
+        StockOperationKind.WriteOff => L("Новое списание"),
+        _ => L("Новый документ"),
     };
 
     public static string StatusClass(StockDocumentStatus status) => status switch

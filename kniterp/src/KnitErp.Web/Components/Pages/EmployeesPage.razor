@@ -114,7 +114,7 @@ else
     @if (!_list.OwnOnly)
     {
         <ImportPanel ExportHref="employees.xlsx" TemplateHref="employees-template.xlsx" CanImport="@_list.CanEdit"
-                     Hint="Загрузка принимает новых сотрудников и обновляет ФИО, подразделение и должность существующих по табельному номеру."
+                     Hint="@L("Загрузка принимает новых сотрудников и обновляет ФИО, подразделение и должность существующих по табельному номеру.")"
                      ShownColumns="@([0, 1, 2, 4])" Preview="s => Exchange.PreviewAsync(s)" Apply="r => Exchange.ApplyAsync(r)" Applied="ReloadAsync" />
 
         <form class="inline-form" @onsubmit="ReloadAsync">
@@ -204,7 +204,7 @@ else
         }
         catch (AccessDeniedException ex)
         {
-            _denied = ex.Message;
+            _denied = UiErrors.Message(ex);
         }
     }
 

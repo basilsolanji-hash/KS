@@ -5,17 +5,17 @@
 
 <div class="actions" style="margin-bottom: 12px">
     <button type="button" class="secondary" @onclick="() => _open = !_open" aria-expanded="@(_open ? "true" : "false")">
-        Excel: выгрузка и загрузка @(_open ? "▲" : "▼")
+        @L("Excel: выгрузка и загрузка") @(_open ? "▲" : "▼")
     </button>
 </div>
 @if (_open)
 {
     <div class="panel exchange">
         <div class="actions">
-            <a class="button secondary" href="@ExportHref" download data-enhance-nav="false">Выгрузить</a>
+            <a class="button secondary" href="@ExportHref" download data-enhance-nav="false">@L("Выгрузить")</a>
             @if (CanImport)
             {
-                <a class="button secondary" href="@TemplateHref" download data-enhance-nav="false">Скачать шаблон</a>
+                <a class="button secondary" href="@TemplateHref" download data-enhance-nav="false">@L("Скачать шаблон")</a>
             }
         </div>
         @if (_flash is not null)
@@ -29,36 +29,36 @@
         @if (CanImport)
         {
             <p class="muted">
-                @Hint Сначала файл проверяется целиком; если в нём есть ошибки, не загружается ничего.
-                До @TableImport.MaxRows строк, файл до 5 МБ.
+                @Hint @L("Сначала файл проверяется целиком; если в нём есть ошибки, не загружается ничего.")
+                @L("До {0} строк, файл до 5 МБ.", TableImport.MaxRows)
             </p>
-            <label>Файл .xlsx <InputFile OnChange="PreviewImportAsync" accept=".xlsx" disabled="@_busy" /></label>
+            <label>@L("Файл .xlsx") <InputFile OnChange="PreviewImportAsync" accept=".xlsx" disabled="@_busy" /></label>
         }
 
         @if (_plan is not null)
         {
             <div class="totals" role="status">
-                <span>Строк: <b>@_plan.Total</b></span>
-                <span>Создать: <b>@_plan.ToCreate</b></span>
-                <span>Обновить: <b>@_plan.ToUpdate</b></span>
-                <span>Без изменений: <b>@_plan.Unchanged</b></span>
-                <span class="@(_plan.ErrorRows > 0 ? "bad" : null)">С ошибками: <b>@_plan.ErrorRows</b></span>
+                <span>@L("Строк:") <b>@_plan.Total</b></span>
+                <span>@L("Создать:") <b>@_plan.ToCreate</b></span>
+                <span>@L("Обновить:") <b>@_plan.ToUpdate</b></span>
+                <span>@L("Без изменений:") <b>@_plan.Unchanged</b></span>
+                <span class="@(_plan.ErrorRows > 0 ? "bad" : null)">@L("С ошибками:") <b>@_plan.ErrorRows</b></span>
             </div>
             @if (_plan.ErrorRows > 0)
             {
-                <div class="error" role="alert">В файле есть ошибки — ничего не будет загружено. Исправьте строки ниже и загрузите файл снова.</div>
+                <div class="error" role="alert">@L("В файле есть ошибки — ничего не будет загружено. Исправьте строки ниже и загрузите файл снова.")</div>
             }
             <div class="scroll" style="max-height: 360px; overflow-y: auto">
                 <table>
                     <thead>
                         <tr>
-                            <th>Строка</th>
+                            <th>@L("Строка")</th>
                             @foreach (var c in ShownColumns)
                             {
                                 <th class="@(c == ShownColumns[0] ? null : "opt")">@_plan.Columns[c]</th>
                             }
-                            <th>Действие</th>
-                            <th>Ошибки</th>
+                            <th>@L("Действие")</th>
+                            <th>@L("Ошибки")</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -80,9 +80,9 @@
             <div class="actions">
                 @if (_plan.CanApply)
                 {
-                    <button type="button" @onclick="ApplyImportAsync" disabled="@_busy">Загрузить: создать @_plan.ToCreate, обновить @_plan.ToUpdate</button>
+                    <button type="button" @onclick="ApplyImportAsync" disabled="@_busy">@L("Загрузить: создать {0}, обновить {1}", _plan.ToCreate, _plan.ToUpdate)</button>
                 }
-                <button type="button" class="secondary" @onclick="() => _plan = null" disabled="@_busy">Закрыть протокол</button>
+                <button type="button" class="secondary" @onclick="() => _plan = null" disabled="@_busy">@L("Закрыть протокол")</button>
             </div>
         }
     </div>
@@ -116,7 +116,7 @@
         const long maxSize = 5 * 1024 * 1024;
         if (e.File.Size > maxSize)
         {
-            throw new BusinessRuleException("import.file_too_large", "Файл больше 5 МБ. Разбейте его на части.");
+            throw new BusinessRuleException("import.file_too_large", L("Файл больше 5 МБ. Разбейте его на части."));
         }
 
         await using var upload = e.File.OpenReadStream(maxAllowedSize: maxSize);
@@ -130,7 +130,7 @@
     {
         var result = await Apply(_plan!.Rows);
         _plan = null;
-        _flash = $"Загружено: создано {result.Created}, обновлено {result.Updated}.";
+        _flash = L("Загружено: создано {0}, обновлено {1}.", result.Created, result.Updated);
         await Applied.InvokeAsync();
     });
 
@@ -160,10 +160,10 @@
 
     private static string ActionText(ImportAction a) => a switch
     {
-        ImportAction.Create => "создать",
-        ImportAction.Update => "обновить",
-        ImportAction.Unchanged => "без изменений",
-        _ => "ошибка",
+        ImportAction.Create => L("создать"),
+        ImportAction.Update => L("обновить"),
+        ImportAction.Unchanged => L("без изменений"),
+        _ => L("ошибка"),
     };
 
     private static string? ActionClass(ImportAction a) => a switch

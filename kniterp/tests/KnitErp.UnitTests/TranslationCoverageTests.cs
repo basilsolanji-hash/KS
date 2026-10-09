@@ -76,6 +76,24 @@ public sealed partial class TranslationCoverageTests
             keys.Add(tool.Hint);
         }
 
+        // Названия из домена, которые экраны выводят через L(...): виды и статусы документов, типы номенклатуры.
+        keys.UnionWith(Enum.GetValues<KnitErp.Domain.Warehousing.StockOperationKind>().Select(KnitErp.Domain.Warehousing.StockDocument.KindName));
+        keys.UnionWith(Enum.GetValues<KnitErp.Domain.Warehousing.StockDocumentStatus>().Select(KnitErp.Domain.Warehousing.StockDocument.StatusName));
+        keys.UnionWith(Enum.GetValues<KnitErp.Domain.Warehousing.OpeningBalanceStatus>().Select(KnitErp.Domain.Warehousing.OpeningBalance.StatusName));
+        keys.UnionWith(Enum.GetValues<KnitErp.Domain.Warehousing.InventoryStatus>().Select(KnitErp.Domain.Warehousing.InventoryCount.StatusName));
+        keys.UnionWith(KnitErp.Domain.Catalog.ItemTypes.All.Select(KnitErp.Domain.Catalog.ItemTypes.Name));
+
+        // Названия прав — в сообщении «Недостаточно прав: …».
+        keys.UnionWith(typeof(Permissions).GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+            .Where(f => f.IsLiteral && f.FieldType == typeof(string)).Select(f => Permissions.Describe((string)f.GetRawConstantValue()!)));
+
+        // Пункты «Готовности к запуску».
+        var readiness = File.ReadAllText(Path.Combine(FindRoot(), "src", "KnitErp.Application", "Organizations", "LaunchReadinessService.cs"));
+        foreach (Match m in ReadinessTitle().Matches(readiness))
+        {
+            keys.Add(m.Groups[1].Value);
+        }
+
         return keys;
     }
 
@@ -102,6 +120,9 @@ public sealed partial class TranslationCoverageTests
     [GeneratedRegex("""\["[\w/-]*"\] = "([^"]+)",""")]
     private static partial Regex MenuSection();
 
-    [GeneratedRegex(@"\{\d+\}")]
+    [GeneratedRegex("""items\.Add\(new\("\w+", "([^"]+)",""")]
+    private static partial Regex ReadinessTitle();
+
+    [GeneratedRegex(@"\{\d+(:[^}]*)?\}")]
     private static partial Regex Placeholder();
 }
