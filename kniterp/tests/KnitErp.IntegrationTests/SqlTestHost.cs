@@ -3,6 +3,7 @@ using KnitErp.Application.Audit;
 using KnitErp.Application.Authentication;
 using KnitErp.Application.Common;
 using KnitErp.Application.Organizations;
+using KnitErp.Application.Structure;
 using KnitErp.Domain.Access;
 using KnitErp.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
@@ -63,11 +64,14 @@ public sealed class SqlTestHost : IAsyncLifetime
         var db = NewDb();
         var user = new TestUser { UserId = userId, OrganizationId = organizationId };
         var guard = new AccessGuard(db, user, Clock);
+        var access = new UserAccessService(db, guard, user, Clock);
         return new Services(db,
             new OrganizationService(db, guard, user, Clock),
-            new UserAccessService(db, guard, user, Clock),
+            access,
             new AuditQueryService(db, guard),
-            new SignInService(db, Hasher, user, Clock));
+            new SignInService(db, Hasher, user, Clock),
+            new StructureService(db, guard, user, Clock),
+            new EmployeeService(db, guard, access, user, Clock));
     }
 
     private static readonly IPasswordHasher<UserAccount> Hasher = new PasswordHasher<UserAccount>();
@@ -101,7 +105,9 @@ public sealed record Services(
     OrganizationService Organizations,
     UserAccessService Access,
     AuditQueryService Audit,
-    SignInService SignIn) : IAsyncDisposable
+    SignInService SignIn,
+    StructureService Structure,
+    EmployeeService Employees) : IAsyncDisposable
 {
     public ValueTask DisposeAsync() => Db.DisposeAsync();
 }

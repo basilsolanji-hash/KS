@@ -54,6 +54,11 @@
         .denied-code { font-weight: 700; color: #F2A79C; }
         .legend { display: flex; flex-wrap: wrap; gap: 16px; margin: 12px 0; color: #C8C8CE; }
         .matrix th.mine, .matrix td.mine { background: #1E3A35; }
+        .inline-form { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; margin: 12px 0; }
+        .inline-form label { display: flex; flex-direction: column; gap: 6px; color: #C8C8CE; }
+        label.inline { display: inline-flex; flex-direction: row; gap: 8px; align-items: center; color: #C8C8CE; }
+        tr.archived td { color: #8A8A92; }
+        .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
         .matrix td:not(:first-child), .matrix th:not(:first-child) { text-align: center; }
     </style>
     <HeadOutlet @rendermode="PageRenderMode" />

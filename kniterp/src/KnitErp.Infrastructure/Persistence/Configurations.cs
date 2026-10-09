@@ -1,6 +1,7 @@
 using KnitErp.Domain.Access;
 using KnitErp.Domain.Audit;
 using KnitErp.Domain.Organizations;
+using KnitErp.Domain.Structure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -130,6 +131,9 @@ internal sealed class RoleAssignmentConfiguration : IEntityTypeConfiguration<Rol
         b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.GrantedByUserId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.RevokedByUserId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<Role>().WithMany().HasForeignKey(x => x.RoleId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<Department>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.DepartmentId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_role_assignments_department");
         b.HasIndex(x => new { x.OrganizationId, x.UserId }).HasDatabaseName("ix_role_assignments_org_user");
     }
 }
@@ -149,5 +153,80 @@ internal sealed class AuditEntryConfiguration : IEntityTypeConfiguration<AuditEn
         b.Property(x => x.Reason).HasMaxLength(AuditEntry.ReasonMaxLength);
         b.Property(x => x.CorrelationId).HasMaxLength(64);
         b.HasIndex(x => new { x.OrganizationId, x.OccurredAtUtc }).HasDatabaseName("ix_audit_log_org_time");
+    }
+}
+
+internal sealed class DepartmentConfiguration : IEntityTypeConfiguration<Department>
+{
+    public void Configure(EntityTypeBuilder<Department> b)
+    {
+        b.ToTable("departments", t =>
+        {
+            t.HasCheckConstraint("ck_departments_archived", "[IsArchived] = 0 OR [ArchivedAtUtc] IS NOT NULL");
+            t.HasCheckConstraint("ck_departments_not_self_parent", "[ParentId] IS NULL OR [ParentId] <> [Id]");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Name).HasMaxLength(Department.NameMaxLength).IsRequired();
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        // Составные ключи (организация, id): ссылка на подразделение другой организации невозможна в самой базе.
+        b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_departments_org_id");
+        b.HasOne<Department>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.ParentId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_departments_parent");
+        // Два действующих подразделения с одним названием в организации путают учёт; архивные не мешают.
+        b.HasIndex(x => new { x.OrganizationId, x.Name }).IsUnique().HasFilter("[IsArchived] = 0")
+            .HasDatabaseName("ux_departments_org_name_active");
+    }
+}
+
+internal sealed class PositionConfiguration : IEntityTypeConfiguration<Position>
+{
+    public void Configure(EntityTypeBuilder<Position> b)
+    {
+        b.ToTable("positions");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Name).HasMaxLength(Position.NameMaxLength).IsRequired();
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_positions_org_id");
+        b.HasIndex(x => new { x.OrganizationId, x.Name }).IsUnique().HasFilter("[IsArchived] = 0")
+            .HasDatabaseName("ux_positions_org_name_active");
+    }
+}
+
+internal sealed class EmployeeConfiguration : IEntityTypeConfiguration<Employee>
+{
+    public void Configure(EntityTypeBuilder<Employee> b)
+    {
+        b.ToTable("employees", t =>
+        {
+            t.HasCheckConstraint("ck_employees_status", "[Status] IN (1, 2, 9)");
+            t.HasCheckConstraint("ck_employees_dismissed",
+                "([Status] = 9 AND [DismissedOn] IS NOT NULL AND [DismissedOn] >= [HiredOn]) OR ([Status] <> 9 AND [DismissedOn] IS NULL)");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.PersonnelNumber).HasMaxLength(Employee.PersonnelNumberMaxLength).IsRequired();
+        b.Property(x => x.LastName).HasMaxLength(Employee.NamePartMaxLength).IsRequired();
+        b.Property(x => x.FirstName).HasMaxLength(Employee.NamePartMaxLength).IsRequired();
+        b.Property(x => x.MiddleName).HasMaxLength(Employee.NamePartMaxLength);
+        b.Property(x => x.Status).HasConversion<byte>();
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.Ignore(x => x.FullName);
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<Department>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.DepartmentId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_employees_department");
+        b.HasOne<Position>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.PositionId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_employees_position");
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasIndex(x => new { x.OrganizationId, x.PersonnelNumber }).IsUnique().HasDatabaseName("ux_employees_org_number");
+        b.HasIndex(x => new { x.OrganizationId, x.UserId }).IsUnique().HasFilter("[UserId] IS NOT NULL")
+            .HasDatabaseName("ux_employees_org_user");
+        b.HasIndex(x => new { x.OrganizationId, x.DepartmentId }).HasDatabaseName("ix_employees_org_department");
     }
 }

@@ -1,6 +1,9 @@
 @page "/users"
 @using KnitErp.Web.Components.Shared
+@using KnitErp.Application.Structure
 @inject UserAccessService Access
+@inject EmployeeService Employees
+@inject StructureService Structure
 @inject NavigationManager Navigation
 
 <PageTitle>Пользователи — knitERP</PageTitle>
@@ -53,7 +56,17 @@ else
                 <div class="grid">
                     @if (_mode == Mode.Add)
                     {
-                        <label>Имя и фамилия <InputText @bind-Value="_form.DisplayName" maxlength="200" required /></label>
+                        <label>
+                            Сотрудник
+                            <InputSelect TValue="long" Value="_form.EmployeeId" ValueChanged="EmployeeChanged" ValueExpression="() => _form.EmployeeId">
+                                <option value="0">— без карточки сотрудника —</option>
+                                @foreach (var e in _freeEmployees)
+                                {
+                                    <option value="@e.Id">@e.Name</option>
+                                }
+                            </InputSelect>
+                        </label>
+                        <label>Имя и фамилия <InputText @bind-Value="_form.DisplayName" maxlength="200" required="@(_form.EmployeeId == 0)" disabled="@(_form.EmployeeId != 0)" /></label>
                         <label>Email для приглашения <InputText @bind-Value="_form.Email" type="email" maxlength="254" placeholder="name@example.ru" required /></label>
                     }
                     <label>
@@ -65,6 +78,19 @@ else
                             }
                         </InputSelect>
                     </label>
+                    @if (_departments.Count > 0)
+                    {
+                        <label>
+                            Область данных
+                            <InputSelect TValue="long" Value="_form.DepartmentId" ValueChanged="DepartmentChangedAsync" ValueExpression="() => _form.DepartmentId">
+                                <option value="0">Вся организация</option>
+                                @foreach (var d in _departments)
+                                {
+                                    <option value="@d.Id">@d.Path и вложенные</option>
+                                }
+                            </InputSelect>
+                        </label>
+                    }
                     <label>
                         Причина@(_preview?.ReasonRequired == true ? " (обязательна для административной роли)" : "")
                         <InputText @bind-Value="_form.Reason" maxlength="500" placeholder="Например: приём на должность" />
@@ -208,11 +234,14 @@ else
 
     private IReadOnlyList<UserRowDto>? _users;
     private IReadOnlyList<RoleOptionDto> _roles = [];
+    private IReadOnlyList<LookupDto> _freeEmployees = [];
+    private IReadOnlyList<DepartmentDto> _departments = [];
     private AccessPreviewDto? _preview;
     private UserForm _form = new();
     private UserRowDto? _target;
     private Mode _mode;
     private bool _busy;
+    private bool _previewDirty;
     private string? _denied;
     private string? _formError;
     private string? _flash;
@@ -238,6 +267,8 @@ else
         await RunAsync(async () =>
         {
             _roles = await Access.ListGrantableRolesAsync();
+            _freeEmployees = await Employees.ListWithoutAccountAsync();
+            await LoadDepartmentsAsync();
             _target = null;
             _form = new UserForm { RoleCode = _roles.FirstOrDefault(r => r.Allowed && r.Code == SystemRoles.Employee)?.Code ?? _roles.FirstOrDefault(r => r.Allowed)?.Code ?? string.Empty };
             _mode = Mode.Add;
@@ -250,8 +281,13 @@ else
         await RunAsync(async () =>
         {
             _roles = await Access.ListGrantableRolesAsync();
+            await LoadDepartmentsAsync();
             _target = user;
-            _form = new UserForm { RoleCode = user.RoleCodes.FirstOrDefault() ?? _roles.FirstOrDefault(r => r.Allowed)?.Code ?? string.Empty };
+            _form = new UserForm
+            {
+                RoleCode = user.RoleCodes.FirstOrDefault() ?? _roles.FirstOrDefault(r => r.Allowed)?.Code ?? string.Empty,
+                DepartmentId = user.DepartmentId ?? 0,
+            };
             _mode = Mode.ChangeRole;
             await LoadPreviewAsync();
         });
@@ -277,11 +313,48 @@ else
     private async Task RoleChangedAsync(string roleCode)
     {
         _form.RoleCode = roleCode;
-        await RunAsync(LoadPreviewAsync);
+        await RefreshPreviewAsync();
+    }
+
+    /// <summary>
+    /// Пересчёт «Было → Станет». Если поле поменяли, пока шёл прошлый расчёт, считаем ещё раз —
+    /// иначе предпросмотр показал бы устаревшую роль или область.
+    /// </summary>
+    private async Task RefreshPreviewAsync()
+    {
+        _previewDirty = true;
+        if (_busy)
+        {
+            return;
+        }
+
+        while (_previewDirty)
+        {
+            _previewDirty = false;
+            await RunAsync(LoadPreviewAsync);
+        }
     }
 
     private async Task LoadPreviewAsync() =>
-        _preview = string.IsNullOrEmpty(_form.RoleCode) ? null : await Access.PreviewRoleAsync(_target?.UserId, _form.RoleCode);
+        _preview = string.IsNullOrEmpty(_form.RoleCode) ? null : await Access.PreviewRoleAsync(_target?.UserId, _form.RoleCode, ScopeId);
+
+    // Список подразделений нужен только для выбора области; без права просмотра структуры роль действует на всю организацию.
+    private async Task LoadDepartmentsAsync() =>
+        _departments = CurrentAccess.Has(Permissions.DepartmentView) ? (await Structure.GetAsync()).Departments : [];
+
+    private long? ScopeId => _form.DepartmentId == 0 ? null : _form.DepartmentId;
+
+    private void EmployeeChanged(long employeeId)
+    {
+        _form.EmployeeId = employeeId;
+        _form.DisplayName = employeeId == 0 ? string.Empty : _freeEmployees.First(e => e.Id == employeeId).Name;
+    }
+
+    private async Task DepartmentChangedAsync(long departmentId)
+    {
+        _form.DepartmentId = departmentId;
+        await RefreshPreviewAsync();
+    }
 
     private async Task SubmitRoleFormAsync()
     {
@@ -290,7 +363,8 @@ else
         {
             if (mode == Mode.Add)
             {
-                var result = await Access.InviteAsync(new InviteUserCommand(_form.Email, _form.DisplayName, _form.RoleCode, _form.Reason));
+                var result = await Access.InviteAsync(new InviteUserCommand(_form.Email, _form.DisplayName, _form.RoleCode, _form.Reason,
+                    ScopeId, _form.EmployeeId == 0 ? null : _form.EmployeeId));
                 ShowInvitation(_form.DisplayName, result);
                 _flash = result.SetupToken is null
                     ? $"Пользователь «{_form.DisplayName}» добавлен в организацию. Пароль у него уже есть — вход под своей учётной записью."
@@ -298,7 +372,7 @@ else
             }
             else
             {
-                await Access.ChangeRoleAsync(new ChangeRoleCommand(_target!.UserId, _form.RoleCode, _form.Reason));
+                await Access.ChangeRoleAsync(new ChangeRoleCommand(_target!.UserId, _form.RoleCode, _form.Reason, ScopeId));
                 _flash = $"Роль пользователя «{_target.DisplayName}» изменена. Его сессии закрыты — новые права действуют с нового входа.";
             }
         });
@@ -428,5 +502,7 @@ else
         public string DisplayName { get; set; } = string.Empty;
         public string RoleCode { get; set; } = string.Empty;
         public string? Reason { get; set; }
+        public long EmployeeId { get; set; }
+        public long DepartmentId { get; set; }
     }
 }

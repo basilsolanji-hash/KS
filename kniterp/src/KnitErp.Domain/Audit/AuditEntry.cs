@@ -80,6 +80,16 @@ public static class AuditActions
     public const string SignedOut = "auth.signed_out";
     public const string InvitationAccepted = "auth.invitation.accepted";
     public const string TwoFactorEnabled = "auth.2fa.enabled";
+    public const string DepartmentCreated = "structure.department.created";
+    public const string DepartmentChanged = "structure.department.changed";
+    public const string DepartmentArchived = "structure.department.archived";
+    public const string PositionCreated = "structure.position.created";
+    public const string PositionChanged = "structure.position.changed";
+    public const string PositionArchived = "structure.position.archived";
+    public const string EmployeeHired = "hr.employee.hired";
+    public const string EmployeeChanged = "hr.employee.changed";
+    public const string EmployeeDismissed = "hr.employee.dismissed";
+    public const string EmployeeLinkedToUser = "hr.employee.linked_user";
     public const string OrganizationCreated = "organization.created";
     public const string OrganizationRequisitesChanged = "organization.requisites.changed";
 }

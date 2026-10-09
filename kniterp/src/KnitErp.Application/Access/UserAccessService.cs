@@ -2,6 +2,7 @@ using KnitErp.Application.Common;
 using KnitErp.Domain.Access;
 using KnitErp.Domain.Audit;
 using KnitErp.Domain.Common;
+using KnitErp.Domain.Structure;
 using Microsoft.EntityFrameworkCore;
 
 namespace KnitErp.Application.Access;
@@ -17,7 +18,8 @@ public sealed record UserRowDto(
     bool HasPassword,
     bool TwoFactorEnabled,
     string ScopeText,
-    bool IsCurrentUser);
+    bool IsCurrentUser,
+    long? DepartmentId = null);
 
 /// <summary>Строка итоговых прав «на человеческом языке» для блока «Было → Станет».</summary>
 public sealed record PermissionLineDto(string PermissionCode, string Label, PermissionLevel Level)
@@ -57,9 +59,14 @@ public sealed record CurrentAccessDto(
     public bool HasOwnOnly(string permissionCode) => Granted.Contains(permissionCode) || OwnOnly.Contains(permissionCode);
 }
 
-public sealed record InviteUserCommand(string Email, string DisplayName, string RoleCode, string? Reason);
+/// <summary>
+/// Приглашение. DepartmentId — область роли (только это подразделение и вложенные); EmployeeId — карточка сотрудника,
+/// к которой привязывается учётная запись (имя тогда берётся из карточки).
+/// </summary>
+public sealed record InviteUserCommand(
+    string Email, string DisplayName, string RoleCode, string? Reason, long? DepartmentId = null, long? EmployeeId = null);
 
-public sealed record ChangeRoleCommand(long UserId, string NewRoleCode, string? Reason);
+public sealed record ChangeRoleCommand(long UserId, string NewRoleCode, string? Reason, long? DepartmentId = null);
 
 /// <summary>
 /// Итог приглашения. Токен ссылки показывается администратору один раз и не хранится.
@@ -97,8 +104,9 @@ public sealed class UserAccessService(IKnitErpDbContext db, IAccessGuard guard, 
         var scopes = await db.RoleAssignments.AsNoTracking()
             .Where(a => a.OrganizationId == ctx.OrganizationId && userIds.Contains(a.UserId) && a.RoleId != null
                         && a.RevokedAtUtc == null && a.ValidFromUtc <= now && (a.ValidToUtc == null || a.ValidToUtc > now))
-            .Select(a => new { a.UserId, a.DepartmentId, a.WarehouseId })
+            .Select(a => new { a.UserId, a.DepartmentId })
             .ToListAsync(ct);
+        var departmentNames = await DepartmentNamesAsync(ctx.OrganizationId, scopes.Select(a => a.DepartmentId), ct);
 
         return members.Select(x =>
         {
@@ -107,8 +115,9 @@ public sealed class UserAccessService(IKnitErpDbContext db, IAccessGuard guard, 
             return new UserRowDto(x.u.Id, x.u.DisplayName, x.u.Email, x.u.Status, x.m.Status,
                 roles.Select(r => r.Code).ToList(), roles.Select(r => r.Name).ToList(),
                 x.u.PasswordHash != null, x.u.TwoFactorEnabled,
-                DescribeScope(userScopes.Count(a => a.DepartmentId != null), userScopes.Count(a => a.WarehouseId != null), userScopes.Count),
-                x.u.Id == ctx.UserId);
+                DescribeScope(userScopes.Select(a => a.DepartmentId), departmentNames),
+                x.u.Id == ctx.UserId,
+                userScopes.Select(a => a.DepartmentId).FirstOrDefault(id => id is not null));
         }).ToList();
     }
 
@@ -149,7 +158,7 @@ public sealed class UserAccessService(IKnitErpDbContext db, IAccessGuard guard, 
     /// «Было → Станет» до сохранения: итоговые права пользователя сейчас и после назначения роли.
     /// Индивидуальные права и запреты сохраняются — смена роли их не трогает.
     /// </summary>
-    public async Task<AccessPreviewDto> PreviewRoleAsync(long? userId, string roleCode, CancellationToken ct = default)
+    public async Task<AccessPreviewDto> PreviewRoleAsync(long? userId, string roleCode, long? departmentId = null, CancellationToken ct = default)
     {
         var ctx = await guard.DemandAsync(Permissions.UserManage, ct);
         var role = await FindRoleAsync(ctx, roleCode, ct);
@@ -161,7 +170,8 @@ public sealed class UserAccessService(IKnitErpDbContext db, IAccessGuard guard, 
         }
 
         var after = await guard.PreviewWithRoleAsync(userId, ctx.OrganizationId, role, ct);
-        return new AccessPreviewDto(Lines(before), Lines(after), DescribeScope(0, 0, 1), role.IsAdministrative, role.IsAdministrative);
+        var names = departmentId is { } dep ? new Dictionary<long, string> { [dep] = (await RequireScopeDepartmentAsync(ctx, dep, ct)).Name } : [];
+        return new AccessPreviewDto(Lines(before), Lines(after), DescribeScope([departmentId], names), role.IsAdministrative, role.IsAdministrative);
     }
 
     private static List<PermissionLineDto> Lines(EffectivePermissionSet set) =>
@@ -172,11 +182,39 @@ public sealed class UserAccessService(IKnitErpDbContext db, IAccessGuard guard, 
             .OfType<PermissionLineDto>()
             .ToList();
 
-    // Подразделений и складов пока нет: назначение без области действует на всю организацию.
-    private static string DescribeScope(int departments, int warehouses, int assignments) =>
-        assignments == 0 ? "—"
-        : departments == 0 && warehouses == 0 ? "Вся организация"
-        : string.Join(", ", new[] { departments > 0 ? $"подразделений: {departments}" : null, warehouses > 0 ? $"складов: {warehouses}" : null }.OfType<string>());
+    /// <summary>Назначение без подразделения действует на всю организацию; с подразделением — на него и вложенные.</summary>
+    private static string DescribeScope(IEnumerable<long?> departmentIds, IReadOnlyDictionary<long, string> names)
+    {
+        var ids = departmentIds.ToList();
+        if (ids.Count == 0)
+        {
+            return "—";
+        }
+
+        if (ids.Any(id => id is null))
+        {
+            return "Вся организация";
+        }
+
+        return string.Join(", ", ids.Select(id => names.TryGetValue(id!.Value, out var n) ? $"«{n}» и вложенные" : "подразделение").Distinct());
+    }
+
+    private async Task<Dictionary<long, string>> DepartmentNamesAsync(long organizationId, IEnumerable<long?> ids, CancellationToken ct)
+    {
+        var list = ids.OfType<long>().Distinct().ToList();
+        return list.Count == 0
+            ? []
+            : await db.Departments.AsNoTracking().Where(d => d.OrganizationId == organizationId && list.Contains(d.Id))
+                .ToDictionaryAsync(d => d.Id, d => d.Name, ct);
+    }
+
+    /// <summary>Подразделение-область должно быть своей организации и не в архиве.</summary>
+    private async Task<Department> RequireScopeDepartmentAsync(AccessContext ctx, long departmentId, CancellationToken ct)
+    {
+        var d = await db.Departments.AsNoTracking().SingleOrDefaultAsync(x => x.Id == departmentId && x.OrganizationId == ctx.OrganizationId, ct)
+                ?? throw new NotFoundException("Подразделение");
+        return d.IsArchived ? throw new BusinessRuleException("structure.department.archived", "Подразделение в архиве.") : d;
+    }
 
     private static List<Role> OrderRoles(List<Role> roles) =>
         roles.OrderBy(r =>
@@ -198,14 +236,23 @@ public sealed class UserAccessService(IKnitErpDbContext db, IAccessGuard guard, 
 
     /// <summary>
     /// Приглашение пользователя с ролью и ссылкой установки пароля на 72 часа.
-    /// Привязка к карточке сотрудника появится вместе с модулем «Сотрудники» (§4.10 п.1).
+    /// С карточкой сотрудника учётная запись привязывается к ней (§4.10 п.1).
     /// </summary>
     public async Task<InvitationResult> InviteAsync(InviteUserCommand cmd, CancellationToken ct = default)
     {
         var ctx = await guard.DemandAsync(Permissions.UserManage, ct);
         var role = await FindRoleAsync(ctx, cmd.RoleCode, ct);
         await EnsureMayGrantRoleAsync(ctx, role, cmd.Reason, ct);
+        var scopeName = cmd.DepartmentId is { } scopeDep ? (await RequireScopeDepartmentAsync(ctx, scopeDep, ct)).Name : null;
 
+        Employee? employee = null;
+        if (cmd.EmployeeId is { } employeeId)
+        {
+            employee = await db.Employees.SingleOrDefaultAsync(e => e.Id == employeeId && e.OrganizationId == ctx.OrganizationId, ct)
+                       ?? throw new NotFoundException("Сотрудник");
+        }
+
+        var displayName = string.IsNullOrWhiteSpace(cmd.DisplayName) && employee is not null ? employee.FullName : cmd.DisplayName;
         var now = clock.UtcNow;
         await using var tx = await db.BeginTransactionAsync(ct);
 
@@ -213,7 +260,7 @@ public sealed class UserAccessService(IKnitErpDbContext db, IAccessGuard guard, 
         var user = await db.Users.SingleOrDefaultAsync(u => u.NormalizedEmail == normalized, ct);
         if (user is null)
         {
-            user = UserAccount.Invite(cmd.Email ?? string.Empty, cmd.DisplayName, now);
+            user = UserAccount.Invite(cmd.Email ?? string.Empty, displayName, now);
             db.Users.Add(user);
             await db.SaveChangesAsync(ct);
         }
@@ -224,10 +271,16 @@ public sealed class UserAccessService(IKnitErpDbContext db, IAccessGuard guard, 
 
         var token = user.HasPassword ? null : user.IssueSetupToken(now);
         db.OrganizationMembers.Add(OrganizationMember.Join(ctx.OrganizationId, user.Id, now));
-        db.RoleAssignments.Add(RoleAssignment.ForRole(ctx.OrganizationId, user.Id, role.Id, ctx.UserId, now, cmd.Reason));
+        db.RoleAssignments.Add(RoleAssignment.ForRole(ctx.OrganizationId, user.Id, role.Id, ctx.UserId, now, cmd.Reason, departmentId: cmd.DepartmentId));
         db.AuditEntries.Add(Audit(ctx, AuditActions.UserInvited, user.Id, null, user.Email, null));
+        if (employee is not null)
+        {
+            employee.LinkUser(user.Id);
+            db.AuditEntries.Add(AuditEntry.Create(now, ctx.OrganizationId, ctx.UserId, AuditActions.EmployeeLinkedToUser, nameof(Employee),
+                employee.Id.ToString(), null, user.Email, null, currentUser.CorrelationId));
+        }
         db.AuditEntries.Add(Audit(ctx, role.IsAdministrative ? AuditActions.AdminRoleGranted : AuditActions.RoleGranted,
-            user.Id, "нет доступа", role.Name, cmd.Reason));
+            user.Id, "нет доступа", scopeName is null ? role.Name : $"{role.Name} («{scopeName}»)", cmd.Reason));
         if (token is not null)
         {
             db.AuditEntries.Add(Audit(ctx, AuditActions.InvitationIssued, user.Id, null, $"до {user.SetupTokenExpiresAtUtc:yyyy-MM-dd HH:mm} UTC", null));
@@ -288,7 +341,9 @@ public sealed class UserAccessService(IKnitErpDbContext db, IAccessGuard guard, 
         var currentRoleIds = current.Select(a => a.RoleId!.Value).ToList();
         var currentRoles = await db.Roles.Where(r => currentRoleIds.Contains(r.Id)).ToListAsync(ct);
 
-        if (currentRoles.Count == 1 && currentRoles[0].Id == newRole.Id)
+        var scopeName = cmd.DepartmentId is { } scopeDep ? (await RequireScopeDepartmentAsync(ctx, scopeDep, ct)).Name : null;
+
+        if (currentRoles.Count == 1 && currentRoles[0].Id == newRole.Id && current.Count == 1 && current[0].DepartmentId == cmd.DepartmentId)
         {
             throw new BusinessRuleException("access.role.unchanged", "Роль не изменилась.");
         }
@@ -309,12 +364,14 @@ public sealed class UserAccessService(IKnitErpDbContext db, IAccessGuard guard, 
             a.Revoke(ctx.UserId, now);
         }
 
-        db.RoleAssignments.Add(RoleAssignment.ForRole(ctx.OrganizationId, cmd.UserId, newRole.Id, ctx.UserId, now, cmd.Reason));
+        db.RoleAssignments.Add(RoleAssignment.ForRole(ctx.OrganizationId, cmd.UserId, newRole.Id, ctx.UserId, now, cmd.Reason,
+            departmentId: cmd.DepartmentId));
         var user = await db.Users.SingleAsync(u => u.Id == cmd.UserId, ct);
         user.RotateSecurityStamp();
 
         db.AuditEntries.Add(Audit(ctx, newRole.IsAdministrative ? AuditActions.AdminRoleGranted : AuditActions.RoleGranted,
-            cmd.UserId, string.Join(", ", currentRoles.Select(r => r.Name)), newRole.Name, cmd.Reason));
+            cmd.UserId, string.Join(", ", currentRoles.Select(r => r.Name)),
+            scopeName is null ? newRole.Name : $"{newRole.Name} («{scopeName}»)", cmd.Reason));
         await db.SaveChangesAsync(ct);
     }
 

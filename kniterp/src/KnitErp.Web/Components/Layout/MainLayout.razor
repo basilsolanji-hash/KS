@@ -49,6 +49,8 @@
     private static readonly (string Href, string Label, Func<CurrentAccessDto, bool> Allowed)[] Items =
     [
         ("", "Организация", a => a.Has(Permissions.OrganizationView)),
+        ("structure", "Структура", a => a.Has(Permissions.DepartmentView)),
+        ("employees", "Сотрудники", a => a.HasOwnOnly(Permissions.EmployeeView)),
         ("users", "Пользователи", a => a.Has(Permissions.UserView)),
         ("roles", "Роли и права", a => a.Has(Permissions.UserView)),
         ("audit", "Журнал аудита", a => a.HasOwnOnly(Permissions.AuditLogView)),

@@ -1,6 +1,7 @@
 using KnitErp.Domain.Access;
 using KnitErp.Domain.Audit;
 using KnitErp.Domain.Organizations;
+using KnitErp.Domain.Structure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
@@ -34,6 +35,9 @@ public interface IKnitErpDbContext
     DbSet<Role> Roles { get; }
     DbSet<RoleAssignment> RoleAssignments { get; }
     DbSet<AuditEntry> AuditEntries { get; }
+    DbSet<Department> Departments { get; }
+    DbSet<Position> Positions { get; }
+    DbSet<Employee> Employees { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 
