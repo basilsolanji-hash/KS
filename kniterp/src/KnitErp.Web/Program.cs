@@ -57,12 +57,21 @@ builder.Services.AddHealthChecks();
 
 var app = builder.Build();
 
+// «dotnet KnitErp.Web.dll migrate» — отдельный шаг выпуска: применить миграции и выйти.
+if (args.Contains("migrate", StringComparer.OrdinalIgnoreCase))
+{
+    await MigrateAsync(app);
+    return;
+}
+
 if (app.Environment.IsDevelopment())
 {
+    await MigrateAsync(app);
     await SeedDevelopmentAsync(app);
 }
 else
 {
+    await EnsureSchemaIsCurrentAsync(app);
     app.UseExceptionHandler("/error", createScopeForErrors: true);
     app.UseHsts();
 }
@@ -95,12 +104,34 @@ app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 
 app.Run();
 
+static async Task MigrateAsync(WebApplication app)
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<KnitErpDbContext>();
+    var pending = await KnitErp.Infrastructure.DependencyInjection.PendingMigrationsAsync(db);
+    await KnitErp.Infrastructure.DependencyInjection.MigrateDatabaseAsync(db);
+    app.Logger.LogInformation("Применено миграций: {Count} ({Names})", pending.Count, string.Join(", ", pending));
+}
+
+// Рабочая среда сама схему не меняет: при неприменённых миграциях приложение не запускается,
+// чтобы новая версия кода не работала со старой схемой.
+static async Task EnsureSchemaIsCurrentAsync(WebApplication app)
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<KnitErpDbContext>();
+    var pending = await KnitErp.Infrastructure.DependencyInjection.PendingMigrationsAsync(db);
+    if (pending.Count > 0)
+    {
+        throw new InvalidOperationException(
+            $"Схема базы устарела, неприменённые миграции: {string.Join(", ", pending)}. Выполните «dotnet KnitErp.Web.dll migrate».");
+    }
+}
+
 // Тестовая организация для локальной разработки. Реальные данные сюда не попадают.
 static async Task SeedDevelopmentAsync(WebApplication app)
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<KnitErpDbContext>();
-    await KnitErp.Infrastructure.DependencyInjection.EnsureDatabaseAsync(db);
     if (!await db.Organizations.AnyAsync())
     {
         var orgs = scope.ServiceProvider.GetRequiredService<OrganizationService>();

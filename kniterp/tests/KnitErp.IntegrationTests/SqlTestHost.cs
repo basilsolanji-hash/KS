@@ -35,7 +35,7 @@ public sealed class TestUser : ICurrentUser
     public string? CorrelationId => "test";
 }
 
-/// <summary>Отдельная база на каждый тест-класс; создаётся с нуля и удаляется после.</summary>
+/// <summary>Отдельная база на каждый тест-класс; создаётся с нуля теми же миграциями, что и рабочая, и удаляется после.</summary>
 public sealed class SqlTestHost : IAsyncLifetime
 {
     public const string EnvVar = "KNITERP_TEST_SQL";
@@ -54,7 +54,8 @@ public sealed class SqlTestHost : IAsyncLifetime
     public TestClock Clock { get; } = new();
 
     public KnitErpDbContext NewDb() =>
-        new(new DbContextOptionsBuilder<KnitErpDbContext>().UseSqlServer(_connectionString).Options);
+        new(new DbContextOptionsBuilder<KnitErpDbContext>()
+            .UseSqlServer(_connectionString, KnitErp.Infrastructure.DependencyInjection.ConfigureSqlServer).Options);
 
     /// <summary>Набор сервисов от имени пользователя. Каждый вызов — новый DbContext, как отдельный HTTP-запрос.</summary>
     public Services As(long? userId, long? organizationId)
@@ -79,7 +80,7 @@ public sealed class SqlTestHost : IAsyncLifetime
         }
 
         await using var db = NewDb();
-        await KnitErp.Infrastructure.DependencyInjection.EnsureDatabaseAsync(db);
+        await KnitErp.Infrastructure.DependencyInjection.MigrateDatabaseAsync(db);
     }
 
     public async Task DisposeAsync()

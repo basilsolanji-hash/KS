@@ -9,6 +9,8 @@ namespace KnitErp.Infrastructure.Persistence;
 
 public sealed class KnitErpDbContext(DbContextOptions<KnitErpDbContext> options) : DbContext(options), IKnitErpDbContext
 {
+    public const string Schema = "kniterp";
+
     public DbSet<Organization> Organizations => Set<Organization>();
     public DbSet<UserAccount> Users => Set<UserAccount>();
     public DbSet<OrganizationMember> OrganizationMembers => Set<OrganizationMember>();
@@ -33,7 +35,7 @@ public sealed class KnitErpDbContext(DbContextOptions<KnitErpDbContext> options)
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.HasDefaultSchema("kniterp");
+        modelBuilder.HasDefaultSchema(Schema);
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(KnitErpDbContext).Assembly);
     }
 

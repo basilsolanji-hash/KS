@@ -66,6 +66,20 @@ jobs:
         if: success() || failure()
         run: dotnet test tests/KnitErp.IntegrationTests --no-build -c Release --logger "trx;LogFileName=integration.trx" --results-directory ../test-results
 
+      - name: Migration SQL script (idempotent)
+        if: success()
+        run: |
+          dotnet tool restore
+          dotnet ef migrations script --idempotent --no-build --configuration Release \
+            --project src/KnitErp.Infrastructure --output ../migrations/kniterp-migrations.sql
+
+      - name: Upload migration script
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kniterp-migrations-sql
+          path: migrations/kniterp-migrations.sql
+
       - name: Report failed tests as annotations
         if: failure()
         working-directory: .
