@@ -96,6 +96,7 @@
         ("reports/inventory-variances", L("Отклонения инвентаризации"), a => a.Has(Permissions.WarehouseReportView)),
         ("reconciliation", L("Сверка"), a => a.Has(Permissions.WarehouseReportView)),
         ("period", L("Закрытие периода"), a => a.Has(Permissions.ClosedPeriodReopen) || a.Has(Permissions.WarehouseReportView)),
+        ("tech-cards", L("Техкарты"), a => a.Has(Permissions.CatalogView)),
         ("users", L("Пользователи"), a => a.Has(Permissions.UserView)),
         ("roles", L("Роли и права"), a => a.Has(Permissions.UserView)),
         ("audit", L("Журнал аудита"), a => a.HasOwnOnly(Permissions.AuditLogView)),
@@ -110,6 +111,7 @@
         ["catalog"] = L("Справочники"),
         ["opening-balances"] = L("Склад"),
         ["stock"] = L("Отчёты"),
+        ["tech-cards"] = L("Производство"),
         ["users"] = L("Доступ"),
     };
 

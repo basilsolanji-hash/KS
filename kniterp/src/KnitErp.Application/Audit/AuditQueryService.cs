@@ -128,6 +128,7 @@ public sealed class AuditQueryService(IKnitErpDbContext db, IAccessGuard guard)
         "OpeningBalance" => $"Начальные остатки №{e.EntityId}",
         "StockDocument" => $"Складской документ №{e.EntityId}",
         "InventoryCount" => $"Инвентаризация №{e.EntityId}",
+        "TechCard" => $"Техкарта №{e.EntityId}",
         "PeriodClosure" => "Закрытый период",
         "SupportTicket" => $"Обращение №{e.EntityId}",
         "Integrity" => "Журнал аудита и движения склада",

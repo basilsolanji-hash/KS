@@ -31,6 +31,7 @@ public static class DependencyInjection
         services.AddScoped<ItemExchangeService>();
         services.AddScoped<CounterpartyExchangeService>();
         services.AddScoped<VatRateService>();
+        services.AddScoped<Production.TechCardService>();
         services.AddScoped<RecoveryCodeService>();
         services.AddScoped<Structure.EmployeeExchangeService>();
         services.AddScoped<Organizations.LaunchReadinessService>();

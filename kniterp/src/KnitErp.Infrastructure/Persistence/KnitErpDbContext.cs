@@ -33,6 +33,7 @@ public sealed class KnitErpDbContext(DbContextOptions<KnitErpDbContext> options)
     public DbSet<Warehouse> Warehouses => Set<Warehouse>();
     public DbSet<Counterparty> Counterparties => Set<Counterparty>();
     public DbSet<VatRate> VatRates => Set<VatRate>();
+    public DbSet<KnitErp.Domain.Production.TechCard> TechCards => Set<KnitErp.Domain.Production.TechCard>();
     public DbSet<OperationReason> OperationReasons => Set<OperationReason>();
     public DbSet<OpeningBalance> OpeningBalances => Set<OpeningBalance>();
     public DbSet<StockMovement> StockMovements => Set<StockMovement>();

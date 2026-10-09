@@ -402,6 +402,59 @@ internal sealed class VatRatePeriodConfiguration : IEntityTypeConfiguration<VatR
     }
 }
 
+internal sealed class TechCardConfiguration : IEntityTypeConfiguration<KnitErp.Domain.Production.TechCard>
+{
+    public void Configure(EntityTypeBuilder<KnitErp.Domain.Production.TechCard> b)
+    {
+        b.ToTable("tech_cards", t =>
+        {
+            t.HasCheckConstraint("ck_tech_cards_status", "[Status] IN (1, 2, 9)");
+            t.HasCheckConstraint("ck_tech_cards_output", "[OutputQuantity] > 0");
+            t.HasCheckConstraint("ck_tech_cards_version", "[Version] >= 1");
+            t.HasCheckConstraint("ck_tech_cards_activated",
+                "([Status] = 1 AND [ActivatedByUserId] IS NULL) OR ([Status] <> 1 AND [ActivatedByUserId] IS NOT NULL AND [ActivatedAtUtc] IS NOT NULL)"
+                + " OR ([Status] = 9 AND [ActivatedByUserId] IS NULL)");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Status).HasConversion<byte>();
+        b.Property(x => x.OutputQuantity).HasColumnType("decimal(18,6)");
+        b.Property(x => x.Comment).HasMaxLength(KnitErp.Domain.Production.TechCard.CommentMaxLength);
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_tech_cards_org_id");
+        // Изделие — из той же организации: составной ключ, как у складских документов.
+        b.HasOne<Item>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.ItemId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_tech_cards_item");
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.ActivatedByUserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasIndex(x => new { x.OrganizationId, x.ItemId, x.Version }).IsUnique().HasDatabaseName("ux_tech_cards_item_version");
+        // У изделия одна действующая карта — и при одновременном вводе в действие двух версий.
+        b.HasIndex(x => new { x.OrganizationId, x.ItemId }).IsUnique().HasFilter("[Status] = 2").HasDatabaseName("ux_tech_cards_item_active");
+        b.HasMany(x => x.Lines).WithOne().HasForeignKey(x => x.TechCardId).OnDelete(DeleteBehavior.Cascade);
+        b.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field).HasField("_lines");
+    }
+}
+
+internal sealed class TechCardLineConfiguration : IEntityTypeConfiguration<KnitErp.Domain.Production.TechCardLine>
+{
+    public void Configure(EntityTypeBuilder<KnitErp.Domain.Production.TechCardLine> b)
+    {
+        b.ToTable("tech_card_lines", t =>
+        {
+            t.HasCheckConstraint("ck_tech_card_lines_quantity", "[Quantity] > 0");
+            t.HasCheckConstraint("ck_tech_card_lines_waste", "[WastePercent] >= 0 AND [WastePercent] < 100");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Quantity).HasColumnType("decimal(18,6)");
+        b.Property(x => x.WastePercent).HasColumnType("decimal(5,2)");
+        b.HasOne<Item>().WithMany().HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Restrict);
+        b.HasIndex(x => new { x.TechCardId, x.ItemId }).IsUnique().HasDatabaseName("ux_tech_card_lines_card_item");
+    }
+}
+
 internal sealed class OperationReasonConfiguration : IEntityTypeConfiguration<OperationReason>
 {
     public void Configure(EntityTypeBuilder<OperationReason> b)
