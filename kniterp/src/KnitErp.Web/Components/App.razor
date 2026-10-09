@@ -66,12 +66,84 @@
         tr.archived td { color: #8A8A92; }
         .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
         .matrix td:not(:first-child), .matrix th:not(:first-child) { text-align: center; }
+        .side-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 4px 12px 16px; }
+        .logo { font-weight: 600; font-size: 18px; }
+        .menu-toggle { display: none; }
+        .num { text-align: right; white-space: nowrap; }
+        tr.short td { color: #F2A79C; }
+        dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; margin: 12px 0; max-width: 720px; }
+        dl.facts dt { color: #A6A6AE; }
+        dl.facts dd { margin: 0; overflow-wrap: anywhere; }
+
+        /* Планшет и телефон: меню сворачивается в кнопку и прилипает к верху, страница получает всю ширину. */
+        @@media (max-width: 899px) {
+            .shell { flex-direction: column; flex-wrap: nowrap; }
+            .side { flex: none; position: sticky; top: 0; z-index: 10; background: #1A1A1C; border-right: 0; border-bottom: 1px solid #2E2E33; padding: 8px 12px; }
+            .side-head { margin: 0; }
+            .menu-toggle { display: inline-block; }
+            .nav-body { display: none; max-height: calc(100vh - 64px); overflow-y: auto; padding-top: 8px; }
+            .nav-body.open { display: block; }
+            .main { flex: 1 1 auto; padding: 16px 12px; }
+            h1 { font-size: 22px; }
+        }
+
+        /* Телефон: поля и кнопки во всю ширину и не мельче 16px (iOS не увеличивает страницу при вводе). */
+        @@media (max-width: 599px) {
+            body { font-size: 16px; }
+            input, select, button, a.button { font-size: 16px; min-height: 44px; box-sizing: border-box; }
+            .inline-form { flex-direction: column; align-items: stretch; }
+            .inline-form label, .inline-form input, .inline-form select { width: 100%; }
+            .inline-form input[size] { width: 100%; }
+            input[type=checkbox], .inline-form input[type=checkbox] { width: 22px; height: 22px; min-height: 0; flex: none; }
+            .actions > *, .page-head > button, .page-head > a.button { flex: 1 1 100%; text-align: center; }
+            .row-actions button { min-height: 40px; }
+            dl.facts { grid-template-columns: 1fr; gap: 2px; }
+            dl.facts dd { margin-bottom: 8px; }
+            .card { margin: 4vh auto; }
+
+            /* Таблицы-списки становятся карточками: подпись столбца берётся из заголовка таблицы (скрипт ниже). */
+            .scroll table:not(.matrix) thead { display: none; }
+            .scroll table:not(.matrix), .scroll table:not(.matrix) tbody { display: block; }
+            .scroll table:not(.matrix) tr { display: block; border: 1px solid #2E2E33; border-radius: 10px; padding: 6px 12px; margin-bottom: 10px; background: #202023; }
+            .scroll table:not(.matrix) td { display: flex; justify-content: space-between; gap: 12px; border: 0; padding: 6px 0; text-align: right; overflow-wrap: anywhere; }
+            .scroll table:not(.matrix) td[data-label]::before { content: attr(data-label); color: #A6A6AE; text-align: left; flex: 0 0 40%; }
+            .scroll table:not(.matrix) td:not([data-label]) { justify-content: flex-start; text-align: left; }
+            .scroll table:not(.matrix) td:empty { display: none; }
+        }
     </style>
     <HeadOutlet @rendermode="PageRenderMode" />
 </head>
 <body>
     <Routes @rendermode="PageRenderMode" />
     <script src="_framework/blazor.web.js"></script>
+    <script>
+        // Подписи столбцов для карточного вида таблиц на телефоне: data-label ячейки = текст заголовка её столбца.
+        // Blazor перерисовывает строки, поэтому подписи ставятся заново при каждом изменении страницы.
+        (function () {
+            function label() {
+                document.querySelectorAll('.scroll table:not(.matrix)').forEach(function (table) {
+                    var heads = Array.prototype.map.call(table.querySelectorAll('thead th'), function (th) { return th.textContent.trim(); });
+                    if (heads.length === 0) return;
+                    table.querySelectorAll('tbody tr').forEach(function (tr) {
+                        var col = 0;
+                        Array.prototype.forEach.call(tr.children, function (td) {
+                            var span = td.colSpan || 1;
+                            var text = span === 1 ? heads[col] : '';
+                            if (text && td.getAttribute('data-label') !== text) td.setAttribute('data-label', text);
+                            col += span;
+                        });
+                    });
+                });
+            }
+            var pending = false;
+            new MutationObserver(function () {
+                if (pending) return;
+                pending = true;
+                requestAnimationFrame(function () { pending = false; label(); });
+            }).observe(document.documentElement, { childList: true, subtree: true });
+            document.addEventListener('DOMContentLoaded', label);
+        })();
+    </script>
 </body>
 </html>
 

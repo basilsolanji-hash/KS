@@ -49,11 +49,18 @@ public interface IKnitErpDbContext
     DbSet<OperationReason> OperationReasons { get; }
     DbSet<OpeningBalance> OpeningBalances { get; }
     DbSet<StockMovement> StockMovements { get; }
+    DbSet<StockDocument> StockDocuments { get; }
     DbSet<DocumentCounter> DocumentCounters { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 
     Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Исключительная блокировка складов до конца текущей транзакции: проверка остатка и запись расхода
+    /// не перемежаются с другим проведением по тем же складам.
+    /// </summary>
+    Task LockWarehousesAsync(IEnumerable<long> warehouseIds, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Лист таблицы для выгрузки: заголовок и строки как текст.</summary>

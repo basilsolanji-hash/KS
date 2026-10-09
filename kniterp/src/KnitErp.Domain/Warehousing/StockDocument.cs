@@ -1,0 +1,281 @@
+using KnitErp.Domain.Common;
+
+namespace KnitErp.Domain.Warehousing;
+
+public enum StockDocumentStatus : byte
+{
+    Draft = 1,
+    Posted = 2,
+    Reversed = 3,
+    Cancelled = 9,
+}
+
+/// <summary>
+/// Складской документ: поступление, списание или перемещение. Черновик правится свободно; проведение пишет
+/// движения регистра, и после него документ не меняется. Ошибку в проведённом документе исправляет сторно —
+/// те же движения с обратным знаком — и новый документ. Документ не удаляется: черновик можно только отменить.
+/// </summary>
+public sealed class StockDocument
+{
+    public const int CommentMaxLength = 1000;
+    public const int ReasonMaxLength = 500;
+
+    /// <summary>Виды операций, которые оформляются этим документом. Инвентаризация — отдельный документ.</summary>
+    public static readonly IReadOnlyList<StockOperationKind> Kinds =
+        [StockOperationKind.Receipt, StockOperationKind.Transfer, StockOperationKind.WriteOff];
+
+    private readonly List<StockDocumentLine> _lines = [];
+
+    private StockDocument()
+    {
+    }
+
+    public long Id { get; private set; }
+    public long OrganizationId { get; private set; }
+    public string Number { get; private set; } = string.Empty;
+    public StockOperationKind Kind { get; private set; }
+
+    /// <summary>Склад документа: куда поступило, откуда списано или откуда перемещено.</summary>
+    public long WarehouseId { get; private set; }
+
+    /// <summary>Склад-получатель — только у перемещения.</summary>
+    public long? TargetWarehouseId { get; private set; }
+
+    /// <summary>Поставщик — только у поступления, необязателен (выпуск из производства идёт без поставщика).</summary>
+    public long? CounterpartyId { get; private set; }
+
+    public long? ReasonId { get; private set; }
+    public DateOnly DocumentDate { get; private set; }
+    public StockDocumentStatus Status { get; private set; }
+    public string? Comment { get; private set; }
+    public long CreatedByUserId { get; private set; }
+    public DateTime CreatedAtUtc { get; private set; }
+    public long? PostedByUserId { get; private set; }
+    public DateTime? PostedAtUtc { get; private set; }
+    public long? ReversedByUserId { get; private set; }
+    public DateTime? ReversedAtUtc { get; private set; }
+    public string? ReversalReason { get; private set; }
+    public byte[] RowVersion { get; private set; } = [];
+    public IReadOnlyCollection<StockDocumentLine> Lines => _lines;
+
+    public static string NumberPrefix(StockOperationKind kind) => kind switch
+    {
+        StockOperationKind.Receipt => "ПТ",
+        StockOperationKind.WriteOff => "СП",
+        StockOperationKind.Transfer => "ПМ",
+        _ => throw new BusinessRuleException("stock.document.kind", "Выберите вид документа."),
+    };
+
+    public static StockDocument Create(
+        long organizationId, string number, StockOperationKind kind, StockDocumentHeader header, long createdBy, DateTime nowUtc)
+    {
+        if (!Kinds.Contains(kind))
+        {
+            throw new BusinessRuleException("stock.document.kind", "Выберите вид документа.");
+        }
+
+        var doc = new StockDocument
+        {
+            OrganizationId = organizationId,
+            Number = number,
+            Kind = kind,
+            Status = StockDocumentStatus.Draft,
+            CreatedByUserId = createdBy,
+            CreatedAtUtc = nowUtc,
+        };
+        doc.ApplyHeader(header);
+        return doc;
+    }
+
+    public void UpdateHeader(StockDocumentHeader header)
+    {
+        EnsureDraft();
+        ApplyHeader(header);
+    }
+
+    /// <summary>Строка по позиции: новая или замена количества. Одна позиция — одна строка.</summary>
+    public void SetLine(long itemId, decimal quantity)
+    {
+        EnsureDraft();
+        Quantities.EnsurePositive(quantity);
+        var line = _lines.FirstOrDefault(l => l.ItemId == itemId);
+        if (line is null)
+        {
+            _lines.Add(new StockDocumentLine(itemId, quantity));
+        }
+        else
+        {
+            line.SetQuantity(quantity);
+        }
+    }
+
+    public void RemoveLine(long itemId)
+    {
+        EnsureDraft();
+        var line = _lines.FirstOrDefault(l => l.ItemId == itemId)
+                   ?? throw new BusinessRuleException("stock.document.line_missing", "Такой строки в документе нет.");
+        _lines.Remove(line);
+    }
+
+    /// <summary>Замена всех строк (загрузка из файла).</summary>
+    public void ReplaceLines(IReadOnlyList<(long ItemId, decimal Quantity)> lines)
+    {
+        EnsureDraft();
+        if (lines.Select(l => l.ItemId).Distinct().Count() != lines.Count)
+        {
+            throw new BusinessRuleException("stock.document.duplicate_item", "Позиция повторяется в документе.");
+        }
+
+        foreach (var (_, quantity) in lines)
+        {
+            Quantities.EnsurePositive(quantity);
+        }
+
+        _lines.Clear();
+        _lines.AddRange(lines.Select(l => new StockDocumentLine(l.ItemId, l.Quantity)));
+    }
+
+    /// <summary>
+    /// Проведение. Причина обязательна — по ней отчёт объясняет, откуда пришёл и куда ушёл материал;
+    /// причина с флагом «нужно пояснение» требует комментария.
+    /// </summary>
+    public void Post(long userId, bool reasonRequiresComment, DateTime nowUtc)
+    {
+        EnsureDraft();
+        if (_lines.Count == 0)
+        {
+            throw new BusinessRuleException("stock.document.empty", "В документе нет строк.");
+        }
+
+        if (ReasonId is null)
+        {
+            throw new BusinessRuleException("stock.document.reason_required", "Укажите причину операции.");
+        }
+
+        if (reasonRequiresComment && Comment is null)
+        {
+            throw new BusinessRuleException("stock.document.comment_required", "Для этой причины нужно пояснение в комментарии.");
+        }
+
+        Status = StockDocumentStatus.Posted;
+        PostedByUserId = userId;
+        PostedAtUtc = nowUtc;
+    }
+
+    /// <summary>Сторно: документ остаётся в истории, его движения гасятся обратными. Повторно не проводится.</summary>
+    public void Reverse(long userId, string? reason, DateTime nowUtc)
+    {
+        EnsureStatus(StockDocumentStatus.Posted, "Сторнировать можно только проведённый документ.");
+        ReversalReason = DomainText.Require(reason, ReasonMaxLength, "Причина сторно");
+        Status = StockDocumentStatus.Reversed;
+        ReversedByUserId = userId;
+        ReversedAtUtc = nowUtc;
+    }
+
+    public void Cancel()
+    {
+        EnsureDraft();
+        Status = StockDocumentStatus.Cancelled;
+    }
+
+    /// <summary>Движения проведения: приход (+) и расход (−) по складам. Для сторно знак меняется.</summary>
+    public IReadOnlyList<(long WarehouseId, long ItemId, decimal Quantity)> MovementDeltas()
+    {
+        var result = new List<(long, long, decimal)>();
+        foreach (var line in _lines)
+        {
+            switch (Kind)
+            {
+                case StockOperationKind.Receipt:
+                    result.Add((WarehouseId, line.ItemId, line.Quantity));
+                    break;
+                case StockOperationKind.WriteOff:
+                    result.Add((WarehouseId, line.ItemId, -line.Quantity));
+                    break;
+                case StockOperationKind.Transfer:
+                    result.Add((WarehouseId, line.ItemId, -line.Quantity));
+                    result.Add((TargetWarehouseId!.Value, line.ItemId, line.Quantity));
+                    break;
+            }
+        }
+
+        return result;
+    }
+
+    public static string KindName(StockOperationKind kind) => StockOperationKinds.Name(kind);
+
+    public static string StatusName(StockDocumentStatus status) => status switch
+    {
+        StockDocumentStatus.Draft => "Черновик",
+        StockDocumentStatus.Posted => "Проведён",
+        StockDocumentStatus.Reversed => "Сторнирован",
+        StockDocumentStatus.Cancelled => "Отменён",
+        _ => status.ToString(),
+    };
+
+    private void ApplyHeader(StockDocumentHeader h)
+    {
+        if (Kind == StockOperationKind.Transfer)
+        {
+            if (h.TargetWarehouseId is null)
+            {
+                throw new BusinessRuleException("stock.document.target_required", "Укажите склад-получатель.");
+            }
+
+            if (h.TargetWarehouseId == h.WarehouseId)
+            {
+                throw new BusinessRuleException("stock.document.same_warehouse", "Склад-получатель должен отличаться от склада-отправителя.");
+            }
+        }
+        else if (h.TargetWarehouseId is not null)
+        {
+            throw new BusinessRuleException("stock.document.target_not_allowed", "Склад-получатель указывается только в перемещении.");
+        }
+
+        if (Kind != StockOperationKind.Receipt && h.CounterpartyId is not null)
+        {
+            throw new BusinessRuleException("stock.document.counterparty_not_allowed", "Поставщик указывается только в поступлении.");
+        }
+
+        WarehouseId = h.WarehouseId;
+        TargetWarehouseId = h.TargetWarehouseId;
+        CounterpartyId = h.CounterpartyId;
+        ReasonId = h.ReasonId;
+        DocumentDate = h.DocumentDate;
+        Comment = DomainText.Optional(h.Comment, CommentMaxLength, "Комментарий");
+    }
+
+    private void EnsureDraft() => EnsureStatus(StockDocumentStatus.Draft, "Документ уже не черновик — изменения запрещены.");
+
+    private void EnsureStatus(StockDocumentStatus expected, string message)
+    {
+        if (Status != expected)
+        {
+            throw new BusinessRuleException("stock.document.status", message);
+        }
+    }
+}
+
+/// <summary>Шапка документа. Справочники (склады, поставщик, причина) проверяет сервис — домен проверяет сочетания.</summary>
+public sealed record StockDocumentHeader(
+    long WarehouseId, long? TargetWarehouseId, long? CounterpartyId, long? ReasonId, DateOnly DocumentDate, string? Comment);
+
+public sealed class StockDocumentLine
+{
+    private StockDocumentLine()
+    {
+    }
+
+    internal StockDocumentLine(long itemId, decimal quantity)
+    {
+        ItemId = itemId;
+        Quantity = quantity;
+    }
+
+    public long Id { get; private set; }
+    public long DocumentId { get; private set; }
+    public long ItemId { get; private set; }
+    public decimal Quantity { get; private set; }
+
+    internal void SetQuantity(decimal quantity) => Quantity = quantity;
+}

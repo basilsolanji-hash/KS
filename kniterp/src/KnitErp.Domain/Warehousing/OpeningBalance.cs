@@ -73,7 +73,7 @@ public sealed class OpeningBalance
     public void SetLine(long itemId, decimal quantity)
     {
         EnsureDraft();
-        EnsureQuantity(quantity);
+        Quantities.EnsurePositive(quantity);
         var line = _lines.FirstOrDefault(l => l.ItemId == itemId);
         if (line is null)
         {
@@ -104,7 +104,7 @@ public sealed class OpeningBalance
 
         foreach (var (_, quantity) in lines)
         {
-            EnsureQuantity(quantity);
+            Quantities.EnsurePositive(quantity);
         }
 
         _lines.Clear();
@@ -162,19 +162,6 @@ public sealed class OpeningBalance
         _ => status.ToString(),
     };
 
-    private static void EnsureQuantity(decimal quantity)
-    {
-        if (quantity <= 0)
-        {
-            throw new BusinessRuleException("stock.quantity.positive", "Количество должно быть больше нуля.");
-        }
-
-        if (quantity >= 1_000_000_000_000m)
-        {
-            throw new BusinessRuleException("stock.quantity.too_large", "Слишком большое количество.");
-        }
-    }
-
     private void EnsureDraft() => EnsureStatus(OpeningBalanceStatus.Draft, "Документ уже не черновик — изменения запрещены.");
 
     private void EnsureStatus(OpeningBalanceStatus expected, string message)
@@ -210,6 +197,10 @@ public sealed class OpeningBalanceLine
 public enum StockSource : byte
 {
     OpeningBalance = 1,
+    StockDocument = 2,
+
+    /// <summary>Сторно складского документа: те же строки с обратным знаком.</summary>
+    StockDocumentReversal = 3,
 }
 
 /// <summary>

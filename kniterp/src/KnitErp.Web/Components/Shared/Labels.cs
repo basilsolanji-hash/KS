@@ -43,6 +43,8 @@ public static class AuditLabels
         [AuditActions.StockDocumentReturned] = "Документ возвращён на доработку",
         [AuditActions.StockDocumentApproved] = "Документ утверждён",
         [AuditActions.StockDocumentCancelled] = "Документ отменён",
+        [AuditActions.StockDocumentPosted] = "Документ проведён",
+        [AuditActions.StockDocumentReversed] = "Документ сторнирован",
         [AuditActions.OrganizationCreated] = "Создана организация",
         [AuditActions.OrganizationRequisitesChanged] = "Изменены реквизиты",
     };

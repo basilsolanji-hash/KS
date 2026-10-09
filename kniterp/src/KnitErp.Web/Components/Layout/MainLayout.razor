@@ -1,9 +1,17 @@
 @inherits LayoutComponentBase
+@implements IDisposable
 @inject UserAccessService Access
+@inject NavigationManager Navigation
 
 <div class="shell">
     <nav class="side" aria-label="Разделы">
-        <div style="font-weight: 600; font-size: 18px; margin: 4px 12px 16px">knit<span style="color: #2BA89A">ERP</span></div>
+        <div class="side-head">
+            <div class="logo">knit<span style="color: #2BA89A">ERP</span></div>
+            @* На телефоне меню свёрнуто в кнопку, чтобы не занимать экран над страницей. *@
+            <button type="button" class="secondary menu-toggle" aria-expanded="@(_menuOpen ? "true" : "false")" aria-controls="nav-body"
+                    @onclick="() => _menuOpen = !_menuOpen">@(_menuOpen ? "Закрыть" : "Меню")</button>
+        </div>
+        <div id="nav-body" class="nav-body @(_menuOpen ? "open" : "")">
         @if (_access is not null)
         {
             @foreach (var item in Items)
@@ -26,6 +34,7 @@
                 </form>
             </div>
         }
+        </div>
     </nav>
     <main class="main">
         @if (_access is null)
@@ -56,11 +65,30 @@
         ("counterparties", "Контрагенты", a => a.Has(Permissions.CatalogView)),
         ("opening-balances", "Начальные остатки", a => a.Has(Permissions.OpeningBalanceCreate) || a.Has(Permissions.OpeningBalanceApprove)
                                                    || a.Has(Permissions.WarehouseReportView)),
+        ("stock-documents", "Складские документы", a => a.Has(Permissions.WarehouseDocumentCreate) || a.Has(Permissions.WarehouseDocumentPost)
+                                                     || a.Has(Permissions.WarehouseReportView)),
         ("stock", "Остатки", a => a.Has(Permissions.WarehouseReportView)),
         ("users", "Пользователи", a => a.Has(Permissions.UserView)),
         ("roles", "Роли и права", a => a.Has(Permissions.UserView)),
         ("audit", "Журнал аудита", a => a.HasOwnOnly(Permissions.AuditLogView)),
     ];
 
-    protected override async Task OnInitializedAsync() => _access = await Access.GetCurrentAccessAsync();
+    private bool _menuOpen;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Navigation.LocationChanged += CloseMenu;
+        _access = await Access.GetCurrentAccessAsync();
+    }
+
+    private void CloseMenu(object? sender, LocationChangedEventArgs e)
+    {
+        if (_menuOpen)
+        {
+            _menuOpen = false;
+            _ = InvokeAsync(StateHasChanged);
+        }
+    }
+
+    public void Dispose() => Navigation.LocationChanged -= CloseMenu;
 }

@@ -1,0 +1,330 @@
+@page "/stock-documents/{Id:long}"
+@using KnitErp.Application.Warehousing
+@using KnitErp.Domain.Warehousing
+@using KnitErp.Web.Components.Shared
+@inject StockDocumentService Documents
+
+<PageTitle>@(_doc?.Number ?? "Документ") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_notFound)
+{
+    <h1>Документ не найден</h1>
+    <p><a href="stock-documents">К списку документов</a></p>
+}
+else if (_doc is null)
+{
+    <p class="muted">Загрузка…</p>
+}
+else
+{
+    <p><a href="stock-documents">← Складские документы</a></p>
+    <div class="page-head">
+        <h1>@_doc.KindName @_doc.Number <span class="tag @StockDocumentsPage.StatusClass(_doc.Status)">@_doc.StatusName</span></h1>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="@(_messageIsError ? "flash error" : "flash")" role="@(_messageIsError ? "alert" : "status")">@_message</div>
+    }
+
+    @if (_header is not null)
+    {
+        <div class="panel">
+            <h2>Шапка документа</h2>
+            <form @onsubmit="SaveHeaderAsync">
+                <div class="grid">
+                    <StockDocumentHeaderFields Form="_header" Kind="_doc.Kind" Options="_options!" />
+                </div>
+                <div class="actions">
+                    <button type="submit" disabled="@_busy">Сохранить</button>
+                    <button type="button" class="secondary" @onclick="() => _header = null">Отмена</button>
+                </div>
+            </form>
+        </div>
+    }
+    else
+    {
+        <dl class="facts">
+            <dt>Дата</dt><dd>@_doc.DocumentDate.ToString("dd.MM.yyyy")</dd>
+            <dt>@(_doc.Kind == StockOperationKind.Receipt ? "Склад-получатель" : "Склад-отправитель")</dt><dd>@_doc.WarehouseName</dd>
+            @if (_doc.TargetWarehouseName is not null)
+            {
+                <dt>Куда</dt><dd>@_doc.TargetWarehouseName</dd>
+            }
+            @if (_doc.Kind == StockOperationKind.Receipt)
+            {
+                <dt>Поставщик</dt><dd>@(_doc.CounterpartyName ?? "—")</dd>
+            }
+            <dt>Причина</dt><dd>@(_doc.ReasonName ?? "не указана")@(_doc.ReasonRequiresComment ? " (нужно пояснение)" : "")</dd>
+            @if (_doc.Comment is not null)
+            {
+                <dt>Комментарий</dt><dd>@_doc.Comment</dd>
+            }
+            <dt>Автор</dt><dd>@_doc.CreatedBy, @Local(_doc.CreatedAtUtc)</dd>
+            @if (_doc.PostedBy is not null)
+            {
+                <dt>Провёл</dt><dd>@_doc.PostedBy, @Local(_doc.PostedAtUtc!.Value)</dd>
+            }
+            @if (_doc.ReversedBy is not null)
+            {
+                <dt>Сторнировал</dt><dd>@_doc.ReversedBy, @Local(_doc.ReversedAtUtc!.Value): @_doc.ReversalReason</dd>
+            }
+        </dl>
+        @if (_doc.CanEdit)
+        {
+            <button type="button" class="secondary" @onclick="EditHeaderAsync" disabled="@_busy">Изменить шапку</button>
+        }
+    }
+
+    <h2 style="margin-top: 24px">Строки (@_doc.Lines.Count)</h2>
+
+    @if (_doc.CanEdit)
+    {
+        <form class="inline-form" @onsubmit="AddLineAsync">
+            <label>
+                Позиция
+                <input list="items" @bind="_itemText" size="40" placeholder="Код или наименование" />
+                <datalist id="items">
+                    @foreach (var i in _items)
+                    {
+                        <option value="@($"{i.Code} — {i.Name}")">@i.UnitSymbol</option>
+                    }
+                </datalist>
+            </label>
+            <label>Количество <input @bind="_qtyText" inputmode="decimal" size="10" /></label>
+            <button type="submit" disabled="@_busy">Добавить</button>
+        </form>
+        <div class="actions">
+            <a class="button secondary" href="stock-documents/template.xlsx" download data-enhance-nav="false">Шаблон Excel</a>
+            <label class="inline">Загрузить строки из Excel (заменят текущие) <InputFile OnChange="ImportAsync" accept=".xlsx" disabled="@_busy" /></label>
+        </div>
+    }
+
+    @if (_import is { Applied: false })
+    {
+        <div class="error" role="alert">В файле есть ошибки (@_import.ErrorRows) — строки не загружены.</div>
+        <div class="scroll" style="max-height: 300px; overflow-y: auto">
+            <table>
+                <thead><tr><th>Строка</th><th>Код</th><th>Количество</th><th>Ошибки</th></tr></thead>
+                <tbody>
+                    @foreach (var r in _import.Rows.Where(r => r.Errors.Count > 0).Take(500))
+                    {
+                        <tr><td>@r.RowNumber</td><td>@r.Code</td><td>@r.QuantityText</td><td>@string.Join(" ", r.Errors)</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    @if (_doc.Shortages.Any())
+    {
+        <div class="error" role="alert">Остатка не хватает по @_doc.Shortages.Count() поз. — такой документ не проведётся.</div>
+    }
+
+    var showAvailable = _doc.Lines.Any(l => l.Available is not null);
+    <div class="scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th>Код</th><th>Наименование</th><th class="num">Количество</th><th>Ед.</th>
+                    @if (showAvailable) { <th class="num">Есть на складе</th> }
+                    @if (_doc.CanEdit) { <th></th> }
+                </tr>
+            </thead>
+            <tbody>
+                @if (_doc.Lines.Count == 0)
+                {
+                    <tr><td colspan="6" class="muted">Строк пока нет.</td></tr>
+                }
+                @foreach (var l in _doc.Lines)
+                {
+                    <tr class="@(l.Available is { } a && a < l.Quantity ? "short" : "")">
+                        <td>@l.Code</td>
+                        <td>@l.Name</td>
+                        <td class="num">@Quantities.Format(l.Quantity)</td>
+                        <td>@l.UnitSymbol</td>
+                        @if (showAvailable)
+                        {
+                            <td class="num">@Quantities.Format(l.Available ?? 0)</td>
+                        }
+                        @if (_doc.CanEdit)
+                        {
+                            <td><button type="button" class="secondary" @onclick="() => RemoveLineAsync(l)" disabled="@_busy" aria-label="Удалить строку @l.Code">Удалить</button></td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="actions" style="margin-top: 16px">
+        @if (_doc.CanPost)
+        {
+            <button type="button" @onclick="PostAsync" disabled="@(_busy || _doc.Lines.Count == 0)">Провести</button>
+        }
+        @if (_doc.CanEdit)
+        {
+            <button type="button" class="secondary" @onclick="CancelAsync" disabled="@_busy">Отменить документ</button>
+        }
+    </div>
+
+    @if (_doc.Status == StockDocumentStatus.Draft && !_doc.CanPost)
+    {
+        <p class="muted">Провести документ может Старший кладовщик этого склада или Владелец.</p>
+    }
+
+    @if (_doc.CanReverse)
+    {
+        <div class="panel">
+            <h2>Сторно</h2>
+            <p class="muted">Движения документа гасятся обратными, документ остаётся в истории со статусом «Сторнирован». Правильные данные вводятся новым документом.</p>
+            <form class="inline-form" @onsubmit="ReverseAsync">
+                <label>Причина сторно <input @bind="_reverseReason" maxlength="500" size="40" /></label>
+                <button type="submit" class="secondary" disabled="@_busy">Сторнировать</button>
+            </form>
+        </div>
+    }
+}
+
+@code {
+    [Parameter]
+    public long Id { get; set; }
+
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private StockDocumentDto? _doc;
+    private IReadOnlyList<EntryItemDto> _items = [];
+    private StockDocumentOptions? _options;
+    private StockDocumentHeaderFields.Model? _header;
+    private LineImportResult? _import;
+    private bool _busy;
+    private bool _notFound;
+    private string? _denied;
+    private string? _message;
+    private bool _messageIsError;
+    private string _itemText = string.Empty;
+    private string _qtyText = string.Empty;
+    private string _reverseReason = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+            if (_doc!.CanEdit)
+            {
+                _items = await Documents.ListItemsForEntryAsync();
+            }
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = ex.Message;
+        }
+        catch (NotFoundException)
+        {
+            _notFound = true;
+        }
+    }
+
+    private async Task LoadAsync() => _doc = await Documents.GetAsync(Id);
+
+    private Task EditHeaderAsync() => RunAsync(async () =>
+    {
+        _options = await Documents.GetOptionsAsync(_doc!.Kind);
+        _header = StockDocumentHeaderFields.Model.From(_doc);
+    }, null);
+
+    private Task SaveHeaderAsync() => RunAsync(async () =>
+    {
+        await Documents.UpdateHeaderAsync(Id, _header!.ToHeader(), _doc!.RowVersion);
+        _header = null;
+    }, "Шапка сохранена.");
+
+    private Task AddLineAsync() => RunAsync(async () =>
+    {
+        var code = _itemText.Split(" — ", 2)[0].Trim();
+        var item = _items.FirstOrDefault(i => string.Equals(i.Code, code, StringComparison.OrdinalIgnoreCase))
+                   ?? throw new BusinessRuleException("stock.item.unknown", $"Позиция «{_itemText}» не найдена. Выберите из списка.");
+        if (!Quantities.TryParse(_qtyText, out var qty))
+        {
+            throw new BusinessRuleException("stock.quantity.invalid", "Укажите количество числом, например 12,5.");
+        }
+
+        await Documents.SetLineAsync(Id, item.Id, qty, _doc!.RowVersion);
+        _itemText = string.Empty;
+        _qtyText = string.Empty;
+    }, null);
+
+    private Task RemoveLineAsync(StockDocumentLineDto line) => RunAsync(() => Documents.RemoveLineAsync(Id, line.ItemId, _doc!.RowVersion), null);
+
+    private Task ImportAsync(InputFileChangeEventArgs e) => RunAsync(async () =>
+    {
+        const long maxSize = 5 * 1024 * 1024;
+        if (e.File.Size > maxSize)
+        {
+            throw new BusinessRuleException("import.file_too_large", "Файл больше 5 МБ.");
+        }
+
+        await using var upload = e.File.OpenReadStream(maxSize);
+        using var buffer = new MemoryStream();
+        await upload.CopyToAsync(buffer);
+        buffer.Position = 0;
+        _import = await Documents.ImportLinesAsync(Id, buffer, _doc!.RowVersion);
+        if (_import.Applied)
+        {
+            _message = $"Загружено строк: {_import.Lines}.";
+            _import = null;
+        }
+    }, null);
+
+    private Task PostAsync() => RunAsync(() => Documents.PostAsync(Id, _doc!.RowVersion), "Документ проведён, остатки изменены.");
+
+    private Task CancelAsync() => RunAsync(() => Documents.CancelAsync(Id, _doc!.RowVersion), "Документ отменён.");
+
+    private Task ReverseAsync() => RunAsync(async () =>
+    {
+        await Documents.ReverseAsync(Id, _reverseReason, _doc!.RowVersion);
+        _reverseReason = string.Empty;
+    }, "Документ сторнирован, остатки возвращены.");
+
+    /// <summary>Одна операция за раз, затем свежий документ: у вкладки один DbContext.</summary>
+    private async Task RunAsync(Func<Task> action, string? success)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _messageIsError = false;
+        try
+        {
+            await action();
+            _message = success ?? _message;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+            _messageIsError = true;
+        }
+        finally
+        {
+            try
+            {
+                await LoadAsync();
+            }
+            finally
+            {
+                _busy = false;
+            }
+        }
+    }
+
+    private string Local(DateTime utc) => TimeZones.ToLocal(utc, CurrentAccess.TimeZoneId).ToString("dd.MM.yyyy HH:mm");
+}

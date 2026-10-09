@@ -32,10 +32,28 @@ public sealed class KnitErpDbContext(DbContextOptions<KnitErpDbContext> options)
     public DbSet<OperationReason> OperationReasons => Set<OperationReason>();
     public DbSet<OpeningBalance> OpeningBalances => Set<OpeningBalance>();
     public DbSet<StockMovement> StockMovements => Set<StockMovement>();
+    public DbSet<StockDocument> StockDocuments => Set<StockDocument>();
     public DbSet<DocumentCounter> DocumentCounters => Set<DocumentCounter>();
 
     public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default) =>
         Database.BeginTransactionAsync(cancellationToken);
+
+    public async Task LockWarehousesAsync(IEnumerable<long> warehouseIds, CancellationToken cancellationToken = default)
+    {
+        if (Database.CurrentTransaction is null)
+        {
+            throw new InvalidOperationException("Блокировка складов действует только внутри транзакции.");
+        }
+
+        // Одинаковый порядок захвата у всех запросов — без взаимных блокировок.
+        foreach (var id in warehouseIds.Distinct().Order())
+        {
+            var resource = $"kniterp.stock.warehouse.{id}";
+            await Database.ExecuteSqlInterpolatedAsync(
+                $"EXEC sp_getapplock @Resource = {resource}, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 15000;",
+                cancellationToken);
+        }
+    }
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {

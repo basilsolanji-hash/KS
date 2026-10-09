@@ -30,6 +30,7 @@ public static class DependencyInjection
         services.AddScoped<OperationReasonService>();
         services.AddScoped<ItemExchangeService>();
         services.AddScoped<OpeningBalanceService>();
+        services.AddScoped<StockDocumentService>();
         services.AddScoped<StockService>();
         services.TryAddSingleton<IPasswordHasher<UserAccount>, PasswordHasher<UserAccount>>();
         services.AddScoped<SignInService>();

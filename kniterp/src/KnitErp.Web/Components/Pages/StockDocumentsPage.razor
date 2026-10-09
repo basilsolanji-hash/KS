@@ -1,0 +1,203 @@
+@page "/stock-documents"
+@using KnitErp.Application.Warehousing
+@using KnitErp.Domain.Warehousing
+@using KnitErp.Web.Components.Shared
+@inject StockDocumentService Documents
+@inject NavigationManager Navigation
+
+<PageTitle>Складские документы — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_rows is null)
+{
+    <p class="muted">Загрузка…</p>
+}
+else
+{
+    <div class="page-head">
+        <h1>Складские документы</h1>
+        @if (CurrentAccess.Has(Permissions.WarehouseDocumentCreate) && _form is null)
+        {
+            <div class="actions">
+                @foreach (var kind in StockDocument.Kinds)
+                {
+                    <button type="button" @onclick="() => OpenCreateAsync(kind)" disabled="@_busy">@NewLabel(kind)</button>
+                }
+            </div>
+        }
+    </div>
+    <p class="muted">
+        Черновик можно править сколько угодно. Проведение записывает движения в остатки — после этого документ не меняется.
+        Ошибку в проведённом документе исправляет сторно и новый документ.
+    </p>
+
+    @if (_error is not null)
+    {
+        <div class="error" role="alert">@_error</div>
+    }
+
+    @if (_form is not null)
+    {
+        <div class="panel">
+            <h2>@NewLabel(_form.Kind)</h2>
+            @if (_form.Options.Warehouses.Count == 0)
+            {
+                <p class="muted">Нет складов, доступных вам для документов. Склады заводятся в разделе «Склады», доступ к ним — в «Пользователях».</p>
+                <button type="button" class="secondary" @onclick="() => _form = null">Закрыть</button>
+            }
+            else
+            {
+                <form @onsubmit="CreateAsync">
+                    <div class="grid">
+                        <StockDocumentHeaderFields Form="_form.Header" Kind="_form.Kind" Options="_form.Options" />
+                    </div>
+                    <div class="actions">
+                        <button type="submit" disabled="@_busy">Создать черновик</button>
+                        <button type="button" class="secondary" @onclick="() => _form = null">Отмена</button>
+                    </div>
+                </form>
+            }
+        </div>
+    }
+
+    <form class="inline-form" @onsubmit="ReloadAsync">
+        <label>
+            Вид
+            <select @bind="_kind">
+                <option value="">Все</option>
+                @foreach (var k in StockDocument.Kinds)
+                {
+                    <option value="@((byte)k)">@StockDocument.KindName(k)</option>
+                }
+            </select>
+        </label>
+        <label>
+            Статус
+            <select @bind="_status">
+                <option value="">Все</option>
+                @foreach (var st in Statuses)
+                {
+                    <option value="@((byte)st)">@StockDocument.StatusName(st)</option>
+                }
+            </select>
+        </label>
+        <button type="submit" class="secondary" disabled="@_busy">Показать</button>
+    </form>
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>Номер</th><th>Дата</th><th>Вид</th><th>Склад</th><th>Поставщик / получатель</th><th>Причина</th><th class="num">Строк</th><th>Статус</th></tr></thead>
+            <tbody>
+                @if (_rows.Count == 0)
+                {
+                    <tr><td colspan="8" class="muted">Документов нет.</td></tr>
+                }
+                @foreach (var d in _rows)
+                {
+                    <tr>
+                        <td><a href="stock-documents/@d.Id">@d.Number</a></td>
+                        <td>@d.DocumentDate.ToString("dd.MM.yyyy")</td>
+                        <td>@d.KindName</td>
+                        <td>@d.WarehouseName</td>
+                        <td>@(d.TargetWarehouseName is { } t ? $"→ {t}" : d.CounterpartyName)</td>
+                        <td>@d.ReasonName</td>
+                        <td class="num">@d.LineCount</td>
+                        <td><span class="tag @StatusClass(d.Status)">@d.StatusName</span></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private static readonly StockDocumentStatus[] Statuses =
+        [StockDocumentStatus.Draft, StockDocumentStatus.Posted, StockDocumentStatus.Reversed, StockDocumentStatus.Cancelled];
+
+    private IReadOnlyList<StockDocumentRowDto>? _rows;
+    private CreateForm? _form;
+    private bool _busy;
+    private string? _denied;
+    private string? _error;
+    private string _kind = string.Empty;
+    private string _status = string.Empty;
+
+    private sealed record CreateForm(StockOperationKind Kind, StockDocumentOptions Options, StockDocumentHeaderFields.Model Header);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = ex.Message;
+        }
+    }
+
+    private async Task LoadAsync() =>
+        _rows = await Documents.ListAsync(new StockDocumentListFilter(
+            byte.TryParse(_kind, out var k) ? (StockOperationKind)k : null,
+            byte.TryParse(_status, out var st) ? (StockDocumentStatus)st : null));
+
+    private Task ReloadAsync() => RunAsync(LoadAsync);
+
+    private Task OpenCreateAsync(StockOperationKind kind) => RunAsync(async () =>
+    {
+        var options = await Documents.GetOptionsAsync(kind);
+        var today = DateOnly.FromDateTime(TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId));
+        _form = new CreateForm(kind, options, StockDocumentHeaderFields.Model.For(kind, options, today));
+    });
+
+    private Task CreateAsync() => RunAsync(async () =>
+    {
+        var id = await Documents.CreateAsync(_form!.Kind, _form.Header.ToHeader());
+        Navigation.NavigateTo($"stock-documents/{id}");
+    });
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await action();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string NewLabel(StockOperationKind kind) => kind switch
+    {
+        StockOperationKind.Receipt => "Новое поступление",
+        StockOperationKind.Transfer => "Новое перемещение",
+        StockOperationKind.WriteOff => "Новое списание",
+        _ => "Новый документ",
+    };
+
+    public static string StatusClass(StockDocumentStatus status) => status switch
+    {
+        StockDocumentStatus.Posted => "ok",
+        StockDocumentStatus.Reversed => "warn",
+        StockDocumentStatus.Cancelled => "bad",
+        _ => "",
+    };
+}

@@ -110,6 +110,8 @@ app.MapGet("/catalog/items-template.xlsx", (ItemExchangeService exchange, Cancel
 
 app.MapGet("/opening-balances/template.xlsx", (OpeningBalanceService balances, CancellationToken ct) =>
     FileOrForbid(() => balances.LinesTemplateAsync(ct), "shablon-nachalnyh-ostatkov.xlsx"));
+app.MapGet("/stock-documents/template.xlsx", (StockDocumentService documents, CancellationToken ct) =>
+    FileOrForbid(() => documents.LinesTemplateAsync(ct), "shablon-strok-dokumenta.xlsx"));
 
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 

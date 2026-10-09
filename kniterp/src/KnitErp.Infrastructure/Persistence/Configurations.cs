@@ -424,7 +424,7 @@ internal sealed class StockMovementConfiguration : IEntityTypeConfiguration<Stoc
         {
             t.HasTrigger("tr_stock_movements_immutable");
             t.HasCheckConstraint("ck_stock_movements_quantity", "[Quantity] <> 0");
-            t.HasCheckConstraint("ck_stock_movements_source", "[Source] IN (1)");
+            t.HasCheckConstraint("ck_stock_movements_source", "[Source] IN (1, 2, 3)");
         });
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).UseIdentityColumn();
@@ -439,5 +439,69 @@ internal sealed class StockMovementConfiguration : IEntityTypeConfiguration<Stoc
             .HasConstraintName("fk_stock_movements_item");
         b.HasIndex(x => new { x.OrganizationId, x.WarehouseId, x.ItemId }).HasDatabaseName("ix_stock_movements_org_wh_item");
         b.HasIndex(x => new { x.Source, x.SourceId }).HasDatabaseName("ix_stock_movements_source");
+    }
+}
+
+internal sealed class StockDocumentConfiguration : IEntityTypeConfiguration<StockDocument>
+{
+    public void Configure(EntityTypeBuilder<StockDocument> b)
+    {
+        b.ToTable("stock_documents", t =>
+        {
+            t.HasCheckConstraint("ck_stock_documents_kind", "[Kind] IN (1, 2, 3)");
+            t.HasCheckConstraint("ck_stock_documents_status", "[Status] IN (1, 2, 3, 9)");
+            t.HasCheckConstraint("ck_stock_documents_target",
+                "([Kind] = 3 AND [TargetWarehouseId] IS NOT NULL AND [TargetWarehouseId] <> [WarehouseId])"
+                + " OR ([Kind] <> 3 AND [TargetWarehouseId] IS NULL)");
+            t.HasCheckConstraint("ck_stock_documents_counterparty", "[Kind] = 1 OR [CounterpartyId] IS NULL");
+            t.HasCheckConstraint("ck_stock_documents_posted",
+                "([Status] IN (2, 3) AND [PostedByUserId] IS NOT NULL AND [PostedAtUtc] IS NOT NULL AND [ReasonId] IS NOT NULL)"
+                + " OR ([Status] NOT IN (2, 3) AND [PostedByUserId] IS NULL)");
+            t.HasCheckConstraint("ck_stock_documents_reversed",
+                "([Status] = 3 AND [ReversedByUserId] IS NOT NULL AND [ReversedAtUtc] IS NOT NULL AND [ReversalReason] IS NOT NULL)"
+                + " OR ([Status] <> 3 AND [ReversedByUserId] IS NULL)");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Number).HasMaxLength(30).IsRequired();
+        b.Property(x => x.Kind).HasConversion<byte>();
+        b.Property(x => x.Status).HasConversion<byte>();
+        b.Property(x => x.Comment).HasMaxLength(StockDocument.CommentMaxLength);
+        b.Property(x => x.ReversalReason).HasMaxLength(StockDocument.ReasonMaxLength);
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_stock_documents_org_id");
+        b.HasOne<Warehouse>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.WarehouseId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_stock_documents_warehouse");
+        b.HasOne<Warehouse>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.TargetWarehouseId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_stock_documents_target_warehouse");
+        b.HasOne<Counterparty>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.CounterpartyId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_stock_documents_counterparty");
+        b.HasOne<OperationReason>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.ReasonId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_stock_documents_reason");
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.PostedByUserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.ReversedByUserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasIndex(x => new { x.OrganizationId, x.Number }).IsUnique().HasDatabaseName("ux_stock_documents_org_number");
+        b.HasIndex(x => new { x.OrganizationId, x.Kind, x.DocumentDate }).HasDatabaseName("ix_stock_documents_org_kind_date");
+        b.HasMany(x => x.Lines).WithOne().HasForeignKey(x => x.DocumentId).OnDelete(DeleteBehavior.Cascade);
+        b.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field).HasField("_lines");
+    }
+}
+
+internal sealed class StockDocumentLineConfiguration : IEntityTypeConfiguration<StockDocumentLine>
+{
+    public void Configure(EntityTypeBuilder<StockDocumentLine> b)
+    {
+        b.ToTable("stock_document_lines", t => t.HasCheckConstraint("ck_stock_document_lines_quantity", "[Quantity] > 0"));
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Quantity).HasColumnType("decimal(18,6)");
+        b.HasOne<Item>().WithMany().HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Restrict);
+        b.HasIndex(x => new { x.DocumentId, x.ItemId }).IsUnique().HasDatabaseName("ux_stock_document_lines_doc_item");
     }
 }

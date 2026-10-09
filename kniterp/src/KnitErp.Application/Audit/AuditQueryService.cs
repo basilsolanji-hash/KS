@@ -73,6 +73,7 @@ public sealed class AuditQueryService(IKnitErpDbContext db, IAccessGuard guard)
         "OperationReason" => $"Причина операции №{e.EntityId}",
         "ItemImport" => "Файл номенклатуры",
         "OpeningBalance" => $"Начальные остатки №{e.EntityId}",
+        "StockDocument" => $"Складской документ №{e.EntityId}",
         "Permission" when e.After is { } code => $"Право «{Permissions.Describe(code)}»",
         "Permission" => "Право доступа",
         _ => $"{e.EntityType} {e.EntityId}".Trim(),

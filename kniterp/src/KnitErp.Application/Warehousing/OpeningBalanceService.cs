@@ -43,8 +43,7 @@ public sealed record LineImportResult(bool Applied, int Lines, IReadOnlyList<Lin
 public sealed class OpeningBalanceService(
     IKnitErpDbContext db, IAccessGuard guard, ISpreadsheetFormat spreadsheet, ICurrentUser currentUser, IClock clock)
 {
-    public const int MaxImportRows = 5000;
-    public static readonly IReadOnlyList<string> ImportColumns = ["Код", "Количество"];
+    public static IReadOnlyList<string> ImportColumns => StockEntry.ImportColumns;
 
     public async Task<IReadOnlyList<OpeningBalanceRowDto>> ListAsync(CancellationToken ct = default)
     {
@@ -142,7 +141,7 @@ public sealed class OpeningBalanceService(
     {
         var (ctx, doc) = await LoadForEditAsync(id, rowVersion, ct);
         var item = await ActiveItems(ctx, itemId).SingleOrDefaultAsync(ct) ?? throw new NotFoundException("Номенклатура");
-        EnsurePrecision(item, quantity);
+        StockEntry.EnsurePrecision(item, quantity);
         var before = doc.Lines.FirstOrDefault(l => l.ItemId == itemId)?.Quantity;
         doc.SetLine(itemId, quantity);
         Audit(ctx, AuditActions.StockDocumentChanged, doc, before is null ? null : $"{item.Code}: {Quantities.Format(before.Value)}",
@@ -167,73 +166,7 @@ public sealed class OpeningBalanceService(
     public async Task<LineImportResult> ImportLinesAsync(long id, Stream file, byte[] rowVersion, CancellationToken ct = default)
     {
         var (ctx, doc) = await LoadForEditAsync(id, rowVersion, ct);
-        var sheet = spreadsheet.ReadFirstSheet(file, MaxImportRows);
-        if (sheet.Count == 0)
-        {
-            throw new BusinessRuleException("import.file_empty", "Файл пустой.");
-        }
-
-        for (var c = 0; c < ImportColumns.Count; c++)
-        {
-            var actual = c < sheet[0].Count ? sheet[0][c].Trim() : "";
-            if (!string.Equals(actual, ImportColumns[c], StringComparison.OrdinalIgnoreCase))
-            {
-                throw new BusinessRuleException("import.header", $"Столбец {c + 1} должен называться «{ImportColumns[c]}», а в файле «{actual}».");
-            }
-        }
-
-        var items = await ActiveItems(ctx).ToDictionaryAsync(i => i.Code, ct);
-        var archived = await db.Items.AsNoTracking().Where(i => i.OrganizationId == ctx.OrganizationId && i.IsArchived)
-            .Select(i => i.Code).ToListAsync(ct);
-        var rows = new List<LineImportRow>();
-        var lines = new List<(long ItemId, decimal Quantity)>();
-        var seen = new Dictionary<string, int>();
-        for (var r = 1; r < sheet.Count; r++)
-        {
-            var cells = sheet[r];
-            var code = Item.NormalizeCode(cells.Count > 0 ? cells[0] : "");
-            var qtyText = cells.Count > 1 ? cells[1].Trim() : "";
-            if (code.Length == 0 && qtyText.Length == 0)
-            {
-                continue;
-            }
-
-            var errors = new List<string>();
-            if (seen.TryGetValue(code, out var firstRow))
-            {
-                errors.Add($"Позиция {code} уже есть в строке {firstRow}.");
-            }
-            else
-            {
-                seen[code] = r + 1;
-            }
-
-            if (!items.TryGetValue(code, out var item))
-            {
-                errors.Add(archived.Contains(code) ? $"Позиция {code} в архиве." : $"Позиции с кодом «{code}» нет в номенклатуре.");
-            }
-
-            if (!Quantities.TryParse(qtyText, out var qty) || qty <= 0)
-            {
-                errors.Add($"Количество «{qtyText}» — нужно положительное число.");
-            }
-            else if (item is not null && decimal.Round(qty, item.Precision) != qty)
-            {
-                errors.Add(PrecisionMessage(item));
-            }
-
-            rows.Add(new LineImportRow(r + 1, code, qtyText, errors));
-            if (errors.Count == 0)
-            {
-                lines.Add((item!.Id, qty));
-            }
-        }
-
-        if (rows.Count == 0)
-        {
-            throw new BusinessRuleException("import.file_empty", "В файле нет строк с данными.");
-        }
-
+        var (rows, lines) = await StockEntry.ParseLinesAsync(db, spreadsheet, ctx.OrganizationId, file, ct);
         if (rows.Any(r => r.Errors.Count > 0))
         {
             return new LineImportResult(false, 0, rows);
@@ -249,13 +182,7 @@ public sealed class OpeningBalanceService(
     public async Task<byte[]> LinesTemplateAsync(CancellationToken ct = default)
     {
         var ctx = await guard.DemandAsync(Permissions.OpeningBalanceCreate, ct);
-        var items = await ActiveItems(ctx).ToListAsync(ct);
-        return spreadsheet.Write(
-        [
-            new SheetData("Остатки", ImportColumns, [["ПР-0001", "12,5"]]),
-            new SheetData("Номенклатура", ["Код", "Наименование", "Единица", "Знаков после запятой"],
-                items.Select(i => (IReadOnlyList<string>)[i.Code, i.Name, i.UnitSymbol, i.Precision.ToString()]).ToList()),
-        ]);
+        return await StockEntry.LinesTemplateAsync(db, spreadsheet, ctx.OrganizationId, "Остатки", ct);
     }
 
     public async Task SubmitAsync(long id, byte[] rowVersion, CancellationToken ct = default)
@@ -373,23 +300,7 @@ public sealed class OpeningBalanceService(
         }
     }
 
-    /// <summary>Действующие позиции для ввода; фильтр и сортировка — до проекции, чтобы запрос переводился в SQL.</summary>
-    private IQueryable<EntryItemDto> ActiveItems(AccessContext ctx, long? itemId = null) =>
-        db.Items.AsNoTracking().Where(i => i.OrganizationId == ctx.OrganizationId && !i.IsArchived && (itemId == null || i.Id == itemId))
-            .OrderBy(i => i.Code)
-            .Join(db.Units.AsNoTracking(), i => i.UnitId, u => u.Id, (i, u) => new EntryItemDto(i.Id, i.Code, i.Name, u.Symbol, u.Precision));
-
-    private static void EnsurePrecision(EntryItemDto item, decimal quantity)
-    {
-        if (decimal.Round(quantity, item.Precision) != quantity)
-        {
-            throw new BusinessRuleException("stock.quantity.precision", PrecisionMessage(item));
-        }
-    }
-
-    private static string PrecisionMessage(EntryItemDto item) => item.Precision == 0
-        ? $"Количество в «{item.UnitSymbol}» должно быть целым."
-        : $"Для «{item.UnitSymbol}» допустимо не больше {item.Precision} знаков после запятой.";
+    private IQueryable<EntryItemDto> ActiveItems(AccessContext ctx, long? itemId = null) => StockEntry.ActiveItems(db, ctx.OrganizationId, itemId);
 
     private void Audit(AccessContext ctx, string action, OpeningBalance doc, string? before, string? after, string? reason) =>
         db.AuditEntries.Add(AuditEntry.Create(clock.UtcNow, ctx.OrganizationId, ctx.UserId, action, nameof(OpeningBalance), doc.Id.ToString(),

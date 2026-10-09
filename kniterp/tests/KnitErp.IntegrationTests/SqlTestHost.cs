@@ -80,7 +80,8 @@ public sealed class SqlTestHost : IAsyncLifetime
             new OperationReasonService(db, guard, user, Clock),
             new ItemExchangeService(db, guard, Spreadsheet, user, Clock),
             new OpeningBalanceService(db, guard, Spreadsheet, user, Clock),
-            new StockService(db, guard));
+            new StockService(db, guard),
+            new StockDocumentService(db, guard, Spreadsheet, user, Clock));
     }
 
     private static readonly IPasswordHasher<UserAccount> Hasher = new PasswordHasher<UserAccount>();
@@ -125,7 +126,8 @@ public sealed record Services(
     OperationReasonService Reasons,
     ItemExchangeService ItemExchange,
     OpeningBalanceService OpeningBalances,
-    StockService Stock) : IAsyncDisposable
+    StockService Stock,
+    StockDocumentService Documents) : IAsyncDisposable
 {
     public ValueTask DisposeAsync() => Db.DisposeAsync();
 }

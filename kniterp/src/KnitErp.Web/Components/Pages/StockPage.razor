@@ -17,7 +17,7 @@ else if (_rows is null)
 else
 {
     <h1>Остатки</h1>
-    <p class="muted">Текущий остаток — сумма утверждённых движений по складу. Пока движения создают только начальные остатки.</p>
+    <p class="muted">Текущий остаток — сумма движений по складу: начальные остатки и проведённые поступления, перемещения и списания.</p>
 
     <form class="inline-form" @onsubmit="ReloadAsync">
         <label>
@@ -46,7 +46,7 @@ else
 
     <div class="scroll">
         <table>
-            <thead><tr><th>Склад</th><th>Код</th><th>Наименование</th><th>Тип</th><th style="text-align: right">Остаток</th><th>Ед.</th></tr></thead>
+            <thead><tr><th>Склад</th><th>Код</th><th>Наименование</th><th>Тип</th><th class="num">Остаток</th><th>Ед.</th></tr></thead>
             <tbody>
                 @if (_rows.Count == 0)
                 {
@@ -59,7 +59,7 @@ else
                         <td>@r.Code</td>
                         <td>@r.Name</td>
                         <td>@r.TypeName</td>
-                        <td style="text-align: right">@Quantities.Format(r.Quantity)</td>
+                        <td class="num">@Quantities.Format(r.Quantity)</td>
                         <td>@r.UnitSymbol</td>
                     </tr>
                 }
