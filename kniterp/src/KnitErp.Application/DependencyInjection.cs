@@ -29,6 +29,9 @@ public static class DependencyInjection
         services.AddScoped<CounterpartyService>();
         services.AddScoped<OperationReasonService>();
         services.AddScoped<ItemExchangeService>();
+        services.AddScoped<CounterpartyExchangeService>();
+        services.AddScoped<Structure.EmployeeExchangeService>();
+        services.AddScoped<Organizations.LaunchReadinessService>();
         services.AddScoped<OpeningBalanceService>();
         services.AddScoped<StockDocumentService>();
         services.AddScoped<InventoryService>();

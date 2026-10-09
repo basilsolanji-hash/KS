@@ -2,6 +2,7 @@
 @using KnitErp.Application.Catalog
 @using KnitErp.Web.Components.Shared
 @inject CounterpartyService Counterparties
+@inject CounterpartyExchangeService Exchange
 
 <PageTitle>Контрагенты — knitERP</PageTitle>
 
@@ -52,6 +53,10 @@ else
             </EditForm>
         </div>
     }
+
+    <ImportPanel ExportHref="counterparties.xlsx" TemplateHref="counterparties-template.xlsx" CanImport="@CurrentAccess.Has(Permissions.CatalogImport)"
+                 Hint="Загрузка создаёт новых контрагентов и обновляет существующих: по ИНН и КПП, а без ИНН — по наименованию."
+                 ShownColumns="@([0, 1, 2])" Preview="s => Exchange.PreviewAsync(s)" Apply="r => Exchange.ApplyAsync(r)" Applied="ReloadAsync" />
 
     <form class="inline-form" @onsubmit="ReloadAsync">
         <label>
@@ -117,6 +122,9 @@ else
     private CounterpartyForm _form = new();
     private CounterpartyDto? _target;
     private Mode _mode;
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
     private bool _busy;
     private string? _denied;
     private string? _formError;

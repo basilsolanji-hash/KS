@@ -1,0 +1,175 @@
+@using KnitErp.Application.Catalog
+
+@* Блок «Excel: выгрузка и загрузка» для справочников на общем механизме TableImport: проверка файла целиком,
+   протокол ошибок по строкам, контрольные итоги, применение всё или ничего. *@
+
+<div class="actions" style="margin-bottom: 12px">
+    <button type="button" class="secondary" @onclick="() => _open = !_open" aria-expanded="@(_open ? "true" : "false")">
+        Excel: выгрузка и загрузка @(_open ? "▲" : "▼")
+    </button>
+</div>
+@if (_open)
+{
+    <div class="panel exchange">
+        <div class="actions">
+            <a class="button secondary" href="@ExportHref" download data-enhance-nav="false">Выгрузить</a>
+            @if (CanImport)
+            {
+                <a class="button secondary" href="@TemplateHref" download data-enhance-nav="false">Скачать шаблон</a>
+            }
+        </div>
+        @if (_flash is not null)
+        {
+            <div class="flash" role="status">@_flash</div>
+        }
+        @if (_error is not null)
+        {
+            <div class="error" role="alert">@_error</div>
+        }
+        @if (CanImport)
+        {
+            <p class="muted">
+                @Hint Сначала файл проверяется целиком; если в нём есть ошибки, не загружается ничего.
+                До @TableImport.MaxRows строк, файл до 5 МБ.
+            </p>
+            <label>Файл .xlsx <InputFile OnChange="PreviewImportAsync" accept=".xlsx" disabled="@_busy" /></label>
+        }
+
+        @if (_plan is not null)
+        {
+            <div class="totals" role="status">
+                <span>Строк: <b>@_plan.Total</b></span>
+                <span>Создать: <b>@_plan.ToCreate</b></span>
+                <span>Обновить: <b>@_plan.ToUpdate</b></span>
+                <span>Без изменений: <b>@_plan.Unchanged</b></span>
+                <span class="@(_plan.ErrorRows > 0 ? "bad" : null)">С ошибками: <b>@_plan.ErrorRows</b></span>
+            </div>
+            @if (_plan.ErrorRows > 0)
+            {
+                <div class="error" role="alert">В файле есть ошибки — ничего не будет загружено. Исправьте строки ниже и загрузите файл снова.</div>
+            }
+            <div class="scroll" style="max-height: 360px; overflow-y: auto">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Строка</th>
+                            @foreach (var c in ShownColumns)
+                            {
+                                <th class="@(c == ShownColumns[0] ? null : "opt")">@_plan.Columns[c]</th>
+                            }
+                            <th>Действие</th>
+                            <th>Ошибки</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var r in _plan.Rows.OrderBy(r => r.Action == ImportAction.Error ? 0 : 1).ThenBy(r => r.RowNumber).Take(500))
+                        {
+                            <tr>
+                                <td>@r.RowNumber</td>
+                                @foreach (var c in ShownColumns)
+                                {
+                                    <td>@r.Cell(c)</td>
+                                }
+                                <td><span class="tag @ActionClass(r.Action)">@ActionText(r.Action)</span></td>
+                                <td>@string.Join(" ", r.Errors)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div class="actions">
+                @if (_plan.CanApply)
+                {
+                    <button type="button" @onclick="ApplyImportAsync" disabled="@_busy">Загрузить: создать @_plan.ToCreate, обновить @_plan.ToUpdate</button>
+                }
+                <button type="button" class="secondary" @onclick="() => _plan = null" disabled="@_busy">Закрыть протокол</button>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public string ExportHref { get; set; } = "";
+    [Parameter, EditorRequired] public string TemplateHref { get; set; } = "";
+    [Parameter] public bool CanImport { get; set; }
+    [Parameter] public string Hint { get; set; } = "";
+
+    /// <summary>Столбцы шаблона, которые показываются в протоколе (по номерам).</summary>
+    [Parameter] public IReadOnlyList<int> ShownColumns { get; set; } = [0, 1];
+
+    [Parameter, EditorRequired] public Func<Stream, Task<ImportPlan>> Preview { get; set; } = default!;
+    [Parameter, EditorRequired] public Func<IReadOnlyList<ImportRow>, Task<ImportResult>> Apply { get; set; } = default!;
+
+    /// <summary>Вызывается после загрузки, чтобы страница обновила список.</summary>
+    [Parameter] public EventCallback Applied { get; set; }
+
+    private bool _open;
+    private bool _busy;
+    private string? _error;
+    private string? _flash;
+    private ImportPlan? _plan;
+
+    /// <summary>Файл читается в память целиком (до 5 МБ) и проверяется; в базе ничего не меняется.</summary>
+    private Task PreviewImportAsync(InputFileChangeEventArgs e) => RunAsync(async () =>
+    {
+        _plan = null;
+        const long maxSize = 5 * 1024 * 1024;
+        if (e.File.Size > maxSize)
+        {
+            throw new BusinessRuleException("import.file_too_large", "Файл больше 5 МБ. Разбейте его на части.");
+        }
+
+        await using var upload = e.File.OpenReadStream(maxAllowedSize: maxSize);
+        using var buffer = new MemoryStream();
+        await upload.CopyToAsync(buffer);
+        buffer.Position = 0;
+        _plan = await Preview(buffer);
+    });
+
+    private Task ApplyImportAsync() => RunAsync(async () =>
+    {
+        var result = await Apply(_plan!.Rows);
+        _plan = null;
+        _flash = $"Загружено: создано {result.Created}, обновлено {result.Updated}.";
+        await Applied.InvokeAsync();
+    });
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        _flash = null;
+        try
+        {
+            await action();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string ActionText(ImportAction a) => a switch
+    {
+        ImportAction.Create => "создать",
+        ImportAction.Update => "обновить",
+        ImportAction.Unchanged => "без изменений",
+        _ => "ошибка",
+    };
+
+    private static string? ActionClass(ImportAction a) => a switch
+    {
+        ImportAction.Create or ImportAction.Update => "ok",
+        ImportAction.Error => "bad",
+        _ => null,
+    };
+}

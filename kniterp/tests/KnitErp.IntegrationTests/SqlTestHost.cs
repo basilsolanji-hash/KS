@@ -114,7 +114,10 @@ public sealed class SqlTestHost : IAsyncLifetime
             new QuickSearchService(Factory, user, Clock),
             new AssistantService(AssistantModel, Factory, user, Clock),
             new KnitErp.Application.Security.IntegrityService(db, guard, new KnitErp.Infrastructure.Security.IntegrityVerifier(Factory), user, Clock),
-            new ReconciliationService(db, guard));
+            new ReconciliationService(db, guard),
+            new CounterpartyExchangeService(db, guard, Spreadsheet, user, Clock),
+            new EmployeeExchangeService(db, guard, Spreadsheet, user, Clock),
+            new LaunchReadinessService(db, guard, Clock));
     }
 
     private static readonly IPasswordHasher<UserAccount> Hasher = new PasswordHasher<UserAccount>();
@@ -170,7 +173,10 @@ public sealed record Services(
     QuickSearchService Search,
     AssistantService Assistant,
     KnitErp.Application.Security.IntegrityService Integrity,
-    ReconciliationService Reconciliation) : IAsyncDisposable
+    ReconciliationService Reconciliation,
+    CounterpartyExchangeService CounterpartyExchange,
+    EmployeeExchangeService EmployeeExchange,
+    LaunchReadinessService Readiness) : IAsyncDisposable
 {
     public ValueTask DisposeAsync() => Db.DisposeAsync();
 }

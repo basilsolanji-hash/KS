@@ -99,6 +99,7 @@ public static class AuditActions
     public const string EmployeeChanged = "hr.employee.changed";
     public const string EmployeeDismissed = "hr.employee.dismissed";
     public const string EmployeeLinkedToUser = "hr.employee.linked_user";
+    public const string EmployeesImported = "hr.employee.imported";
     public const string CatalogCreated = "catalog.created";
     public const string CatalogChanged = "catalog.changed";
     public const string CatalogArchived = "catalog.archived";

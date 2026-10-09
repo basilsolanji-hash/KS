@@ -24,7 +24,10 @@ if (args.Contains("new-master-key", StringComparer.OrdinalIgnoreCase))
     return;
 }
 
-var builder = WebApplication.CreateBuilder(args);
+// «dotnet KnitErp.Web.dll create-organization --inn …» — создать рабочую организацию с Владельцем и выйти (docs/pilot.md).
+// Параметры команды не передаются в конфигурацию приложения.
+var provisioning = Array.FindIndex(args, a => string.Equals(a, OrganizationProvisioning.CommandName, StringComparison.OrdinalIgnoreCase));
+var builder = WebApplication.CreateBuilder(provisioning >= 0 ? args[..provisioning] : args);
 
 // Мастер-ключ: шифрование секретов 2FA и ключей cookie, подпись журнала аудита и движений склада.
 // Хранится в секретах сервера, не в базе и не в репозитории; рабочая среда без него не запускается.
@@ -110,6 +113,12 @@ builder.Services.AddRateLimiter(o =>
 var app = builder.Build();
 app.Logger.LogInformation("Защита данных: {Source}", masterKey.Description);
 
+if (provisioning >= 0)
+{
+    Environment.ExitCode = await CreateOrganizationAsync(app, args[(provisioning + 1)..]);
+    return;
+}
+
 // «dotnet KnitErp.Web.dll migrate» — отдельный шаг выпуска: применить миграции и выйти.
 if (args.Contains("migrate", StringComparer.OrdinalIgnoreCase))
 {
@@ -160,6 +169,14 @@ app.MapGet("/catalog/items.xlsx", (ItemExchangeService exchange, CancellationTok
     FileOrForbid(() => exchange.ExportAsync(ct), $"nomenklatura-{DateTime.UtcNow:yyyy-MM-dd}.xlsx"));
 app.MapGet("/catalog/items-template.xlsx", (ItemExchangeService exchange, CancellationToken ct) =>
     FileOrForbid(() => exchange.TemplateAsync(ct), "shablon-nomenklatury.xlsx"));
+app.MapGet("/counterparties.xlsx", (CounterpartyExchangeService exchange, CancellationToken ct) =>
+    FileOrForbid(() => exchange.ExportAsync(ct), $"kontragenty-{DateTime.UtcNow:yyyy-MM-dd}.xlsx"));
+app.MapGet("/counterparties-template.xlsx", (CounterpartyExchangeService exchange, CancellationToken ct) =>
+    FileOrForbid(() => exchange.TemplateAsync(ct), "shablon-kontragentov.xlsx"));
+app.MapGet("/employees.xlsx", (KnitErp.Application.Structure.EmployeeExchangeService exchange, CancellationToken ct) =>
+    FileOrForbid(() => exchange.ExportAsync(ct), $"sotrudniki-{DateTime.UtcNow:yyyy-MM-dd}.xlsx"));
+app.MapGet("/employees-template.xlsx", (KnitErp.Application.Structure.EmployeeExchangeService exchange, CancellationToken ct) =>
+    FileOrForbid(() => exchange.TemplateAsync(ct), "shablon-sotrudnikov.xlsx"));
 
 app.MapGet("/opening-balances/template.xlsx", (OpeningBalanceService balances, CancellationToken ct) =>
     FileOrForbid(() => balances.LinesTemplateAsync(ct), "shablon-nachalnyh-ostatkov.xlsx"));
@@ -234,6 +251,62 @@ static async Task EnsureSchemaIsCurrentAsync(WebApplication app)
     }
 }
 
+// Создание рабочей организации на сервере. Ссылка установки пароля Владельца печатается один раз и в журнал не пишется:
+// её нужно передать Владельцу лично. Повторный запуск с тем же ИНН ничего не создаёт.
+static async Task<int> CreateOrganizationAsync(WebApplication app, string[] args)
+{
+    var (request, errors) = OrganizationProvisioning.Parse(args);
+    if (request is null)
+    {
+        foreach (var e in errors)
+        {
+            Console.Error.WriteLine(e);
+        }
+
+        Console.Error.WriteLine();
+        Console.Error.WriteLine("Пример:");
+        foreach (var line in OrganizationProvisioning.Usage)
+        {
+            Console.Error.WriteLine(line);
+        }
+
+        return 2;
+    }
+
+    await EnsureSchemaIsCurrentAsync(app);
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<KnitErpDbContext>();
+    var inn = request.Command.Inn.Trim();
+    if (await db.Organizations.AnyAsync(o => o.Inn == inn))
+    {
+        Console.Error.WriteLine($"Организация с ИНН {inn} уже есть. Ничего не создано.");
+        return 1;
+    }
+
+    try
+    {
+        var created = await scope.ServiceProvider.GetRequiredService<OrganizationService>().CreateWithOwnerAsync(request.Command);
+        app.Logger.LogInformation("Создана организация {OrganizationId} с Владельцем {UserId}", created.OrganizationId, created.OwnerUserId);
+        Console.WriteLine($"Создана организация: {request.Command.ShortName} (№ {created.OrganizationId}).");
+        if (created.OwnerSetupToken is { } token)
+        {
+            Console.WriteLine("Ссылка для Владельца — установить пароль и подключить вход с кодом (действует 72 часа, показывается один раз):");
+            Console.WriteLine(OrganizationProvisioning.SetupLink(request.BaseUrl, token));
+        }
+        else
+        {
+            Console.WriteLine("У Владельца уже есть пароль: организация появится у него в списке после входа.");
+        }
+
+        return 0;
+    }
+    catch (KnitErp.Domain.Common.BusinessRuleException ex)
+    {
+        Console.Error.WriteLine($"Не создано: {ex.Message}");
+        return 1;
+    }
+}
+
 // Тестовая организация для локальной разработки. Реальные данные сюда не попадают.
 static async Task SeedDevelopmentAsync(WebApplication app)
 {
@@ -244,7 +317,7 @@ static async Task SeedDevelopmentAsync(WebApplication app)
         var orgs = scope.ServiceProvider.GetRequiredService<OrganizationService>();
         var created = await orgs.CreateWithOwnerAsync(new CreateOrganizationCommand(
             "Общество с ограниченной ответственностью «Солвер»", "ООО «Солвер»", "9705239429", "770501001",
-            KppVerified: false, "Europe/Moscow", "owner@kniterp.local", "Владелец (разработка)"));
+            KppVerified: true, "Europe/Moscow", "owner@kniterp.local", "Владелец (разработка)"));
 
         // Только для разработки: ссылка установки пароля Владельца выводится в лог локального запуска.
         app.Logger.LogWarning("Пароль Владельца не задан. Откройте /account/invite?token={Token}", created.OwnerSetupToken);
