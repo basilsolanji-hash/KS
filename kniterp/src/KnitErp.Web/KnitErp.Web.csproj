@@ -6,4 +6,7 @@
     <ProjectReference Include="..\KnitErp.Application\KnitErp.Application.csproj" />
     <ProjectReference Include="..\KnitErp.Infrastructure\KnitErp.Infrastructure.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="QRCoder" />
+  </ItemGroup>
 </Project>

@@ -1,0 +1,70 @@
+@page "/account/login-2fa"
+@attribute [AllowAnonymous]
+@attribute [ExcludeFromInteractiveRouting]
+@layout AccountLayout
+@inject SignInService SignIn
+@inject NavigationManager Navigation
+
+<PageTitle>Код подтверждения — knitERP</PageTitle>
+<h1>Код подтверждения</h1>
+<p class="muted">Введите 6 цифр из приложения-аутентификатора.</p>
+
+@if (_message is not null)
+{
+    <div class="error" role="alert">@_message</div>
+}
+
+<EditForm Model="Input" method="post" FormName="login-2fa" OnValidSubmit="SubmitAsync">
+    <label>Код <InputText @bind-Value="Input.Code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required /></label>
+    <button type="submit">Подтвердить</button>
+</EditForm>
+
+<p style="margin-top: 24px"><a href="account/login">Войти другим пользователем</a></p>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private CodeInput Input { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    private PendingSignIn? _pending;
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+        _pending = await PendingSignInCookie.ReadAsync(HttpContext);
+        if (_pending is null)
+        {
+            Navigation.NavigateTo("account/login", forceLoad: true);
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (_pending is null)
+        {
+            return;
+        }
+
+        var result = await SignIn.TwoFactorSignInAsync(_pending, Input.Code, HttpContext.RequestAborted);
+        if (result.Status == SignInStatus.Succeeded)
+        {
+            await PendingSignInCookie.CompleteAsync(HttpContext, result.Session!);
+            Navigation.NavigateTo(ReturnUrls.Safe(ReturnUrl), forceLoad: true);
+            return;
+        }
+
+        _message = result.Status == SignInStatus.Failed ? "Неверный код. Проверьте время на телефоне и введите новый код." : SignInMessages.For(result.Status);
+        Input.Code = string.Empty;
+    }
+
+    private sealed class CodeInput
+    {
+        public string Code { get; set; } = string.Empty;
+    }
+}

@@ -6,6 +6,16 @@
         <NavLink href="" Match="NavLinkMatch.All">Организация</NavLink>
         <NavLink href="users">Пользователи</NavLink>
         <NavLink href="roles">Роли и права</NavLink>
+        <AuthorizeView>
+            <div class="session">
+                <div>@context.User.Identity?.Name</div>
+                <a href="account/organizations" data-enhance-nav="false" style="padding: 6px 0">Сменить организацию</a>
+                <form method="post" action="account/logout">
+                    <AntiforgeryToken />
+                    <button type="submit" class="link">Выйти</button>
+                </form>
+            </div>
+        </AuthorizeView>
     </nav>
     <main class="main">
         @Body

@@ -32,7 +32,8 @@ public sealed record CreateOrganizationCommand(
     string OwnerEmail,
     string OwnerDisplayName);
 
-public sealed record CreatedOrganization(long OrganizationId, long OwnerUserId);
+/// <summary>OwnerSetupToken — ссылка установки пароля Владельца (null, если у него уже есть пароль).</summary>
+public sealed record CreatedOrganization(long OrganizationId, long OwnerUserId, string? OwnerSetupToken);
 
 public sealed class OrganizationService(IKnitErpDbContext db, IAccessGuard guard, ICurrentUser currentUser, IClock clock)
 {
@@ -106,6 +107,8 @@ public sealed class OrganizationService(IKnitErpDbContext db, IAccessGuard guard
             db.Users.Add(owner);
         }
 
+        var ownerToken = owner.HasPassword ? null : owner.IssueSetupToken(now);
+
         await db.SaveChangesAsync(ct);
 
         var roles = SystemRoles.Ordered.Select(code => Role.CreateSystem(org.Id, code)).ToList();
@@ -123,7 +126,7 @@ public sealed class OrganizationService(IKnitErpDbContext db, IAccessGuard guard
         await db.SaveChangesAsync(ct);
 
         await tx.CommitAsync(ct);
-        return new CreatedOrganization(org.Id, owner.Id);
+        return new CreatedOrganization(org.Id, owner.Id, ownerToken);
     }
 
     private async Task<OrganizationDto> LoadAsync(AccessContext ctx, long organizationId, CancellationToken ct)

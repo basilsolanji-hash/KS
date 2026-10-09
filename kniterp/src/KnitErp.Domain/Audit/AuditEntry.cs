@@ -72,6 +72,14 @@ public static class AuditActions
     public const string UserInvited = "access.user.invited";
     public const string UserBlocked = "access.user.blocked";
     public const string UserUnblocked = "access.user.unblocked";
+    public const string InvitationIssued = "access.invitation.issued";
+    public const string TwoFactorReset = "access.2fa.reset";
+    public const string SignedIn = "auth.signed_in";
+    public const string SignInFailed = "auth.sign_in.failed";
+    public const string LockedOut = "auth.locked_out";
+    public const string SignedOut = "auth.signed_out";
+    public const string InvitationAccepted = "auth.invitation.accepted";
+    public const string TwoFactorEnabled = "auth.2fa.enabled";
     public const string OrganizationCreated = "organization.created";
     public const string OrganizationRequisitesChanged = "organization.requisites.changed";
 }

@@ -19,6 +19,12 @@ public sealed record InviteUserCommand(string Email, string DisplayName, string 
 
 public sealed record ChangeRoleCommand(long UserId, string NewRoleCode, string? Reason);
 
+/// <summary>
+/// Итог приглашения. Токен ссылки показывается администратору один раз и не хранится.
+/// Пользователю, у которого уже есть пароль (участник другой организации), ссылка не нужна.
+/// </summary>
+public sealed record InvitationResult(long UserId, string? SetupToken, DateTime? ExpiresAtUtc);
+
 public sealed record RoleMatrixDto(IReadOnlyList<RoleColumnDto> Roles, IReadOnlyList<MatrixRowDto> Rows);
 
 public sealed record RoleColumnDto(long RoleId, string Code, string Name);
@@ -55,9 +61,10 @@ public sealed class UserAccessService(IKnitErpDbContext db, IAccessGuard guard, 
     }
 
     /// <summary>
-    /// Приглашение пользователя с ролью. Привязка к карточке сотрудника появится вместе с модулем «Сотрудники» (§4.10 п.1).
+    /// Приглашение пользователя с ролью и ссылкой установки пароля на 72 часа.
+    /// Привязка к карточке сотрудника появится вместе с модулем «Сотрудники» (§4.10 п.1).
     /// </summary>
-    public async Task<long> InviteAsync(InviteUserCommand cmd, CancellationToken ct = default)
+    public async Task<InvitationResult> InviteAsync(InviteUserCommand cmd, CancellationToken ct = default)
     {
         var ctx = await guard.DemandAsync(Permissions.UserManage, ct);
         var role = await FindRoleAsync(ctx, cmd.RoleCode, ct);
@@ -79,14 +86,56 @@ public sealed class UserAccessService(IKnitErpDbContext db, IAccessGuard guard, 
             throw new BusinessRuleException("access.user.exists", "Этот пользователь уже есть в организации.");
         }
 
+        var token = user.HasPassword ? null : user.IssueSetupToken(now);
         db.OrganizationMembers.Add(OrganizationMember.Join(ctx.OrganizationId, user.Id, now));
         db.RoleAssignments.Add(RoleAssignment.ForRole(ctx.OrganizationId, user.Id, role.Id, ctx.UserId, now, cmd.Reason));
         db.AuditEntries.Add(Audit(ctx, AuditActions.UserInvited, user.Id, null, user.Email, null));
         db.AuditEntries.Add(Audit(ctx, role.IsAdministrative ? AuditActions.AdminRoleGranted : AuditActions.RoleGranted,
             user.Id, "нет доступа", role.Name, cmd.Reason));
+        if (token is not null)
+        {
+            db.AuditEntries.Add(Audit(ctx, AuditActions.InvitationIssued, user.Id, null, $"до {user.SetupTokenExpiresAtUtc:yyyy-MM-dd HH:mm} UTC", null));
+        }
+
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
-        return user.Id;
+        return new InvitationResult(user.Id, token, user.SetupTokenExpiresAtUtc);
+    }
+
+    /// <summary>Новая ссылка приглашения, если старая истекла или потерялась. Старая перестаёт действовать.</summary>
+    public async Task<InvitationResult> ReissueInvitationAsync(long userId, CancellationToken ct = default)
+    {
+        var ctx = await guard.DemandAsync(Permissions.UserManage, ct);
+        await RequireMemberAsync(ctx, userId, ct);
+        var user = await db.Users.SingleAsync(u => u.Id == userId, ct);
+        var token = user.IssueSetupToken(clock.UtcNow);
+        db.AuditEntries.Add(Audit(ctx, AuditActions.InvitationIssued, userId, null, $"до {user.SetupTokenExpiresAtUtc:yyyy-MM-dd HH:mm} UTC", "повторная ссылка"));
+        await db.SaveChangesAsync(ct);
+        return new InvitationResult(userId, token, user.SetupTokenExpiresAtUtc);
+    }
+
+    /// <summary>
+    /// Сброс двухфакторной аутентификации, если пользователь потерял телефон. Сессии пользователя закрываются,
+    /// при следующем входе он подключит аутентификатор заново. Сброс у Владельца или Администратора — только Владелец.
+    /// </summary>
+    public async Task ResetTwoFactorAsync(long userId, string? reason, CancellationToken ct = default)
+    {
+        var ctx = await guard.DemandAsync(Permissions.UserManage, ct);
+        await RequireMemberAsync(ctx, userId, ct);
+        if (userId == ctx.UserId)
+        {
+            throw new BusinessRuleException("access.2fa_reset.self", "Свою двухфакторную аутентификацию сбрасывает другой администратор.");
+        }
+
+        GrantPolicy.EnsureReason(required: true, reason);
+        var targetIsAdmin = await HasActiveRoleAsync(ctx.OrganizationId, userId, SystemRoles.Owner, ct)
+                            || await HasActiveRoleAsync(ctx.OrganizationId, userId, SystemRoles.Administrator, ct);
+        GrantPolicy.EnsureCanGrantAdministrative(ctx.Permissions, targetIsAdmin);
+
+        var user = await db.Users.SingleAsync(u => u.Id == userId, ct);
+        user.ResetTwoFactor();
+        db.AuditEntries.Add(Audit(ctx, AuditActions.TwoFactorReset, userId, "включена", "сброшена", reason));
+        await db.SaveChangesAsync(ct);
     }
 
     public async Task ChangeRoleAsync(ChangeRoleCommand cmd, CancellationToken ct = default)

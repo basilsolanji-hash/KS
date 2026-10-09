@@ -1,0 +1,68 @@
+@page "/account/login"
+@attribute [AllowAnonymous]
+@attribute [ExcludeFromInteractiveRouting]
+@layout AccountLayout
+@inject SignInService SignIn
+@inject NavigationManager Navigation
+
+<PageTitle>Вход — knitERP</PageTitle>
+<h1>Вход</h1>
+
+@if (_message is not null)
+{
+    <div class="error" role="alert">@_message</div>
+}
+
+<EditForm Model="Input" method="post" FormName="login" OnValidSubmit="SubmitAsync">
+    <label>Email <InputText @bind-Value="Input.Email" type="email" autocomplete="username" required /></label>
+    <label>Пароль <InputText @bind-Value="Input.Password" type="password" autocomplete="current-password" required /></label>
+    <button type="submit">Войти</button>
+</EditForm>
+
+<p class="muted" style="margin-top: 24px">Нет пароля? Попросите администратора организации прислать приглашение.</p>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private LoginInput Input { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    private string? _message;
+
+    protected override void OnInitialized() => Input ??= new();
+
+    private async Task SubmitAsync()
+    {
+        var result = await SignIn.PasswordSignInAsync(Input.Email, Input.Password, HttpContext.RequestAborted);
+        var returnQuery = $"?returnUrl={Uri.EscapeDataString(ReturnUrls.Safe(ReturnUrl))}";
+        switch (result.Status)
+        {
+            case SignInStatus.Succeeded:
+                await PendingSignInCookie.CompleteAsync(HttpContext, result.Session!);
+                Navigation.NavigateTo(ReturnUrls.Safe(ReturnUrl), forceLoad: true);
+                return;
+            case SignInStatus.TwoFactorRequired:
+                await PendingSignInCookie.SignInAsync(HttpContext, result.Pending!);
+                Navigation.NavigateTo("account/login-2fa" + returnQuery, forceLoad: true);
+                return;
+            case SignInStatus.TwoFactorSetupRequired:
+                await PendingSignInCookie.SignInAsync(HttpContext, result.Pending!);
+                Navigation.NavigateTo("account/setup-2fa" + returnQuery, forceLoad: true);
+                return;
+            default:
+                _message = SignInMessages.For(result.Status);
+                Input.Password = string.Empty;
+                return;
+        }
+    }
+
+    private sealed class LoginInput
+    {
+        public string Email { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+    }
+}

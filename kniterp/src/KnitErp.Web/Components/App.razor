@@ -13,16 +13,34 @@
         .side { flex: 1 1 200px; padding: 16px; border-right: 1px solid #2E2E33; }
         .side a { display: block; padding: 10px 12px; text-decoration: none; color: #C8C8CE; border-radius: 6px; }
         .side a.active { background: #22302E; color: #ECECEE; }
+        .session { margin: 24px 12px 0; padding-top: 16px; border-top: 1px solid #2E2E33; font-size: 13px; }
         .main { flex: 999 1 600px; min-width: 0; padding: 24px; }
         table { border-collapse: collapse; width: 100%; }
         th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #2E2E33; }
         .muted { color: #A6A6AE; }
         .error { border: 1px solid #5A2E2E; background: #2C1A1A; padding: 12px; border-radius: 8px; }
+        .card { max-width: 420px; margin: 10vh auto; padding: 0 16px; }
+        .card form { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+        .card label { display: flex; flex-direction: column; gap: 6px; color: #C8C8CE; }
+        input { font: inherit; padding: 10px 12px; border-radius: 6px; border: 1px solid #3A3A40; background: #232326; color: #ECECEE; }
+        button { font: inherit; padding: 10px 14px; border-radius: 6px; border: 0; background: #2BA89A; color: #0E1413; font-weight: 600; cursor: pointer; }
+        button.link { background: none; color: #2BA89A; padding: 0; font-weight: 400; }
+        .key { font-family: ui-monospace, monospace; letter-spacing: 1px; word-break: break-all; }
+        .qr { background: #fff; padding: 12px; border-radius: 8px; width: 200px; height: 200px; }
     </style>
-    <HeadOutlet @rendermode="InteractiveServer" />
+    <HeadOutlet @rendermode="PageRenderMode" />
 </head>
 <body>
-    <Routes @rendermode="InteractiveServer" />
+    <Routes @rendermode="PageRenderMode" />
     <script src="_framework/blazor.web.js"></script>
 </body>
 </html>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    // Страницы входа работают без интерактивности: cookie выдаётся только в обычном HTTP-ответе.
+    private IComponentRenderMode? PageRenderMode =>
+        HttpContext.AcceptsInteractiveRouting() ? InteractiveServer : null;
+}

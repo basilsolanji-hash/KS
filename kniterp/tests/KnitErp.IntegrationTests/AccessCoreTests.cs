@@ -85,8 +85,9 @@ public sealed class AccessCoreTests(SqlTestHost host) : IClassFixture<SqlTestHos
 
         await using (var s = host.As(admin, org.OrganizationId))
         {
-            var id = await s.Access.InviteAsync(new InviteUserCommand("buh@test.local", "Бухгалтер", SystemRoles.Accountant, null));
-            Assert.True(id > 0);
+            var invitation = await s.Access.InviteAsync(new InviteUserCommand("buh@test.local", "Бухгалтер", SystemRoles.Accountant, null));
+            Assert.True(invitation.UserId > 0);
+            Assert.NotNull(invitation.SetupToken);
         }
     }
 
@@ -224,15 +225,15 @@ public sealed class AccessCoreTests(SqlTestHost host) : IClassFixture<SqlTestHos
             $"owner-{inn}@test.local", $"Владелец {inn}"));
     }
 
-    /// <summary>Приглашение от имени владельца и активация (вход через Identity появится в следующем срезе).</summary>
+    /// <summary>Приглашение от имени владельца и активация без входа — для тестов прав, не самого входа.</summary>
     private async Task<long> InviteActiveAsync(CreatedOrganization org, string roleCode, string? name = null)
     {
         long id;
         await using (var s = host.As(org.OwnerUserId, org.OrganizationId))
         {
-            id = await s.Access.InviteAsync(new InviteUserCommand(
+            id = (await s.Access.InviteAsync(new InviteUserCommand(
                 $"{roleCode}-{Guid.NewGuid():N}@test.local", name ?? SystemRoles.NameOf(roleCode), roleCode,
-                SystemRoles.IsAdministrative(roleCode) ? "Тест" : null));
+                SystemRoles.IsAdministrative(roleCode) ? "Тест" : null))).UserId;
         }
 
         await using var db = host.NewDb();

@@ -32,7 +32,30 @@ public sealed class UserAccount
     /// <summary>Меняется при блокировке и смене прав — по нему сервер закрывает старые сессии.</summary>
     public Guid SecurityStamp { get; private set; }
 
+    /// <summary>Хеш пароля ASP.NET Core Identity (PBKDF2). Пароль в открытом виде не хранится.</summary>
+    public string? PasswordHash { get; private set; }
+
+    /// <summary>Неудачные попытки входа подряд; сбрасывается после успешного входа или блокировки.</summary>
+    public int FailedSignInCount { get; private set; }
+
+    public DateTime? LockoutEndUtc { get; private set; }
+
+    public bool TwoFactorEnabled { get; private set; }
+
+    /// <summary>Секрет приложения-аутентификатора (Base32), как в ASP.NET Core Identity.</summary>
+    public string? AuthenticatorKey { get; private set; }
+
+    /// <summary>Последний принятый шаг TOTP — один код нельзя использовать дважды.</summary>
+    public long? LastTotpStep { get; private set; }
+
+    /// <summary>SHA-256 ссылки приглашения или первичной установки пароля. Сама ссылка не хранится.</summary>
+    public byte[]? SetupTokenHash { get; private set; }
+
+    public DateTime? SetupTokenExpiresAtUtc { get; private set; }
+
     public byte[] RowVersion { get; private set; } = [];
+
+    public bool HasPassword => PasswordHash is not null;
 
     public static UserAccount Invite(string email, string displayName, DateTime nowUtc)
     {
@@ -71,6 +94,135 @@ public sealed class UserAccount
 
     /// <summary>Смена штампа закрывает все сессии пользователя (блокировка, смена прав).</summary>
     public void RotateSecurityStamp() => SecurityStamp = Guid.NewGuid();
+
+    /// <summary>
+    /// Выдаёт одноразовую ссылку установки пароля на <see cref="SignInPolicy.InvitationLifetime"/>.
+    /// Предыдущая ссылка перестаёт действовать. Возвращает токен для ссылки — он показывается один раз.
+    /// </summary>
+    public string IssueSetupToken(DateTime nowUtc)
+    {
+        if (Status == UserStatus.Archived || HasPassword)
+        {
+            throw new BusinessRuleException("auth.invitation.not_needed", "Пользователь уже установил пароль, приглашение не нужно.");
+        }
+
+        var token = SetupTokens.Generate();
+        SetupTokenHash = SetupTokens.Hash(token);
+        SetupTokenExpiresAtUtc = nowUtc + SignInPolicy.InvitationLifetime;
+        return token;
+    }
+
+    /// <summary>Установка пароля по ссылке приглашения. Приглашённый пользователь становится активным.</summary>
+    public void CompleteSetup(string token, string passwordHash, DateTime nowUtc)
+    {
+        if (SetupTokenHash is null || !SetupTokens.Matches(token, SetupTokenHash))
+        {
+            throw new BusinessRuleException("auth.invitation.invalid", "Ссылка приглашения недействительна.");
+        }
+
+        if (SetupTokenExpiresAtUtc is not { } expires || expires <= nowUtc)
+        {
+            throw new BusinessRuleException("auth.invitation.expired", "Срок приглашения истёк. Попросите администратора отправить новое.");
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(passwordHash);
+        PasswordHash = passwordHash;
+        SetupTokenHash = null;
+        SetupTokenExpiresAtUtc = null;
+        FailedSignInCount = 0;
+        LockoutEndUtc = null;
+        if (Status == UserStatus.Invited)
+        {
+            Activate();
+        }
+
+        RotateSecurityStamp();
+    }
+
+    /// <summary>Пересчёт хеша при смене параметров PBKDF2 — пароль тот же, сессии не закрываются.</summary>
+    public void UpgradePasswordHash(string passwordHash)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(passwordHash);
+        PasswordHash = passwordHash;
+    }
+
+    public bool IsLockedOut(DateTime nowUtc) => LockoutEndUtc is { } end && end > nowUtc;
+
+    /// <summary>Неудачная попытка входа (пароль или код 2FA). Возвращает true, если учётная запись только что заблокирована.</summary>
+    public bool RegisterFailedSignIn(DateTime nowUtc)
+    {
+        FailedSignInCount++;
+        if (FailedSignInCount < SignInPolicy.MaxFailedAttempts)
+        {
+            return false;
+        }
+
+        FailedSignInCount = 0;
+        LockoutEndUtc = nowUtc + SignInPolicy.LockoutDuration;
+        return true;
+    }
+
+    public void RegisterSuccessfulSignIn()
+    {
+        FailedSignInCount = 0;
+        LockoutEndUtc = null;
+    }
+
+    /// <summary>Новый секрет аутентификатора, пока 2FA не подтверждена кодом. Включённую 2FA так не перезаписать.</summary>
+    public string BeginAuthenticatorSetup()
+    {
+        if (TwoFactorEnabled)
+        {
+            throw new BusinessRuleException("auth.2fa.already_enabled", "Двухфакторная аутентификация уже включена.");
+        }
+
+        AuthenticatorKey ??= Totp.NewKey();
+        return AuthenticatorKey;
+    }
+
+    /// <summary>Проверяет код TOTP и запоминает его шаг. Повтор уже принятого кода отклоняется.</summary>
+    public bool VerifyTotp(string? code, DateTime nowUtc)
+    {
+        if (AuthenticatorKey is null || Totp.FindMatchingStep(AuthenticatorKey, code, nowUtc) is not { } step)
+        {
+            return false;
+        }
+
+        if (LastTotpStep is { } last && step <= last)
+        {
+            return false;
+        }
+
+        LastTotpStep = step;
+        return true;
+    }
+
+    /// <summary>Включает 2FA после проверки первого кода. Старые сессии закрываются.</summary>
+    public bool ConfirmTwoFactor(string? code, DateTime nowUtc)
+    {
+        if (TwoFactorEnabled)
+        {
+            throw new BusinessRuleException("auth.2fa.already_enabled", "Двухфакторная аутентификация уже включена.");
+        }
+
+        if (!VerifyTotp(code, nowUtc))
+        {
+            return false;
+        }
+
+        TwoFactorEnabled = true;
+        RotateSecurityStamp();
+        return true;
+    }
+
+    /// <summary>Сброс 2FA (потерян телефон). При следующем входе пользователь подключит аутентификатор заново.</summary>
+    public void ResetTwoFactor()
+    {
+        TwoFactorEnabled = false;
+        AuthenticatorKey = null;
+        LastTotpStep = null;
+        RotateSecurityStamp();
+    }
 }
 
 public enum MembershipStatus : byte

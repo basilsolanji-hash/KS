@@ -36,15 +36,27 @@ internal sealed class UserAccountConfiguration : IEntityTypeConfiguration<UserAc
 {
     public void Configure(EntityTypeBuilder<UserAccount> b)
     {
-        b.ToTable("users", t => t.HasCheckConstraint("ck_users_status", "[Status] IN (1, 2, 4)"));
+        b.ToTable("users", t =>
+        {
+            t.HasCheckConstraint("ck_users_status", "[Status] IN (1, 2, 4)");
+            t.HasCheckConstraint("ck_users_failed_sign_in", "[FailedSignInCount] >= 0");
+            t.HasCheckConstraint("ck_users_2fa_key", "[TwoFactorEnabled] = 0 OR [AuthenticatorKey] IS NOT NULL");
+            t.HasCheckConstraint("ck_users_setup_token",
+                "([SetupTokenHash] IS NULL AND [SetupTokenExpiresAtUtc] IS NULL) OR ([SetupTokenHash] IS NOT NULL AND [SetupTokenExpiresAtUtc] IS NOT NULL)");
+        });
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).UseIdentityColumn();
         b.Property(x => x.Email).HasMaxLength(UserAccount.EmailMaxLength).IsRequired();
         b.Property(x => x.NormalizedEmail).HasMaxLength(UserAccount.EmailMaxLength).IsRequired();
         b.Property(x => x.DisplayName).HasMaxLength(UserAccount.DisplayNameMaxLength).IsRequired();
         b.Property(x => x.Status).HasConversion<byte>();
+        b.Property(x => x.PasswordHash).HasColumnType("varchar(256)");
+        b.Property(x => x.AuthenticatorKey).HasColumnType("varchar(64)");
+        b.Property(x => x.SetupTokenHash).HasColumnType("binary(32)");
         b.Property(x => x.RowVersion).IsRowVersion();
+        b.Ignore(x => x.HasPassword);
         b.HasIndex(x => x.NormalizedEmail).IsUnique().HasDatabaseName("ux_users_normalized_email");
+        b.HasIndex(x => x.SetupTokenHash).IsUnique().HasFilter("[SetupTokenHash] IS NOT NULL").HasDatabaseName("ux_users_setup_token");
     }
 }
 

@@ -10,7 +10,8 @@ ERP для трикотажного производства. Первый кл�
 |---|---|
 | Каркас решения .NET 10, CI со сборкой и тестами на SQL Server | готово |
 | Ядро доступа (ТЗ §69): организация, пользователи, роли P0, назначения прав, аудит | доменная модель, сервисы и тесты |
-| Вход: ASP.NET Core Identity, 2FA для Владельца и Администратора | следующий шаг |
+| Вход: пароль (хеш Identity), приглашение 72 ч, 2FA для Владельца и Администратора, блокировка после 5 неудач, журнал входов | готово, ADR-0002 |
+| Миграции EF Core вместо EnsureCreated | следующий шаг |
 | Структура фабрики, справочники, склад | по плану 115 дней |
 
 Кликабельный прототип экранов ядра доступа опубликован отдельно для обратной связи владельца продукта.
@@ -44,7 +45,16 @@ export KNITERP_TEST_SQL="Server=localhost,1433;User Id=sa;Password=<пароль
 dotnet test tests/KnitErp.IntegrationTests
 ```
 
-Без переменной `KNITERP_TEST_SQL` интеграционные тесты пропускаются. В GitHub Actions SQL Server поднимается автоматически (`.github/workflows/kniterp.yml`).
+Без переменной `KNITERP_TEST_SQL` интеграционные тесты пропускаются.
+
+### Первый вход при локальном запуске
+
+```bash
+cd kniterp/src/KnitErp.Web
+ASPNETCORE_ENVIRONMENT=Development ConnectionStrings__KnitErp="Server=localhost,1433;Database=kniterp_dev;User Id=sa;Password=<пароль>;TrustServerCertificate=true" dotnet run
+```
+
+При первом запуске создаётся тестовая организация, а в лог выводится ссылка `/account/invite?token=…` для установки пароля Владельца (`owner@kniterp.local`). После пароля система попросит подключить приложение-аутентификатор: Владелец без 2FA не входит. В GitHub Actions SQL Server поднимается автоматически (`.github/workflows/kniterp.yml`).
 
 ## Правила разработки
 
