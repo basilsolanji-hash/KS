@@ -19,10 +19,13 @@ else
 {
     <div class="page-head">
         <h1>@L("Начальные остатки")</h1>
-        @if (CurrentAccess.Has(Permissions.OpeningBalanceCreate) && !_creating)
-        {
-            <button type="button" @onclick="OpenCreateAsync" disabled="@_busy">@L("Новый документ")</button>
-        }
+        <div class="actions">
+            <a class="button secondary" href="opening-balances.xlsx" download data-enhance-nav="false" title="@L("Реестр документов начальных остатков")">Excel</a>
+            @if (CurrentAccess.Has(Permissions.OpeningBalanceCreate) && !_creating)
+            {
+                <button type="button" @onclick="OpenCreateAsync" disabled="@_busy">@L("Новый документ")</button>
+            }
+        </div>
     </div>
     <p class="muted">
         @L("Остатки на дату начала учёта. Документ заполняет старший кладовщик, утверждает другой человек — владелец или руководитель. После утверждения остатки появляются в разделе «Остатки», документ больше не меняется.")

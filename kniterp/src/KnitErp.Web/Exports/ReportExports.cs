@@ -12,7 +12,8 @@ namespace KnitErp.Web.Exports;
 /// и область складов; здесь только раскладка по столбцам. Количества — числами, время — по часовому поясу организации.
 /// </summary>
 public sealed class ReportExports(
-    StockService stock, StockReportService reports, AuditQueryService audit, UserAccessService access, ISpreadsheetFormat spreadsheet)
+    StockService stock, StockReportService reports, AuditQueryService audit, UserAccessService access, ISpreadsheetFormat spreadsheet,
+    StockDocumentService documents, InventoryService inventory, OpeningBalanceService openingBalances)
 {
     public const string ContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
@@ -49,6 +50,38 @@ public sealed class ReportExports(
             report.Rows.Select(r => Row(r.Date.ToString("dd.MM.yyyy"), r.Number, r.WarehouseName, r.Code, r.Name, Number(r.Book), Number(r.Counted),
                 r.Difference > 0 ? Number(r.Difference) : "", r.Difference < 0 ? Number(-r.Difference) : "", r.UnitSymbol, r.Comment ?? "", "")).ToList(),
             Numeric(5, 6, 7, 8))]);
+    }
+
+    /// <summary>Реестр складских документов с фильтрами экрана.</summary>
+    public async Task<byte[]> StockDocumentsAsync(StockDocumentListFilter filter, CancellationToken ct)
+    {
+        var rows = await documents.ListAsync(filter, StockDocumentService.MaxRegistryRows, ct);
+        var title = filter.From is null && filter.To is null ? "Реестр складских документов"
+            : $"Реестр складских документов {filter.From:dd.MM.yyyy}–{filter.To:dd.MM.yyyy}";
+        return spreadsheet.Write([new SheetData("Документы", ["Номер", "Дата", "Вид", "Склад", "Склад-получатель", "Контрагент", "Причина",
+                "Строк", "Статус", "Автор", title],
+            rows.Select(r => Row(r.Number, r.DocumentDate.ToString("dd.MM.yyyy"), r.KindName, r.WarehouseName, r.TargetWarehouseName ?? "",
+                r.CounterpartyName ?? "", r.ReasonName ?? "", r.LineCount.ToString(CultureInfo.InvariantCulture), r.StatusName, r.CreatedBy, "")).ToList(),
+            Numeric(7))]);
+    }
+
+    /// <summary>Реестр инвентаризаций с числом излишков и недостач.</summary>
+    public async Task<byte[]> InventoriesAsync(InventoryListFilter filter, CancellationToken ct)
+    {
+        var rows = await inventory.ListAsync(filter, ct);
+        return spreadsheet.Write([new SheetData("Инвентаризации", ["Номер", "Дата", "Склад", "Позиций", "Излишков", "Недостач", "Статус", "Автор"],
+            rows.Select(r => Row(r.Number, r.CountDate.ToString("dd.MM.yyyy"), r.WarehouseName, r.LineCount.ToString(CultureInfo.InvariantCulture),
+                r.SurplusCount.ToString(CultureInfo.InvariantCulture), r.ShortageCount.ToString(CultureInfo.InvariantCulture), r.StatusName, r.CreatedBy)).ToList(),
+            Numeric(3, 4, 5))]);
+    }
+
+    /// <summary>Реестр документов начальных остатков.</summary>
+    public async Task<byte[]> OpeningBalancesAsync(CancellationToken ct)
+    {
+        var rows = await openingBalances.ListAsync(ct);
+        return spreadsheet.Write([new SheetData("Начальные остатки", ["Номер", "Склад", "На дату", "Строк", "Статус", "Автор"],
+            rows.Select(r => Row(r.Number, r.WarehouseName, r.AsOfDate.ToString("dd.MM.yyyy"), r.LineCount.ToString(CultureInfo.InvariantCulture),
+                r.StatusName, r.CreatedBy)).ToList(), Numeric(3))]);
     }
 
     public async Task<byte[]> AuditAsync(CancellationToken ct)

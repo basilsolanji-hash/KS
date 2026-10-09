@@ -54,6 +54,14 @@ public sealed class StockDocumentFlowTests(SqlTestHost host) : IClassFixture<Sql
             Assert.DoesNotContain(balances, b => b.ItemId == f.Buttons);
             var list = await s.Documents.ListAsync(new StockDocumentListFilter(StockOperationKind.Transfer));
             Assert.Equal("ПМ-000001", list.Single().Number);
+
+            // Реестр: период, склад (в том числе получатель перемещения), поиск по номеру и контрагенту.
+            Assert.Equal(3, (await s.Documents.ListAsync(new StockDocumentListFilter(From: Day, To: Day))).Count);
+            Assert.Empty(await s.Documents.ListAsync(new StockDocumentListFilter(From: Day.AddDays(1))));
+            Assert.Equal(["ПМ-000001"], (await s.Documents.ListAsync(new StockDocumentListFilter(WarehouseId: f.Shop))).Select(d => d.Number));
+            Assert.Equal(["ПТ-000001"], (await s.Documents.ListAsync(new StockDocumentListFilter(Search: "Пряжа"))).Select(d => d.Number));
+            Assert.Equal(["СП-000001"], (await s.Documents.ListAsync(new StockDocumentListFilter(Search: "СП-0"))).Select(d => d.Number));
+            Assert.Equal(2, (await s.Documents.ListVisibleWarehousesAsync()).Count);
         }
 
         await using var db = host.NewDb();
@@ -181,6 +189,7 @@ public sealed class StockDocumentFlowTests(SqlTestHost host) : IClassFixture<Sql
             Assert.Contains(await s.Documents.ListAsync(new StockDocumentListFilter()), d => d.Id == transfer);
             await Assert.ThrowsAsync<NotFoundException>(() => s.Documents.CancelAsync(transfer, card.RowVersion));
             Assert.DoesNotContain(await s.Documents.ListAsync(new StockDocumentListFilter()), d => d.Kind == StockOperationKind.Receipt);
+            Assert.Equal([f.Shop], (await s.Documents.ListVisibleWarehousesAsync()).Select(w => w.Id));
         }
     }
 

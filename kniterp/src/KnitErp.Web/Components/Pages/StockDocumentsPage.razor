@@ -83,8 +83,26 @@ else
                 }
             </select>
         </label>
+        <label>
+            @L("Склад")
+            <select @bind="_warehouse">
+                <option value="">@L("Все доступные")</option>
+                @foreach (var w in _warehouses)
+                {
+                    <option value="@w.Id">@w.Name</option>
+                }
+            </select>
+        </label>
+        <label>@L("С") <input type="date" @bind="_from" /></label>
+        <label>@L("По") <input type="date" @bind="_to" /></label>
+        <label>@L("Поиск") <input @bind="_search" placeholder="@L("Номер или контрагент")" /></label>
         <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
+        <a class="button secondary" href="@ExportHref" download data-enhance-nav="false" title="@L("Реестр с текущими фильтрами")">Excel</a>
     </form>
+    @if (_rows.Count >= StockDocumentService.MaxListRows)
+    {
+        <p class="muted">@L("Показаны последние {0} документов — сузьте период или выгрузите реестр в Excel.", StockDocumentService.MaxListRows)</p>
+    }
 
     <div class="scroll">
         <table>
@@ -126,6 +144,11 @@ else
     private string? _error;
     private string _kind = string.Empty;
     private string _status = string.Empty;
+    private string _warehouse = string.Empty;
+    private string _search = string.Empty;
+    private DateTime? _from;
+    private DateTime? _to;
+    private IReadOnlyList<LookupWarehouseDto> _warehouses = [];
 
     private sealed record CreateForm(StockOperationKind Kind, StockDocumentOptions Options, StockDocumentHeaderFields.Model Header);
 
@@ -133,6 +156,7 @@ else
     {
         try
         {
+            _warehouses = await Documents.ListVisibleWarehousesAsync();
             await LoadAsync();
         }
         catch (AccessDeniedException ex)
@@ -141,10 +165,16 @@ else
         }
     }
 
-    private async Task LoadAsync() =>
-        _rows = await Documents.ListAsync(new StockDocumentListFilter(
-            byte.TryParse(_kind, out var k) ? (StockOperationKind)k : null,
-            byte.TryParse(_status, out var st) ? (StockDocumentStatus)st : null));
+    private StockDocumentListFilter Filter => new(
+        byte.TryParse(_kind, out var k) ? (StockOperationKind)k : null,
+        byte.TryParse(_status, out var st) ? (StockDocumentStatus)st : null,
+        _from is { } f ? DateOnly.FromDateTime(f) : null, _to is { } t ? DateOnly.FromDateTime(t) : null,
+        long.TryParse(_warehouse, out var w) ? w : null, _search);
+
+    private string ExportHref => KnitErp.Web.Exports.ExportLink.Build("stock-documents.xlsx", ("kind", _kind), ("status", _status),
+        ("from", KnitErp.Web.Exports.ExportLink.Date(_from)), ("to", KnitErp.Web.Exports.ExportLink.Date(_to)), ("warehouse", _warehouse), ("search", _search));
+
+    private async Task LoadAsync() => _rows = await Documents.ListAsync(Filter);
 
     private Task ReloadAsync() => RunAsync(LoadAsync);
 

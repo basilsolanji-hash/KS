@@ -3,6 +3,7 @@
 @using KnitErp.Domain.Warehousing
 @using KnitErp.Web.Components.Shared
 @inject InventoryService Inventory
+@inject StockDocumentService Documents
 @inject NavigationManager Navigation
 
 <PageTitle>@L("Инвентаризация") — knitERP</PageTitle>
@@ -63,6 +64,23 @@ else
         </div>
     }
 
+    <form class="inline-form" @onsubmit="ReloadAsync">
+        <label>
+            @L("Склад")
+            <select @bind="_filterWarehouse">
+                <option value="">@L("Все доступные")</option>
+                @foreach (var w in _visibleWarehouses)
+                {
+                    <option value="@w.Id">@w.Name</option>
+                }
+            </select>
+        </label>
+        <label>@L("С") <input type="date" @bind="_from" /></label>
+        <label>@L("По") <input type="date" @bind="_to" /></label>
+        <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
+        <a class="button secondary" href="@ExportHref" download data-enhance-nav="false" title="@L("Реестр с текущими фильтрами")">Excel</a>
+    </form>
+
     <div class="scroll">
         <table>
             <thead><tr><th>@L("Номер")</th><th>@L("Дата")</th><th>@L("Склад")</th><th class="opt num">@L("Позиций")</th><th class="opt num">@L("Излишков")</th><th class="opt num">@L("Недостач")</th><th>@L("Статус")</th><th class="opt">@L("Автор")</th></tr></thead>
@@ -102,12 +120,25 @@ else
     private long _warehouseId;
     private DateTime _date = DateTime.Today;
     private string? _comment;
+    private IReadOnlyList<LookupWarehouseDto> _visibleWarehouses = [];
+    private string _filterWarehouse = string.Empty;
+    private DateTime? _from;
+    private DateTime? _to;
+
+    private InventoryListFilter Filter => new(_from is { } f ? DateOnly.FromDateTime(f) : null, _to is { } t ? DateOnly.FromDateTime(t) : null,
+        long.TryParse(_filterWarehouse, out var w) ? w : null);
+
+    private string ExportHref => KnitErp.Web.Exports.ExportLink.Build("inventory.xlsx",
+        ("from", KnitErp.Web.Exports.ExportLink.Date(_from)), ("to", KnitErp.Web.Exports.ExportLink.Date(_to)), ("warehouse", _filterWarehouse));
+
+    private Task ReloadAsync() => RunAsync(async () => _rows = await Inventory.ListAsync(Filter));
 
     protected override async Task OnInitializedAsync()
     {
         try
         {
-            _rows = await Inventory.ListAsync();
+            _visibleWarehouses = await Documents.ListVisibleWarehousesAsync();
+            _rows = await Inventory.ListAsync(Filter);
         }
         catch (AccessDeniedException ex)
         {

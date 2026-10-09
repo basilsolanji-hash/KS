@@ -57,6 +57,9 @@ public sealed class InventoryAndReportsTests(SqlTestHost host) : IClassFixture<S
             Assert.Equal([-1.5m, 4m], card.Deviations.Select(d => d.Difference).Order());
             var row = (await s.Inventory.ListAsync()).Single(r => r.Id == inv);
             Assert.Equal((1, 1), (row.SurplusCount, row.ShortageCount));
+            Assert.Single(await s.Inventory.ListAsync(new InventoryListFilter(Oct5, Oct5, f.Yarn)));
+            Assert.Empty(await s.Inventory.ListAsync(new InventoryListFilter(WarehouseId: f.Shop)));
+            Assert.Empty(await s.Inventory.ListAsync(new InventoryListFilter(To: Sep20)));
         }
 
         await using (var s = host.As(f.Org.OwnerUserId, f.Org.OrganizationId))

@@ -42,7 +42,10 @@ public sealed record StockDocumentOptions(
     IReadOnlyList<LookupWarehouseDto> Warehouses, IReadOnlyList<LookupWarehouseDto> TargetWarehouses,
     IReadOnlyList<LookupDto> Suppliers, IReadOnlyList<ReasonLookupDto> Reasons);
 
-public sealed record StockDocumentListFilter(StockOperationKind? Kind = null, StockDocumentStatus? Status = null);
+/// <summary>Фильтр реестра документов: вид, статус, период по дате документа, склад (отправитель или получатель), поиск по номеру и контрагенту.</summary>
+public sealed record StockDocumentListFilter(
+    StockOperationKind? Kind = null, StockDocumentStatus? Status = null, DateOnly? From = null, DateOnly? To = null,
+    long? WarehouseId = null, string? Search = null);
 
 /// <summary>
 /// Поступление, списание и перемещение: черновик → проведение (движения регистра) → при ошибке сторно.
@@ -56,7 +59,14 @@ public sealed class StockDocumentService(
     private static readonly string[] ViewPermissions =
         [Permissions.WarehouseDocumentCreate, Permissions.WarehouseDocumentPost, Permissions.WarehouseReportView];
 
-    public async Task<IReadOnlyList<StockDocumentRowDto>> ListAsync(StockDocumentListFilter filter, CancellationToken ct = default)
+    public const int MaxListRows = 1000;
+    public const int MaxRegistryRows = 20000;
+
+    /// <summary>Реестр документов: на экране — последние <see cref="MaxListRows"/>, в выгрузке — до <see cref="MaxRegistryRows"/>.</summary>
+    public async Task<IReadOnlyList<StockDocumentRowDto>> ListAsync(StockDocumentListFilter filter, CancellationToken ct = default) =>
+        await ListAsync(filter, MaxListRows, ct);
+
+    public async Task<IReadOnlyList<StockDocumentRowDto>> ListAsync(StockDocumentListFilter filter, int take, CancellationToken ct = default)
     {
         var ctx = await DemandAnyAsync(ct);
         var visible = WarehouseScope.Visible(ctx, ViewPermissions);
@@ -76,8 +86,30 @@ public sealed class StockDocumentService(
             q = q.Where(d => d.Status == status);
         }
 
+        if (filter.From is { } from)
+        {
+            q = q.Where(d => d.DocumentDate >= from);
+        }
+
+        if (filter.To is { } to)
+        {
+            q = q.Where(d => d.DocumentDate <= to);
+        }
+
+        if (filter.WarehouseId is { } wh)
+        {
+            q = q.Where(d => d.WarehouseId == wh || d.TargetWarehouseId == wh);
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.Search))
+        {
+            var text = filter.Search.Trim();
+            q = q.Where(d => d.Number.Contains(text)
+                             || db.Counterparties.Any(c => c.Id == d.CounterpartyId && (c.Name.Contains(text) || c.Inn == text)));
+        }
+
         var rows = await (
-            from d in q.OrderByDescending(d => d.DocumentDate).ThenByDescending(d => d.Id).Take(1000)
+            from d in q.OrderByDescending(d => d.DocumentDate).ThenByDescending(d => d.Id).Take(Math.Clamp(take, 1, MaxRegistryRows))
             join w in db.Warehouses.AsNoTracking() on d.WarehouseId equals w.Id
             join u in db.Users.AsNoTracking() on d.CreatedByUserId equals u.Id
             join t in db.Warehouses.AsNoTracking() on d.TargetWarehouseId equals t.Id into tj
@@ -89,6 +121,16 @@ public sealed class StockDocumentService(
             select new StockDocumentRowDto(d.Id, d.Number, d.Kind, d.DocumentDate, w.Name, t == null ? null : t.Name,
                 c == null ? null : c.Name, r == null ? null : r.Name, d.Status, d.Lines.Count, u.DisplayName)).ToListAsync(ct);
         return rows.OrderByDescending(r => r.DocumentDate).ThenByDescending(r => r.Id).ToList();
+    }
+
+    /// <summary>Склады для фильтра реестров (документы, инвентаризации): те, что пользователь видит по своим правам склада.</summary>
+    public async Task<IReadOnlyList<LookupWarehouseDto>> ListVisibleWarehousesAsync(CancellationToken ct = default)
+    {
+        var ctx = await DemandAnyAsync(ct);
+        var visible = WarehouseScope.Visible(ctx, ViewPermissions);
+        return await db.Warehouses.AsNoTracking()
+            .Where(w => w.OrganizationId == ctx.OrganizationId && (visible == null || visible.Contains(w.Id)))
+            .OrderBy(w => w.IsArchived).ThenBy(w => w.Name).Select(w => new LookupWarehouseDto(w.Id, w.Name)).ToListAsync(ct);
     }
 
     public async Task<StockDocumentDto> GetAsync(long id, CancellationToken ct = default)

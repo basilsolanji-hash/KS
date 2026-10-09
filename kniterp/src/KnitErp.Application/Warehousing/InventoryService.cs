@@ -8,6 +8,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace KnitErp.Application.Warehousing;
 
+/// <summary>Фильтр реестра инвентаризаций: период по дате пересчёта и склад.</summary>
+public sealed record InventoryListFilter(DateOnly? From = null, DateOnly? To = null, long? WarehouseId = null);
+
 public sealed record InventoryRowDto(
     long Id, string Number, DateOnly CountDate, string WarehouseName, InventoryStatus Status, int LineCount,
     int SurplusCount, int ShortageCount, string CreatedBy)
@@ -42,7 +45,7 @@ public sealed class InventoryService(
     private static readonly string[] ViewPermissions =
         [Permissions.WarehouseDocumentCreate, Permissions.WarehouseDocumentPost, Permissions.WarehouseReportView];
 
-    public async Task<IReadOnlyList<InventoryRowDto>> ListAsync(CancellationToken ct = default)
+    public async Task<IReadOnlyList<InventoryRowDto>> ListAsync(InventoryListFilter? filter = null, CancellationToken ct = default)
     {
         var ctx = await DemandAnyAsync(ct);
         var visible = WarehouseScope.Visible(ctx, ViewPermissions);
@@ -52,9 +55,24 @@ public sealed class InventoryService(
             q = q.Where(d => visible.Contains(d.WarehouseId));
         }
 
+        if (filter?.From is { } from)
+        {
+            q = q.Where(d => d.CountDate >= from);
+        }
+
+        if (filter?.To is { } to)
+        {
+            q = q.Where(d => d.CountDate <= to);
+        }
+
+        if (filter?.WarehouseId is { } wh)
+        {
+            q = q.Where(d => d.WarehouseId == wh);
+        }
+
         // Разница считается по колонкам строки: Difference — вычисляемое свойство и в SQL не переводится.
         return await (
-            from d in q.OrderByDescending(d => d.CountDate).ThenByDescending(d => d.Id).Take(500)
+            from d in q.OrderByDescending(d => d.CountDate).ThenByDescending(d => d.Id).Take(5000)
             join w in db.Warehouses.AsNoTracking() on d.WarehouseId equals w.Id
             join u in db.Users.AsNoTracking() on d.CreatedByUserId equals u.Id
             select new InventoryRowDto(d.Id, d.Number, d.CountDate, w.Name, d.Status, d.Lines.Count,
