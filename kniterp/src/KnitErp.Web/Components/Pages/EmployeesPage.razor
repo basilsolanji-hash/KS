@@ -31,7 +31,7 @@ else
 
     @if (_flash is not null)
     {
-        <div class="flash" role="status"><span>@_flash</span><button type="button" class="link" aria-label="Закрыть сообщение" @onclick="() => _flash = null">×</button></div>
+        <div class="@(_flashIsError ? "flash error" : "flash")" role="@(_flashIsError ? "alert" : "status")"><span>@_flash</span><button type="button" class="link" aria-label="Закрыть сообщение" @onclick="() => _flash = null">×</button></div>
     }
 
     @if (_mode is Mode.Hire or Mode.Edit)
@@ -187,6 +187,7 @@ else
     private string? _denied;
     private string? _formError;
     private string? _flash;
+    private bool _flashIsError;
     private string _search = string.Empty;
     private bool _includeDismissed;
 
@@ -227,6 +228,7 @@ else
     private void OpenDismiss(EmployeeRowDto e)
     {
         _flash = null;
+        _flashIsError = false;
         _formError = null;
         _form = new EmployeeForm { DismissedOn = Today() };
         _target = e;
@@ -284,6 +286,7 @@ else
 
         _busy = true;
         _formError = null;
+        _flashIsError = false;
         try
         {
             await action();
@@ -293,6 +296,7 @@ else
             if (_mode == Mode.None)
             {
                 _flash = UiErrors.Message(ex);
+                _flashIsError = true;
             }
             else
             {

@@ -1,9 +1,11 @@
 using KnitErp.Application.Access;
 using KnitErp.Application.Audit;
+using KnitErp.Application.Catalog;
 using KnitErp.Application.Authentication;
 using KnitErp.Application.Common;
 using KnitErp.Application.Organizations;
 using KnitErp.Application.Structure;
+using KnitErp.Application.Warehousing;
 using KnitErp.Domain.Access;
 using KnitErp.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
@@ -71,7 +73,9 @@ public sealed class SqlTestHost : IAsyncLifetime
             new AuditQueryService(db, guard),
             new SignInService(db, Hasher, user, Clock),
             new StructureService(db, guard, user, Clock),
-            new EmployeeService(db, guard, access, user, Clock));
+            new EmployeeService(db, guard, access, user, Clock),
+            new CatalogService(db, guard, user, Clock),
+            new WarehouseService(db, guard, user, Clock));
     }
 
     private static readonly IPasswordHasher<UserAccount> Hasher = new PasswordHasher<UserAccount>();
@@ -107,7 +111,9 @@ public sealed record Services(
     AuditQueryService Audit,
     SignInService SignIn,
     StructureService Structure,
-    EmployeeService Employees) : IAsyncDisposable
+    EmployeeService Employees,
+    CatalogService Catalog,
+    WarehouseService Warehouses) : IAsyncDisposable
 {
     public ValueTask DisposeAsync() => Db.DisposeAsync();
 }

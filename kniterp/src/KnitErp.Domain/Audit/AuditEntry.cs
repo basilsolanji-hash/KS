@@ -90,6 +90,10 @@ public static class AuditActions
     public const string EmployeeChanged = "hr.employee.changed";
     public const string EmployeeDismissed = "hr.employee.dismissed";
     public const string EmployeeLinkedToUser = "hr.employee.linked_user";
+    public const string CatalogCreated = "catalog.created";
+    public const string CatalogChanged = "catalog.changed";
+    public const string CatalogArchived = "catalog.archived";
+    public const string CatalogRestored = "catalog.restored";
     public const string OrganizationCreated = "organization.created";
     public const string OrganizationRequisitesChanged = "organization.requisites.changed";
 }

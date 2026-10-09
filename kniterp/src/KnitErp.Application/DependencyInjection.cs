@@ -1,9 +1,11 @@
 using KnitErp.Application.Access;
 using KnitErp.Application.Audit;
+using KnitErp.Application.Catalog;
 using KnitErp.Application.Authentication;
 using KnitErp.Application.Common;
 using KnitErp.Application.Organizations;
 using KnitErp.Application.Structure;
+using KnitErp.Application.Warehousing;
 using KnitErp.Domain.Access;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,6 +24,8 @@ public static class DependencyInjection
         services.AddScoped<AuditQueryService>();
         services.AddScoped<StructureService>();
         services.AddScoped<EmployeeService>();
+        services.AddScoped<CatalogService>();
+        services.AddScoped<WarehouseService>();
         services.TryAddSingleton<IPasswordHasher<UserAccount>, PasswordHasher<UserAccount>>();
         services.AddScoped<SignInService>();
         return services;

@@ -1,7 +1,9 @@
 using KnitErp.Domain.Access;
 using KnitErp.Domain.Audit;
 using KnitErp.Domain.Organizations;
+using KnitErp.Domain.Catalog;
 using KnitErp.Domain.Structure;
+using KnitErp.Domain.Warehousing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
@@ -38,6 +40,10 @@ public interface IKnitErpDbContext
     DbSet<Department> Departments { get; }
     DbSet<Position> Positions { get; }
     DbSet<Employee> Employees { get; }
+    DbSet<UnitOfMeasure> Units { get; }
+    DbSet<Item> Items { get; }
+    DbSet<Site> Sites { get; }
+    DbSet<Warehouse> Warehouses { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 

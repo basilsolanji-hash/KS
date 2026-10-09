@@ -1,9 +1,11 @@
 @page "/users"
 @using KnitErp.Web.Components.Shared
 @using KnitErp.Application.Structure
+@using KnitErp.Application.Warehousing
 @inject UserAccessService Access
 @inject EmployeeService Employees
 @inject StructureService Structure
+@inject WarehouseService Warehouses
 @inject NavigationManager Navigation
 
 <PageTitle>Пользователи — knitERP</PageTitle>
@@ -28,7 +30,7 @@ else
 
     @if (_flash is not null)
     {
-        <div class="flash" role="status">
+        <div class="@(_flashIsError ? "flash error" : "flash")" role="@(_flashIsError ? "alert" : "status")">
             <span>@_flash</span>
             <button type="button" class="link" aria-label="Закрыть сообщение" @onclick="() => _flash = null">×</button>
         </div>
@@ -87,6 +89,19 @@ else
                                 @foreach (var d in _departments)
                                 {
                                     <option value="@d.Id">@d.Path и вложенные</option>
+                                }
+                            </InputSelect>
+                        </label>
+                    }
+                    @if (_warehouses.Count > 0)
+                    {
+                        <label>
+                            Склад (для кладовщиков)
+                            <InputSelect TValue="long" Value="_form.WarehouseId" ValueChanged="WarehouseChangedAsync" ValueExpression="() => _form.WarehouseId">
+                                <option value="0">— не ограничено складом —</option>
+                                @foreach (var w in _warehouses)
+                                {
+                                    <option value="@w.Id">@w.Name</option>
                                 }
                             </InputSelect>
                         </label>
@@ -236,6 +251,7 @@ else
     private IReadOnlyList<RoleOptionDto> _roles = [];
     private IReadOnlyList<LookupDto> _freeEmployees = [];
     private IReadOnlyList<DepartmentDto> _departments = [];
+    private IReadOnlyList<WarehouseDto> _warehouses = [];
     private AccessPreviewDto? _preview;
     private UserForm _form = new();
     private UserRowDto? _target;
@@ -245,6 +261,7 @@ else
     private string? _denied;
     private string? _formError;
     private string? _flash;
+    private bool _flashIsError;
     private IssuedInvitation? _invitation;
 
     // Только для отображения кнопок: каждое действие сервер проверяет сам.
@@ -287,6 +304,7 @@ else
             {
                 RoleCode = user.RoleCodes.FirstOrDefault() ?? _roles.FirstOrDefault(r => r.Allowed)?.Code ?? string.Empty,
                 DepartmentId = user.DepartmentId ?? 0,
+                WarehouseId = user.WarehouseId ?? 0,
             };
             _mode = Mode.ChangeRole;
             await LoadPreviewAsync();
@@ -296,6 +314,7 @@ else
     private void Open(Mode mode, UserRowDto user)
     {
         _flash = null;
+        _flashIsError = false;
         _target = user;
         _form = new UserForm();
         _formError = null;
@@ -336,11 +355,22 @@ else
     }
 
     private async Task LoadPreviewAsync() =>
-        _preview = string.IsNullOrEmpty(_form.RoleCode) ? null : await Access.PreviewRoleAsync(_target?.UserId, _form.RoleCode, ScopeId);
+        _preview = string.IsNullOrEmpty(_form.RoleCode) ? null : await Access.PreviewRoleAsync(_target?.UserId, _form.RoleCode, ScopeId, WarehouseScopeId);
 
     // Список подразделений нужен только для выбора области; без права просмотра структуры роль действует на всю организацию.
-    private async Task LoadDepartmentsAsync() =>
+    private async Task LoadDepartmentsAsync()
+    {
         _departments = CurrentAccess.Has(Permissions.DepartmentView) ? (await Structure.GetAsync()).Departments : [];
+        _warehouses = CurrentAccess.Has(Permissions.CatalogView) ? (await Warehouses.GetAsync()).Warehouses : [];
+    }
+
+    private long? WarehouseScopeId => _form.WarehouseId == 0 ? null : _form.WarehouseId;
+
+    private async Task WarehouseChangedAsync(long warehouseId)
+    {
+        _form.WarehouseId = warehouseId;
+        await RefreshPreviewAsync();
+    }
 
     private long? ScopeId => _form.DepartmentId == 0 ? null : _form.DepartmentId;
 
@@ -364,7 +394,7 @@ else
             if (mode == Mode.Add)
             {
                 var result = await Access.InviteAsync(new InviteUserCommand(_form.Email, _form.DisplayName, _form.RoleCode, _form.Reason,
-                    ScopeId, _form.EmployeeId == 0 ? null : _form.EmployeeId));
+                    ScopeId, _form.EmployeeId == 0 ? null : _form.EmployeeId, WarehouseScopeId));
                 ShowInvitation(_form.DisplayName, result);
                 _flash = result.SetupToken is null
                     ? $"Пользователь «{_form.DisplayName}» добавлен в организацию. Пароль у него уже есть — вход под своей учётной записью."
@@ -372,7 +402,7 @@ else
             }
             else
             {
-                await Access.ChangeRoleAsync(new ChangeRoleCommand(_target!.UserId, _form.RoleCode, _form.Reason, ScopeId));
+                await Access.ChangeRoleAsync(new ChangeRoleCommand(_target!.UserId, _form.RoleCode, _form.Reason, ScopeId, WarehouseScopeId));
                 _flash = $"Роль пользователя «{_target.DisplayName}» изменена. Его сессии закрыты — новые права действуют с нового входа.";
             }
         });
@@ -444,6 +474,7 @@ else
         _busy = true;
         _formError = null;
         _flash = null;
+        _flashIsError = false;
         try
         {
             await action();
@@ -455,6 +486,7 @@ else
             if (_mode == Mode.None)
             {
                 _flash = _formError;
+                _flashIsError = true;
             }
 
             return false;
@@ -504,5 +536,6 @@ else
         public string? Reason { get; set; }
         public long EmployeeId { get; set; }
         public long DepartmentId { get; set; }
+        public long WarehouseId { get; set; }
     }
 }

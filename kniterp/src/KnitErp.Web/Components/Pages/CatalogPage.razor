@@ -1,0 +1,332 @@
+@page "/catalog"
+@using KnitErp.Application.Catalog
+@using KnitErp.Domain.Catalog
+@using KnitErp.Web.Components.Shared
+@inject CatalogService Catalog
+
+<PageTitle>Номенклатура — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_list is null)
+{
+    <p class="muted">Загрузка…</p>
+}
+else
+{
+    <div class="page-head">
+        <h1>Номенклатура</h1>
+        @if (_list.CanEdit && _mode == Mode.None)
+        {
+            <button type="button" @onclick="OpenCreate" disabled="@_busy">Добавить позицию</button>
+        }
+    </div>
+
+    @if (_flash is not null)
+    {
+        <div class="@(_flashIsError ? "flash error" : "flash")" role="@(_flashIsError ? "alert" : "status")"><span>@_flash</span><button type="button" class="link" aria-label="Закрыть сообщение" @onclick="() => _flash = null">×</button></div>
+    }
+
+    @if (_mode is Mode.Create or Mode.Edit)
+    {
+        <div class="panel">
+            <h2>@(_mode == Mode.Create ? "Новая позиция" : $"Позиция {_target!.Code}")</h2>
+            <EditForm Model="_form" OnValidSubmit="SaveItemAsync" FormName="item">
+                <div class="grid">
+                    <label>Код (артикул) <InputText @bind-Value="_form.Code" maxlength="40" required /></label>
+                    <label>Наименование <InputText @bind-Value="_form.Name" maxlength="300" required /></label>
+                    <label>
+                        Тип
+                        <InputSelect @bind-Value="_form.Type">
+                            @foreach (var t in ItemTypes.All)
+                            {
+                                <option value="@t">@ItemTypes.Name(t)</option>
+                            }
+                        </InputSelect>
+                    </label>
+                    <label>
+                        Единица
+                        <InputSelect @bind-Value="_form.UnitId">
+                            <option value="0">— выберите —</option>
+                            @foreach (var u in _units.Where(u => !u.IsArchived))
+                            {
+                                <option value="@u.Id">@u.Name (@u.Symbol)</option>
+                            }
+                        </InputSelect>
+                    </label>
+                    <label>Описание <InputText @bind-Value="_form.Description" maxlength="1000" placeholder="Состав, цвет, размер…" /></label>
+                </div>
+                @if (_formError is not null)
+                {
+                    <div class="error" role="alert">@_formError</div>
+                }
+                <div class="actions">
+                    <button type="submit" disabled="@_busy">Сохранить</button>
+                    <button type="button" class="secondary" @onclick="Close" disabled="@_busy">Отмена</button>
+                </div>
+            </EditForm>
+        </div>
+    }
+
+    <form class="inline-form" @onsubmit="ReloadAsync">
+        <label>
+            Тип
+            <select @bind="_typeFilter">
+                <option value="">Все типы</option>
+                @foreach (var t in ItemTypes.All)
+                {
+                    <option value="@((byte)t)">@ItemTypes.Name(t)</option>
+                }
+            </select>
+        </label>
+        <label>Поиск <input @bind="_search" placeholder="Код или наименование" /></label>
+        <label class="inline"><input type="checkbox" @bind="_includeArchived" /> Показать архив</label>
+        <button type="submit" class="secondary" disabled="@_busy">Найти</button>
+    </form>
+
+    <div class="scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th>Код</th><th>Наименование</th><th>Тип</th><th>Ед.</th>
+                    @if (_list.CanEdit || _list.CanArchive)
+                    {
+                        <th>Действия</th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @if (_list.Items.Count == 0)
+                {
+                    <tr><td colspan="5" class="muted">Позиций не найдено.</td></tr>
+                }
+                @foreach (var i in _list.Items)
+                {
+                    <tr class="@(i.IsArchived ? "archived" : null)">
+                        <td>@i.Code</td>
+                        <td>@i.Name @if (i.IsArchived) { <span class="tag">архив</span> }@if (i.Description is not null) { <div class="muted">@i.Description</div> }</td>
+                        <td>@i.TypeName</td>
+                        <td>@i.UnitSymbol</td>
+                        @if (_list.CanEdit || _list.CanArchive)
+                        {
+                            <td>
+                                <div class="row-actions">
+                                    @if (!i.IsArchived && _list.CanEdit)
+                                    {
+                                        <button type="button" class="secondary" @onclick="() => OpenEdit(i)" disabled="@(_busy || _mode != Mode.None)">Изменить</button>
+                                    }
+                                    @if (_list.CanArchive)
+                                    {
+                                        @if (i.IsArchived)
+                                        {
+                                            <button type="button" class="secondary" @onclick="() => RestoreItemAsync(i)" disabled="@_busy">Вернуть</button>
+                                        }
+                                        else
+                                        {
+                                            <button type="button" class="secondary" @onclick="() => ArchiveItemAsync(i)" disabled="@(_busy || _mode != Mode.None)">В архив</button>
+                                        }
+                                    }
+                                </div>
+                            </td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    @if (_list.Total > _list.Items.Count)
+    {
+        <p class="muted">Показано @_list.Items.Count из @_list.Total. Уточните поиск или тип.</p>
+    }
+
+    <h2 style="margin-top: 32px">Единицы измерения</h2>
+    <p class="muted">Знаков после запятой — сколько дробных разрядов допустимо в количестве: штуки целые, килограммы до граммов.</p>
+    @if (_list.CanEdit)
+    {
+        <form class="inline-form" @onsubmit="CreateUnitAsync">
+            <label>Код <input @bind="_unit.Code" maxlength="10" size="6" placeholder="ОКЕИ" /></label>
+            <label>Наименование <input @bind="_unit.Name" maxlength="50" placeholder="Бобина" /></label>
+            <label>Обозначение <input @bind="_unit.Symbol" maxlength="10" size="6" placeholder="боб" /></label>
+            <label>Знаков <input type="number" min="0" max="6" @bind="_unit.Precision" style="width: 70px" /></label>
+            <button type="submit" disabled="@_busy">Добавить</button>
+        </form>
+    }
+    <div class="scroll">
+        <table>
+            <thead><tr><th>Код</th><th>Наименование</th><th>Обозначение</th><th>Знаков</th><th>Позиций</th>@if (_list.CanArchive) { <th>Действия</th> }</tr></thead>
+            <tbody>
+                @foreach (var u in _units)
+                {
+                    <tr class="@(u.IsArchived ? "archived" : null)">
+                        <td>@u.Code</td><td>@u.Name @if (u.IsArchived) { <span class="tag">архив</span> }</td><td>@u.Symbol</td><td>@u.Precision</td><td>@u.ItemCount</td>
+                        @if (_list.CanArchive)
+                        {
+                            <td>
+                                @if (!u.IsArchived)
+                                {
+                                    <button type="button" class="secondary" @onclick="() => ArchiveUnitAsync(u)" disabled="@_busy">В архив</button>
+                                }
+                            </td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private enum Mode { None, Create, Edit }
+
+    private ItemListDto? _list;
+    private IReadOnlyList<UnitDto> _units = [];
+    private ItemForm _form = new();
+    private UnitCommandForm _unit = new();
+    private ItemDto? _target;
+    private Mode _mode;
+    private bool _busy;
+    private string? _denied;
+    private string? _formError;
+    private string? _flash;
+    private bool _flashIsError;
+    private string _typeFilter = string.Empty;
+    private string _search = string.Empty;
+    private bool _includeArchived;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = ex.Message;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        ItemType? type = byte.TryParse(_typeFilter, out var t) ? (ItemType)t : null;
+        _list = await Catalog.ListItemsAsync(new ItemFilter(type, _search, _includeArchived));
+        _units = await Catalog.ListUnitsAsync(_includeArchived);
+    }
+
+    private Task ReloadAsync() => RunAsync(() => Task.CompletedTask, null);
+
+    private void OpenCreate()
+    {
+        _flash = null;
+        _flashIsError = false;
+        _formError = null;
+        _target = null;
+        _form = new ItemForm { UnitId = _units.FirstOrDefault(u => u.Code == "796")?.Id ?? 0 };
+        _mode = Mode.Create;
+    }
+
+    private void OpenEdit(ItemDto i)
+    {
+        _flash = null;
+        _flashIsError = false;
+        _formError = null;
+        _target = i;
+        _form = new ItemForm { Code = i.Code, Name = i.Name, Type = i.Type, UnitId = i.UnitId, Description = i.Description };
+        _mode = Mode.Edit;
+    }
+
+    private void Close()
+    {
+        _mode = Mode.None;
+        _target = null;
+        _formError = null;
+    }
+
+    private Task SaveItemAsync() => RunAsync(async () =>
+    {
+        var cmd = new ItemCommand(_form.Code, _form.Name, _form.Type, _form.UnitId, _form.Description);
+        if (_mode == Mode.Create)
+        {
+            await Catalog.CreateItemAsync(cmd);
+        }
+        else
+        {
+            await Catalog.UpdateItemAsync(_target!.Id, cmd, _target.RowVersion);
+        }
+
+        Close();
+    }, "Позиция сохранена.");
+
+    private Task ArchiveItemAsync(ItemDto i) => RunAsync(() => Catalog.ArchiveItemAsync(i.Id, i.RowVersion), $"Позиция «{i.Name}» в архиве.");
+
+    private Task RestoreItemAsync(ItemDto i) =>
+        RunAsync(() => Catalog.RestoreItemAsync(i.Id, i.RowVersion), $"Позиция «{i.Name}» возвращена из архива.");
+
+    private Task ArchiveUnitAsync(UnitDto u) => RunAsync(() => Catalog.ArchiveUnitAsync(u.Id, u.RowVersion), $"Единица «{u.Name}» в архиве.");
+
+    private Task CreateUnitAsync() => RunAsync(async () =>
+    {
+        await Catalog.CreateUnitAsync(new UnitCommand(_unit.Code, _unit.Name, _unit.Symbol, _unit.Precision));
+        _unit = new UnitCommandForm();
+    }, "Единица добавлена.");
+
+    /// <summary>Одна операция за раз, затем свежие данные: у вкладки один DbContext.</summary>
+    private async Task RunAsync(Func<Task> action, string? success)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _flash = null;
+        _flashIsError = false;
+        _formError = null;
+        try
+        {
+            await action();
+            _flash = success;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            if (_mode == Mode.None)
+            {
+                _flash = UiErrors.Message(ex);
+                _flashIsError = true;
+            }
+            else
+            {
+                _formError = UiErrors.Message(ex);
+            }
+        }
+        finally
+        {
+            try
+            {
+                await LoadAsync();
+            }
+            finally
+            {
+                _busy = false;
+            }
+        }
+    }
+
+    private sealed class ItemForm
+    {
+        public string Code { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public ItemType Type { get; set; } = ItemType.RawMaterial;
+        public long UnitId { get; set; }
+        public string? Description { get; set; }
+    }
+
+    private sealed class UnitCommandForm
+    {
+        public string Code { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string Symbol { get; set; } = string.Empty;
+        public byte Precision { get; set; }
+    }
+}

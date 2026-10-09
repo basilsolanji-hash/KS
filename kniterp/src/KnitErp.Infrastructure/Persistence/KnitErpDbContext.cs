@@ -2,7 +2,9 @@ using KnitErp.Application.Common;
 using KnitErp.Domain.Access;
 using KnitErp.Domain.Audit;
 using KnitErp.Domain.Organizations;
+using KnitErp.Domain.Catalog;
 using KnitErp.Domain.Structure;
+using KnitErp.Domain.Warehousing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
@@ -21,6 +23,10 @@ public sealed class KnitErpDbContext(DbContextOptions<KnitErpDbContext> options)
     public DbSet<Department> Departments => Set<Department>();
     public DbSet<Position> Positions => Set<Position>();
     public DbSet<Employee> Employees => Set<Employee>();
+    public DbSet<UnitOfMeasure> Units => Set<UnitOfMeasure>();
+    public DbSet<Item> Items => Set<Item>();
+    public DbSet<Site> Sites => Set<Site>();
+    public DbSet<Warehouse> Warehouses => Set<Warehouse>();
 
     public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default) =>
         Database.BeginTransactionAsync(cancellationToken);

@@ -155,9 +155,9 @@ public sealed class Employee
 
     private void SetName(string lastName, string firstName, string? middleName)
     {
-        LastName = StructureText.Require(lastName, NamePartMaxLength, "Фамилия");
-        FirstName = StructureText.Require(firstName, NamePartMaxLength, "Имя");
-        MiddleName = StructureText.Optional(middleName, NamePartMaxLength, "Отчество");
+        LastName = DomainText.Require(lastName, NamePartMaxLength, "Фамилия");
+        FirstName = DomainText.Require(firstName, NamePartMaxLength, "Имя");
+        MiddleName = DomainText.Optional(middleName, NamePartMaxLength, "Отчество");
     }
 
     private void EnsureNotDismissed()

@@ -1,7 +1,9 @@
 using KnitErp.Domain.Access;
 using KnitErp.Domain.Audit;
 using KnitErp.Domain.Organizations;
+using KnitErp.Domain.Catalog;
 using KnitErp.Domain.Structure;
+using KnitErp.Domain.Warehousing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -134,6 +136,9 @@ internal sealed class RoleAssignmentConfiguration : IEntityTypeConfiguration<Rol
         b.HasOne<Department>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.DepartmentId })
             .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("fk_role_assignments_department");
+        b.HasOne<Warehouse>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.WarehouseId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_role_assignments_warehouse");
         b.HasIndex(x => new { x.OrganizationId, x.UserId }).HasDatabaseName("ix_role_assignments_org_user");
     }
 }
@@ -228,5 +233,85 @@ internal sealed class EmployeeConfiguration : IEntityTypeConfiguration<Employee>
         b.HasIndex(x => new { x.OrganizationId, x.UserId }).IsUnique().HasFilter("[UserId] IS NOT NULL")
             .HasDatabaseName("ux_employees_org_user");
         b.HasIndex(x => new { x.OrganizationId, x.DepartmentId }).HasDatabaseName("ix_employees_org_department");
+    }
+}
+
+internal sealed class UnitOfMeasureConfiguration : IEntityTypeConfiguration<UnitOfMeasure>
+{
+    public void Configure(EntityTypeBuilder<UnitOfMeasure> b)
+    {
+        b.ToTable("units", t => t.HasCheckConstraint("ck_units_precision", $"[Precision] BETWEEN 0 AND {UnitOfMeasure.MaxPrecision}"));
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Code).HasMaxLength(UnitOfMeasure.CodeMaxLength).IsRequired();
+        b.Property(x => x.Name).HasMaxLength(UnitOfMeasure.NameMaxLength).IsRequired();
+        b.Property(x => x.Symbol).HasMaxLength(UnitOfMeasure.SymbolMaxLength).IsRequired();
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_units_org_id");
+        b.HasIndex(x => new { x.OrganizationId, x.Code }).IsUnique().HasDatabaseName("ux_units_org_code");
+    }
+}
+
+internal sealed class ItemConfiguration : IEntityTypeConfiguration<Item>
+{
+    public void Configure(EntityTypeBuilder<Item> b)
+    {
+        b.ToTable("items", t =>
+        {
+            t.HasCheckConstraint("ck_items_type", "[Type] IN (1, 2, 3, 4, 5, 6, 9)");
+            t.HasCheckConstraint("ck_items_archived", "[IsArchived] = 0 OR [ArchivedAtUtc] IS NOT NULL");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Code).HasMaxLength(Item.CodeMaxLength).IsRequired();
+        b.Property(x => x.Name).HasMaxLength(Item.NameMaxLength).IsRequired();
+        b.Property(x => x.Description).HasMaxLength(Item.DescriptionMaxLength);
+        b.Property(x => x.Type).HasConversion<byte>();
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_items_org_id");
+        b.HasOne<UnitOfMeasure>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.UnitId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_items_unit");
+        // Код уникален навсегда, включая архив: старые документы не должны указывать на другую вещь.
+        b.HasIndex(x => new { x.OrganizationId, x.Code }).IsUnique().HasDatabaseName("ux_items_org_code");
+        b.HasIndex(x => new { x.OrganizationId, x.Type, x.Name }).HasDatabaseName("ix_items_org_type_name");
+    }
+}
+
+internal sealed class SiteConfiguration : IEntityTypeConfiguration<Site>
+{
+    public void Configure(EntityTypeBuilder<Site> b)
+    {
+        b.ToTable("sites");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Name).HasMaxLength(Site.NameMaxLength).IsRequired();
+        b.Property(x => x.Address).HasMaxLength(Site.AddressMaxLength);
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_sites_org_id");
+        b.HasIndex(x => new { x.OrganizationId, x.Name }).IsUnique().HasFilter("[IsArchived] = 0")
+            .HasDatabaseName("ux_sites_org_name_active");
+    }
+}
+
+internal sealed class WarehouseConfiguration : IEntityTypeConfiguration<Warehouse>
+{
+    public void Configure(EntityTypeBuilder<Warehouse> b)
+    {
+        b.ToTable("warehouses");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Name).HasMaxLength(Warehouse.NameMaxLength).IsRequired();
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_warehouses_org_id");
+        b.HasOne<Site>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.SiteId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_warehouses_site");
+        b.HasIndex(x => new { x.OrganizationId, x.Name }).IsUnique().HasFilter("[IsArchived] = 0")
+            .HasDatabaseName("ux_warehouses_org_name_active");
     }
 }

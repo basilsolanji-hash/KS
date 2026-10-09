@@ -27,7 +27,7 @@ public sealed class Department
     public static Department Create(long organizationId, string name, long? parentId, DateTime nowUtc) => new()
     {
         OrganizationId = organizationId,
-        Name = StructureText.Require(name, NameMaxLength, "Название подразделения"),
+        Name = DomainText.Require(name, NameMaxLength, "Название подразделения"),
         ParentId = parentId,
         CreatedAtUtc = nowUtc,
     };
@@ -35,7 +35,7 @@ public sealed class Department
     public FieldChange? Rename(string name)
     {
         EnsureActive();
-        var value = StructureText.Require(name, NameMaxLength, "Название подразделения");
+        var value = DomainText.Require(name, NameMaxLength, "Название подразделения");
         if (value == Name)
         {
             return null;
@@ -112,7 +112,7 @@ public sealed class Position
     public static Position Create(long organizationId, string name, DateTime nowUtc) => new()
     {
         OrganizationId = organizationId,
-        Name = StructureText.Require(name, NameMaxLength, "Название должности"),
+        Name = DomainText.Require(name, NameMaxLength, "Название должности"),
         CreatedAtUtc = nowUtc,
     };
 
@@ -123,7 +123,7 @@ public sealed class Position
             throw new BusinessRuleException("structure.position.archived", "Должность в архиве.");
         }
 
-        var value = StructureText.Require(name, NameMaxLength, "Название должности");
+        var value = DomainText.Require(name, NameMaxLength, "Название должности");
         if (value == Name)
         {
             return null;
@@ -149,26 +149,4 @@ public sealed class Position
 
         IsArchived = true;
     }
-}
-
-internal static class StructureText
-{
-    public static string Require(string? value, int maxLength, string field)
-    {
-        var v = value?.Trim();
-        if (string.IsNullOrEmpty(v))
-        {
-            throw new BusinessRuleException("structure.field.required", $"Поле «{field}» обязательно.");
-        }
-
-        if (v.Length > maxLength)
-        {
-            throw new BusinessRuleException("structure.field.too_long", $"Поле «{field}» длиннее {maxLength} символов.");
-        }
-
-        return v;
-    }
-
-    public static string? Optional(string? value, int maxLength, string field) =>
-        string.IsNullOrWhiteSpace(value) ? null : Require(value, maxLength, field);
 }
