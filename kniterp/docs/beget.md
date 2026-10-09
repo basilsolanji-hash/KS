@@ -120,12 +120,29 @@ docker compose run --rm app emergency-access --email <почта> --reason "<п�
 
 Оповещение приходит после двух неудачных проверок подряд, при восстановлении — сообщение «Восстановлено»,
 нерешённая проблема напоминает о себе раз в 6 часов. Оповещения пишутся в журнал системы
-(`journalctl -t kniterp-monitor`) и, если заданы в `.env`, в Telegram:
+(`journalctl -t kniterp-monitor`) и, если заданы в `.env`, уходят в Telegram и на почту.
+
+**Telegram:**
 
 1. В Telegram написать @BotFather → `/newbot` → получить токен бота.
 2. Написать боту любое сообщение (или добавить его в общий чат), открыть
    `https://api.telegram.org/bot<токен>/getUpdates` и взять `chat.id`.
 3. Вписать в `/opt/kniterp/src/kniterp/deploy/beget/.env` строки `TELEGRAM_BOT_TOKEN=…` и `TELEGRAM_CHAT_ID=…`.
+
+**Почта** — через обычный почтовый ящик (отправлять письма прямо с облачного сервера нельзя: порт 25 закрыт, а такие
+письма попадают в спам). Удобно завести отдельный ящик, например `kniterp-alerts@yandex.ru`:
+
+1. Яндекс ID → «Безопасность» → «Пароли приложений» → «Почта» — создать пароль приложения (обычный пароль не подойдёт).
+2. В `.env` вписать:
+   ```
+   ALERT_EMAIL_TO=владелец@фабрика.ru,админ@фабрика.ru
+   SMTP_URL=smtps://smtp.yandex.ru:465
+   SMTP_USER=kniterp-alerts@yandex.ru
+   SMTP_PASSWORD=<пароль приложения>
+   ```
+   Для Mail.ru — `smtps://smtp.mail.ru:465` и пароль для внешних приложений.
+
+Проверить каналы: `./monitor.sh test` — пробное сообщение в Telegram и на почту.
 
 Проверить сейчас: `./monitor.sh status` — состояние всех проверок без оповещений. Пороги меняются переменными
 `DISK_MIN_FREE_PCT`, `FULL_MAX_AGE_H`, `LOG_MAX_AGE_MIN`, `CERT_MIN_DAYS` в `.env`.

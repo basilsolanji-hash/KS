@@ -2,8 +2,10 @@
 # Наблюдение за knitERP на сервере (D62): cron каждую минуту запускает ./monitor.sh.
 # Проверки: /health приложения, срок сертификата HTTPS, место на диске, свежесть резервных копий.
 # Оповещение — после двух неудачных проверок подряд (одиночный сбой не будит людей) и ещё раз, когда всё
-# восстановилось. Куда: журнал системы (journalctl -t kniterp-monitor) и Telegram, если в .env заданы
-# TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID. Нерешённая проблема напоминает о себе раз в 6 часов.
+# восстановилось. Куда: журнал системы (journalctl -t kniterp-monitor), Telegram (TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID
+# в .env) и почта (ALERT_EMAIL_TO и SMTP_* в .env — через почтовый ящик, например Яндекса: порт 25 у облачных серверов
+# обычно закрыт, поэтому письмо уходит через SMTP с входом). Нерешённая проблема напоминает о себе раз в 6 часов.
+# ./monitor.sh test — отправить пробное оповещение во все настроенные каналы.
 # ./monitor.sh status — текущее состояние всех проверок без оповещений.
 set -uo pipefail
 cd "$(dirname "$0")"
@@ -18,6 +20,7 @@ CERT_MIN_DAYS="${CERT_MIN_DAYS:-14}"
 REMIND_MIN="${REMIND_MIN:-360}"
 MODE="${1:-check}"
 mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR"
 
 # Каждая проверка печатает пустую строку, если всё в порядке, иначе — описание проблемы.
 check_health() {
@@ -60,12 +63,34 @@ check_cert() {
   (( days >= CERT_MIN_DAYS )) || echo "Сертификат HTTPS истекает через $days дн. — проверьте Caddy (journalctl -u caddy)"
 }
 
+send_email() {
+  local subject="$1" text="$2" to
+  {
+    printf 'From: knitERP <%s>\r\n' "${SMTP_FROM:-$SMTP_USER}"
+    printf 'To: %s\r\n' "$ALERT_EMAIL_TO"
+    printf 'Subject: =?UTF-8?B?%s?=\r\n' "$(printf '%s' "$subject" | base64 -w0)"
+    printf 'Date: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n' "$(date -R)"
+    printf '%s\n' "$text" | base64
+  } > "$STATE_DIR/mail.eml"
+  local rcpt=()
+  for to in ${ALERT_EMAIL_TO//,/ }; do rcpt+=(--mail-rcpt "$to"); done
+  # Шифрование обязательно (smtps:// или STARTTLS); SMTP_REQUIRE_TLS=no — только для проверки на тестовом стенде.
+  local tls=(--ssl-reqd)
+  [[ "${SMTP_REQUIRE_TLS:-yes}" == no ]] && tls=()
+  curl -fsS --max-time 30 "${tls[@]}" "$SMTP_URL" --user "$SMTP_USER:$SMTP_PASSWORD" \
+    --mail-from "${SMTP_FROM:-$SMTP_USER}" "${rcpt[@]}" --upload-file "$STATE_DIR/mail.eml" >/dev/null
+}
+
 notify() {
+  local text="knitERP ${KNITERP_DOMAIN:-}: $1"
   logger -t kniterp-monitor -- "$1"
   if [[ -n "${TELEGRAM_BOT_TOKEN:-}" && -n "${TELEGRAM_CHAT_ID:-}" ]]; then
     curl -fsS --max-time 15 "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
-      --data-urlencode "chat_id=$TELEGRAM_CHAT_ID" --data-urlencode "text=knitERP ${KNITERP_DOMAIN:-}: $1" >/dev/null \
+      --data-urlencode "chat_id=$TELEGRAM_CHAT_ID" --data-urlencode "text=$text" >/dev/null \
       || logger -t kniterp-monitor -- "Не удалось отправить оповещение в Telegram"
+  fi
+  if [[ -n "${ALERT_EMAIL_TO:-}" && -n "${SMTP_URL:-}" && -n "${SMTP_USER:-}" ]]; then
+    send_email "$text" "$1" || logger -t kniterp-monitor -- "Не удалось отправить оповещение на почту"
   fi
 }
 
@@ -92,6 +117,12 @@ run() {
   fi
   echo "$fails $alerted $at" > "$file"
 }
+
+if [[ "$MODE" == test ]]; then
+  notify "Пробное оповещение: каналы настроены. Время сервера $(date '+%d.%m.%Y %H:%M')."
+  echo "Отправлено во все настроенные каналы; ошибки — в journalctl -t kniterp-monitor."
+  exit 0
+fi
 
 run health "$(check_health)"
 run disk "$(check_disk)"
