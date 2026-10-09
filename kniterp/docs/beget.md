@@ -110,11 +110,31 @@ cd /opt/kniterp/src/kniterp/deploy/beget && ./update.sh
 docker compose run --rm app emergency-access --email <почта> --reason "<причина, № акта>" --url https://erp.ваша-фабрика.ru
 ```
 
-## 7. Обслуживание
+## 7. Наблюдение и оповещения
+
+`install.sh` ставит `monitor.sh` в cron каждую минуту. Он проверяет:
+- `/health` приложения (`Healthy` — база доступна и схема актуальна);
+- свободное место на диске (меньше 10% — проблема);
+- свежесть копий: полная — не старше 26 часов, журнал транзакций — не старше 60 минут;
+- сертификат HTTPS — раз в час, проблема за 14 дней до окончания.
+
+Оповещение приходит после двух неудачных проверок подряд, при восстановлении — сообщение «Восстановлено»,
+нерешённая проблема напоминает о себе раз в 6 часов. Оповещения пишутся в журнал системы
+(`journalctl -t kniterp-monitor`) и, если заданы в `.env`, в Telegram:
+
+1. В Telegram написать @BotFather → `/newbot` → получить токен бота.
+2. Написать боту любое сообщение (или добавить его в общий чат), открыть
+   `https://api.telegram.org/bot<токен>/getUpdates` и взять `chat.id`.
+3. Вписать в `/opt/kniterp/src/kniterp/deploy/beget/.env` строки `TELEGRAM_BOT_TOKEN=…` и `TELEGRAM_CHAT_ID=…`.
+
+Проверить сейчас: `./monitor.sh status` — состояние всех проверок без оповещений. Пороги меняются переменными
+`DISK_MIN_FREE_PCT`, `FULL_MAX_AGE_H`, `LOG_MAX_AGE_MIN`, `CERT_MIN_DAYS` в `.env`.
+
+## 8. Обслуживание
 
 | Задача | Команда |
 |---|---|
-| Состояние | `docker compose ps`, `curl -s http://127.0.0.1:8080/health` |
+| Состояние | `./monitor.sh status`, `docker compose ps` |
 | Журнал приложения | `docker compose logs app --tail 200` |
 | Перезапуск | `docker compose restart app` |
 | Обновления Ubuntu | `apt-get update && apt-get upgrade` раз в месяц; затем `docker compose up -d` |

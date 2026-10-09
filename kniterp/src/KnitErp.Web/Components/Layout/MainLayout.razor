@@ -93,6 +93,7 @@
         ("stock", L("Остатки"), a => a.Has(Permissions.WarehouseReportView)),
         ("reports/movements", L("Движения"), a => a.Has(Permissions.WarehouseReportView)),
         ("reports/turnover", L("Обороты"), a => a.Has(Permissions.WarehouseReportView)),
+        ("reports/inventory-variances", L("Отклонения инвентаризации"), a => a.Has(Permissions.WarehouseReportView)),
         ("reconciliation", L("Сверка"), a => a.Has(Permissions.WarehouseReportView)),
         ("period", L("Закрытие периода"), a => a.Has(Permissions.ClosedPeriodReopen) || a.Has(Permissions.WarehouseReportView)),
         ("users", L("Пользователи"), a => a.Has(Permissions.UserView)),

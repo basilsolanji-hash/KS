@@ -240,6 +240,9 @@ app.MapGet("/reports/movements.xlsx", (long? warehouse, DateOnly? from, DateOnly
 app.MapGet("/reports/turnover.xlsx", (long? warehouse, DateOnly from, DateOnly to, byte? type, string? search, KnitErp.Web.Exports.ReportExports export, CancellationToken ct) =>
     FileOrForbid(() => export.TurnoverAsync(new TurnoverFilter(warehouse, from, to, (KnitErp.Domain.Catalog.ItemType?)type, search), ct),
         $"oboroty-{from:yyyy-MM-dd}-{to:yyyy-MM-dd}.xlsx"));
+app.MapGet("/reports/inventory-variances.xlsx", (long? warehouse, DateOnly from, DateOnly to, string? search, KnitErp.Web.Exports.ReportExports export, CancellationToken ct) =>
+    FileOrForbid(() => export.InventoryVariancesAsync(new InventoryVarianceFilter(warehouse, from, to, search), ct),
+        $"otkloneniya-inventarizacii-{from:yyyy-MM-dd}-{to:yyyy-MM-dd}.xlsx"));
 app.MapGet("/audit.xlsx", (KnitErp.Web.Exports.ReportExports export, CancellationToken ct) =>
     FileOrForbid(() => export.AuditAsync(ct), $"zhurnal-audita-{DateTime.UtcNow:yyyy-MM-dd}.xlsx"));
 app.MapGet("/signins.xlsx", (DateOnly? from, DateOnly? to, bool? failures, KnitErp.Web.Exports.ReportExports export, CancellationToken ct) =>

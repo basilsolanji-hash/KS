@@ -73,6 +73,22 @@ public sealed class InventoryAndReportsTests(SqlTestHost host) : IClassFixture<S
             var october = await s.Reports.TurnoverAsync(new TurnoverFilter(f.Yarn, new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 31), null, null));
             var wool = october.Single(r => r.Code == "ПР-1");
             Assert.Equal((30m, 0m, 1.5m, 28.5m), (wool.Opening, wool.Incoming, wool.Outgoing, wool.Closing));
+
+            // Отклонения инвентаризации: только расхождения проведённой инвентаризации, с комментарием документа.
+            var variances = await s.Reports.InventoryVariancesAsync(new InventoryVarianceFilter(null, new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 31), null));
+            Assert.Equal((1, 1, 1), (variances.Documents, variances.SurplusLines, variances.ShortageLines));
+            Assert.Equal([("ПР-1", 30m, 28.5m, -1.5m), ("Ф-1", 100m, 104m, 4m)],
+                variances.Rows.Select(r => (r.Code, r.Book, r.Counted, r.Difference)).OrderBy(r => r.Code));
+            Assert.All(variances.Rows, r => Assert.Equal(("ИН-000001", "Недостача пряжи — усушка"), (r.Number, r.Comment)));
+            Assert.Single((await s.Reports.InventoryVariancesAsync(new InventoryVarianceFilter(f.Yarn, Oct5, Oct5, "Ф-1"))).Rows);
+            Assert.Equal(0, (await s.Reports.InventoryVariancesAsync(new InventoryVarianceFilter(f.Shop, Oct5, Oct5, null))).Documents);
+            Assert.Empty((await s.Reports.InventoryVariancesAsync(new InventoryVarianceFilter(null, Sep10, Sep20, null))).Rows);
+            Assert.Equal("report.period", (await Assert.ThrowsAsync<BusinessRuleException>(() =>
+                s.Reports.InventoryVariancesAsync(new InventoryVarianceFilter(null, Oct5, Sep20, null)))).Code);
+
+            // Черновик инвентаризации в отчёт не попадает.
+            await s.Inventory.CreateAsync(f.Shop, Oct5, null);
+            Assert.Equal(1, (await s.Reports.InventoryVariancesAsync(new InventoryVarianceFilter(null, Oct5, Oct5, null))).Documents);
         }
     }
 

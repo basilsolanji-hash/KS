@@ -23,6 +23,22 @@ public sealed record TurnoverRowDto(
 
 public sealed record MovementReport(IReadOnlyList<MovementRowDto> Rows, bool Truncated);
 
+public sealed record InventoryVarianceFilter(long? WarehouseId, DateOnly From, DateOnly To, string? Search);
+
+/// <summary>Строка отклонения: факт − учёт; плюс — излишек, минус — недостача.</summary>
+public sealed record InventoryVarianceRowDto(
+    DateOnly Date, long InventoryId, string Number, string WarehouseName, string Code, string Name, string UnitSymbol,
+    decimal Book, decimal Counted, string? Comment)
+{
+    public decimal Difference => Counted - Book;
+}
+
+public sealed record InventoryVarianceReport(IReadOnlyList<InventoryVarianceRowDto> Rows, int Documents)
+{
+    public int SurplusLines => Rows.Count(r => r.Difference > 0);
+    public int ShortageLines => Rows.Count(r => r.Difference < 0);
+}
+
 /// <summary>
 /// Отчёты по регистру движений: «Движения» — каждая строка регистра с документом-источником,
 /// «Обороты» — остаток на начало, приход, расход и остаток на конец периода. Область склада — как у «Остатков».
@@ -117,6 +133,52 @@ public sealed class StockReportService(IKnitErpDbContext db, IAccessGuard guard)
             .Select(r => new TurnoverRowDto(r.WarehouseName, r.i.Code, r.i.Name, r.Symbol, r.s.Opening, r.s.Incoming, r.s.Outgoing))
             .ToListAsync(ct);
         return list.Where(r => r.Opening != 0 || r.Incoming != 0 || r.Outgoing != 0).ToList();
+    }
+
+    /// <summary>
+    /// Отклонения инвентаризации: строки проведённых инвентаризаций за период, где факт не совпал с учётом.
+    /// Учёт — на момент проведения, поэтому отчёт показывает то, что ушло в излишки и недостачи.
+    /// </summary>
+    public async Task<InventoryVarianceReport> InventoryVariancesAsync(InventoryVarianceFilter filter, CancellationToken ct = default)
+    {
+        var ctx = await guard.DemandAsync(Permissions.WarehouseReportView, ct);
+        if (filter.To < filter.From)
+        {
+            throw new Domain.Common.BusinessRuleException("report.period", "Дата окончания раньше даты начала.");
+        }
+
+        var visible = WarehouseScope.Visible(ctx, Permissions.WarehouseReportView);
+        var docs = db.InventoryCounts.AsNoTracking().Where(d => d.OrganizationId == ctx.OrganizationId && d.Status == InventoryStatus.Posted
+                                                                && d.CountDate >= filter.From && d.CountDate <= filter.To);
+        if (visible is not null)
+        {
+            docs = docs.Where(d => visible.Contains(d.WarehouseId));
+        }
+
+        if (filter.WarehouseId is { } wh)
+        {
+            docs = docs.Where(d => d.WarehouseId == wh);
+        }
+
+        var documents = await docs.CountAsync(ct);
+        var rows = from d in docs
+                   from l in d.Lines
+                   where l.CountedQuantity != null && l.CountedQuantity != l.BookQuantity
+                   join i in db.Items.AsNoTracking() on l.ItemId equals i.Id
+                   join u in db.Units.AsNoTracking() on i.UnitId equals u.Id
+                   join w in db.Warehouses.AsNoTracking() on d.WarehouseId equals w.Id
+                   select new { d, l, i.Code, i.Name, u.Symbol, Warehouse = w.Name };
+        if (!string.IsNullOrWhiteSpace(filter.Search))
+        {
+            var text = filter.Search.Trim();
+            rows = rows.Where(r => r.Code.Contains(text) || r.Name.Contains(text));
+        }
+
+        var list = await rows.OrderBy(r => r.d.CountDate).ThenBy(r => r.d.Id).ThenBy(r => r.Name).Take(5000)
+            .Select(r => new InventoryVarianceRowDto(r.d.CountDate, r.d.Id, r.d.Number, r.Warehouse, r.Code, r.Name, r.Symbol,
+                r.l.BookQuantity, r.l.CountedQuantity!.Value, r.d.Comment))
+            .ToListAsync(ct);
+        return new InventoryVarianceReport(list, documents);
     }
 
     private IQueryable<StockMovement> Scoped(AccessContext ctx, long? warehouseId)

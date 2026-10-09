@@ -92,7 +92,11 @@ cat > /etc/cron.d/kniterp-backup <<CRON
 30 2 * * * root $(pwd)/backup.sh full >> /var/log/kniterp-backup.log 2>&1
 */15 * * * * root $(pwd)/backup.sh log >> /var/log/kniterp-backup.log 2>&1
 CRON
-chmod +x backup.sh update.sh
+cat > /etc/cron.d/kniterp-monitor <<CRON
+# knitERP: наблюдение каждую минуту — /health, диск, свежесть копий, сертификат (D62).
+* * * * * root $(pwd)/monitor.sh >> /var/log/kniterp-monitor.log 2>&1
+CRON
+chmod +x backup.sh update.sh monitor.sh
 ./backup.sh full
 
 for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8080/health >/dev/null 2>&1 && break; sleep 2; done

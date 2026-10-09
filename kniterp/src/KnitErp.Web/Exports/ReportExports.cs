@@ -40,6 +40,17 @@ public sealed class ReportExports(
                 r.UnitSymbol, "")).ToList(), Numeric(3, 4, 5, 6))]);
     }
 
+    public async Task<byte[]> InventoryVariancesAsync(InventoryVarianceFilter filter, CancellationToken ct)
+    {
+        var report = await reports.InventoryVariancesAsync(filter, ct);
+        var title = $"Отклонения инвентаризации {filter.From:dd.MM.yyyy}–{filter.To:dd.MM.yyyy}";
+        return spreadsheet.Write([new SheetData("Отклонения", ["Дата", "Инвентаризация", "Склад", "Код", "Наименование", "Учёт", "Факт",
+                "Излишек", "Недостача", "Ед.", "Комментарий", title],
+            report.Rows.Select(r => Row(r.Date.ToString("dd.MM.yyyy"), r.Number, r.WarehouseName, r.Code, r.Name, Number(r.Book), Number(r.Counted),
+                r.Difference > 0 ? Number(r.Difference) : "", r.Difference < 0 ? Number(-r.Difference) : "", r.UnitSymbol, r.Comment ?? "", "")).ToList(),
+            Numeric(5, 6, 7, 8))]);
+    }
+
     public async Task<byte[]> AuditAsync(CancellationToken ct)
     {
         var rows = await audit.ListAsync(1000, ct);
