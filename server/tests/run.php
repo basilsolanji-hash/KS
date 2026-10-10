@@ -161,8 +161,8 @@ ok($O(['action' => 'stageStart', 'job_id' => $job['id'], 'stage' => 'knit'])['er
 $now += 95 * 60000;
 $fin = $O(['action' => 'stageFinish', 'id' => $st['id'], 'quantity' => 600]);
 ok($fin['ok'] && $fin['minutes'] === 95, 'вязание: 95 минут');
-$jobs = $D(['action' => 'jobs'])['jobs'];
-ok($jobs[0]['stages'][0]['startedBy'] === 'Олег' && $jobs[0]['stages'][0]['quantity'] === 600, 'кто и сколько');
+$savedJob = array_values(array_filter($D(['action' => 'jobs'])['jobs'], fn($j) => $j['id'] === $job['id']))[0];
+ok($savedJob['stages'][0]['startedBy'] === 'Олег' && $savedJob['stages'][0]['quantity'] === 600, 'кто и сколько');
 // Выработку нельзя накрутить: этап сделан полностью — новый не начать; больше остатка — нельзя; чужой этап — нельзя.
 ok($O(['action' => 'stageStart', 'job_id' => $job['id'], 'stage' => 'knit'])['error'] === 'Этап уже выполнен полностью', 'вязание уже сделано');
 $op2 = $D(['action' => 'employeeSave', 'employee' => ['name' => 'Игорь', 'role' => 'operator']]);
