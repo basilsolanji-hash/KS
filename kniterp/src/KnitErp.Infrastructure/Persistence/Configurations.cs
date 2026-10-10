@@ -372,6 +372,9 @@ internal sealed class ItemConfiguration : IEntityTypeConfiguration<Item>
         {
             t.HasCheckConstraint("ck_items_type", "[Type] IN (1, 2, 3, 4, 5, 6, 9)");
             t.HasCheckConstraint("ck_items_archived", "[IsArchived] = 0 OR [ArchivedAtUtc] IS NOT NULL");
+            t.HasCheckConstraint("ck_items_parent", "[ParentItemId] IS NULL OR [ParentItemId] <> [Id]");
+            t.HasCheckConstraint("ck_items_variant",
+                "([ParentItemId] IS NULL AND [VariantKey] IS NULL) OR ([ParentItemId] IS NOT NULL AND [VariantKey] IS NOT NULL)");
         });
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).UseIdentityColumn();
@@ -405,6 +408,14 @@ internal sealed class ItemConfiguration : IEntityTypeConfiguration<Item>
         b.Property(x => x.VolumeM3).HasColumnType("decimal(18,6)");
         b.Property(x => x.MinStock).HasColumnType("decimal(18,6)");
         b.Property(x => x.PurchasePrice).HasColumnType("decimal(19,4)");
+        // Модификации (D82): основная позиция той же организации; набор характеристик уникален у одной основной позиции.
+        b.Property(x => x.VariantKey).HasMaxLength(Variants.KeyMaxLength);
+        b.Ignore(x => x.IsModification);
+        b.HasOne<Item>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.ParentItemId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_items_parent");
+        b.HasIndex(x => new { x.OrganizationId, x.ParentItemId, x.VariantKey }).IsUnique().HasFilter("[ParentItemId] IS NOT NULL")
+            .HasDatabaseName("ux_items_parent_variant");
         b.Ignore(x => x.Details);
     }
 }
@@ -477,6 +488,58 @@ internal sealed class ItemPriceConfiguration : IEntityTypeConfiguration<ItemPric
             .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("fk_item_prices_type");
         b.HasIndex(x => new { x.ItemId, x.PriceTypeId }).IsUnique().HasDatabaseName("ux_item_prices_item_type");
+    }
+}
+
+internal sealed class CharacteristicConfiguration : IEntityTypeConfiguration<Characteristic>
+{
+    public void Configure(EntityTypeBuilder<Characteristic> b)
+    {
+        b.ToTable("characteristics");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Name).HasMaxLength(Characteristic.NameMaxLength).IsRequired();
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_characteristics_org_id");
+        b.HasIndex(x => new { x.OrganizationId, x.Name }).IsUnique().HasFilter("[IsArchived] = 0").HasDatabaseName("ux_characteristics_org_name_active");
+    }
+}
+
+internal sealed class ItemCharacteristicValueConfiguration : IEntityTypeConfiguration<ItemCharacteristicValue>
+{
+    public void Configure(EntityTypeBuilder<ItemCharacteristicValue> b)
+    {
+        b.ToTable("item_characteristic_values");
+        b.HasKey(x => new { x.ItemId, x.CharacteristicId });
+        b.Property(x => x.Value).HasMaxLength(ItemCharacteristicValue.ValueMaxLength).IsRequired();
+        b.HasOne<Item>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.ItemId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_item_characteristic_values_item");
+        b.HasOne<Characteristic>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.CharacteristicId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_item_characteristic_values_characteristic");
+        b.HasIndex(x => new { x.OrganizationId, x.CharacteristicId, x.Value }).HasDatabaseName("ix_item_characteristic_values_value");
+    }
+}
+
+internal sealed class ItemPhotoConfiguration : IEntityTypeConfiguration<ItemPhoto>
+{
+    public void Configure(EntityTypeBuilder<ItemPhoto> b)
+    {
+        b.ToTable("item_photos", t =>
+        {
+            t.HasCheckConstraint("ck_item_photos_size", $"[SizeBytes] BETWEEN 1 AND {ItemPhoto.MaxBytes} AND DATALENGTH([Content]) = [SizeBytes]");
+            t.HasCheckConstraint("ck_item_photos_type", "[ContentType] IN ('image/jpeg', 'image/png', 'image/webp')");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.ContentType).HasColumnType("varchar(20)").IsRequired();
+        b.Property(x => x.Content).HasColumnType("varbinary(max)").IsRequired();
+        b.HasOne<Item>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.ItemId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_item_photos_item");
+        b.HasIndex(x => new { x.ItemId, x.SortOrder }).HasDatabaseName("ix_item_photos_item_order");
     }
 }
 

@@ -4,6 +4,7 @@
 @using KnitErp.Domain.Catalog
 @using KnitErp.Domain.Common
 @inject NomenclatureService Nomenclature
+@inject ModificationService Modifications
 
 <PageTitle>@L("Настройки номенклатуры") — knitERP</PageTitle>
 
@@ -18,7 +19,7 @@ else if (_groups is null)
 else
 {
     <p><a href="catalog">@L("← Номенклатура")</a></p>
-    <h1>@L("Группы, виды цен, доп. поля и свои справочники")</h1>
+    <h1>@L("Группы, виды цен, доп. поля, справочники и характеристики")</h1>
 
     @if (_message is not null)
     {
@@ -366,14 +367,70 @@ else
                 </div>
             </div>
             break;
+
+        case Tab.Characteristics:
+            <p class="muted">@L("Характеристики модификаций: «Цвет», «Размер», «Рост». Значения вводятся у позиции при создании модификаций. Не больше {0}.", Characteristic.MaxCharacteristics)</p>
+            @if (CanEdit)
+            {
+                <form class="inline-form" @onsubmit='() => Run(async () => { await Modifications.CreateCharacteristicAsync(_name); _name = null; }, L("Характеристика добавлена."))'>
+                    <label>@L("Название") <input @bind="_name" maxlength="@Characteristic.NameMaxLength" required placeholder="@L("Размер")" /></label>
+                    <button type="submit" disabled="@_busy">@L("Добавить")</button>
+                </form>
+            }
+            <div class="scroll">
+                <table class="compact">
+                    <thead><tr><th>@L("Характеристика")</th><th class="num">@L("Модификаций")</th>@if (CanEdit) { <th></th> }</tr></thead>
+                    <tbody>
+                        @if (_characteristics.Count == 0)
+                        {
+                            <tr><td colspan="3" class="muted">@L("Характеристик пока нет.")</td></tr>
+                        }
+                        @foreach (var c in _characteristics)
+                        {
+                            <tr class="@(c.IsArchived ? "archived" : null)">
+                                @if (_editId == c.Id && _tab == Tab.Characteristics)
+                                {
+                                    <td><input @bind="_editName" maxlength="@Characteristic.NameMaxLength" aria-label="@L("Название")" /></td>
+                                    <td class="num">@c.Used</td>
+                                    <td>
+                                        <button type="button" @onclick='() => Run(async () => { await Modifications.RenameCharacteristicAsync(c.Id, _editName, c.RowVersion); _editId = null; }, L("Сохранено."))' disabled="@_busy">@L("Сохранить")</button>
+                                        <button type="button" class="secondary" @onclick="() => _editId = null">@L("Отмена")</button>
+                                    </td>
+                                }
+                                else
+                                {
+                                    <td>@c.Name @if (c.IsArchived) { <span class="tag">@L("архив")</span> }</td>
+                                    <td class="num">@c.Used</td>
+                                    @if (CanEdit)
+                                    {
+                                        <td>
+                                            @if (!c.IsArchived)
+                                            {
+                                                <button type="button" class="secondary" @onclick="() => { _editId = c.Id; _editName = c.Name; }" disabled="@_busy">@L("Изменить")</button>
+                                                <button type="button" class="secondary" @onclick='() => Run(() => Modifications.SetCharacteristicArchivedAsync(c.Id, true, c.RowVersion), L("«{0}» в архиве.", c.Name))' disabled="@_busy">@L("В архив")</button>
+                                            }
+                                            else
+                                            {
+                                                <button type="button" class="secondary" @onclick='() => Run(() => Modifications.SetCharacteristicArchivedAsync(c.Id, false, c.RowVersion), L("«{0}» снова действует.", c.Name))' disabled="@_busy">@L("Вернуть")</button>
+                                            }
+                                        </td>
+                                    }
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            break;
     }
 }
 
 @code {
-    private enum Tab { Groups, Prices, Fields, Catalogs }
+    private enum Tab { Groups, Prices, Fields, Catalogs, Characteristics }
 
     private static readonly (Tab Tab, string Title)[] Tabs =
-        [(Tab.Groups, "Группы"), (Tab.Prices, "Виды цен"), (Tab.Fields, "Доп. поля"), (Tab.Catalogs, "Свои справочники")];
+        [(Tab.Groups, "Группы"), (Tab.Prices, "Виды цен"), (Tab.Fields, "Доп. поля"), (Tab.Catalogs, "Свои справочники"),
+         (Tab.Characteristics, "Характеристики")];
 
     [CascadingParameter]
     public CurrentAccessDto CurrentAccess { get; set; } = default!;
@@ -387,6 +444,7 @@ else
     private IReadOnlyList<CustomFieldDto>? _fields;
     private IReadOnlyList<UserCatalogDto>? _catalogs;
     private IReadOnlyList<UserCatalogEntryDto> _entries = [];
+    private IReadOnlyList<CharacteristicDto> _characteristics = [];
     private long? _catalogId;
     private bool _busy;
     private string? _denied;
@@ -433,6 +491,7 @@ else
         _catalogs = await Nomenclature.CatalogsAsync(includeArchived: true);
         _catalogId ??= _catalogs.FirstOrDefault()?.Id;
         _entries = _catalogId is { } cid && _catalogs.Any(c => c.Id == cid) ? await Nomenclature.EntriesAsync(cid, includeArchived: true) : [];
+        _characteristics = await Modifications.CharacteristicsAsync(includeArchived: true);
     }
 
     private string TypeName(CustomFieldType type) => type switch

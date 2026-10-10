@@ -4,6 +4,7 @@
 @using KnitErp.Domain.Catalog
 @using KnitErp.Domain.Common
 @inject NomenclatureService Nomenclature
+@inject ModificationService Modifications
 
 <PageTitle>@(_item?.Name ?? L("Позиция")) — knitERP</PageTitle>
 
@@ -33,6 +34,17 @@ else
         <div class="@(_isError ? "flash error" : "flash")" role="@(_isError ? "alert" : "status")">@_message</div>
     }
 
+    @if (_variants?.Parent is { } parent)
+    {
+        <p class="muted">@L("Модификация позиции") <a href="catalog/items/@parent.Id">@parent.Code — @parent.Name</a>:
+            @string.Join(", ", _variants.Values.Select(v => $"{v.Characteristic}: {v.Value}"))</p>
+    }
+
+    <div class="item-head">
+        @if (_photos.Count > 0)
+        {
+            <img class="item-main-photo" src="catalog/photos/@_photos[0].Id" alt="@_item.Name" />
+        }
     <dl class="facts">
         <dt>@L("Код")</dt><dd>@_item.Code</dd>
         <dt>@L("Группа")</dt><dd>@(_item.GroupPath ?? L("без группы"))</dd>
@@ -44,6 +56,7 @@ else
             <dt>@L("Описание")</dt><dd>@_item.Description</dd>
         }
     </dl>
+    </div>
     <p class="muted">@L("Код, наименование, тип, единица и НДС меняются в списке номенклатуры кнопкой «Изменить».")</p>
 
     <h2>@L("Сведения")</h2>
@@ -178,6 +191,40 @@ else
         </form>
     }
 
+    <h2 style="margin-top: 20px">@L("Фото")</h2>
+    <p class="muted">@L("JPEG, PNG или WebP до 2 МБ, не больше {0}. Первое — основное: оно видно в списке номенклатуры.", ItemPhoto.MaxPerItem)</p>
+    @if (_photos.Count > 0)
+    {
+        <div class="photo-strip">
+            @foreach (var ph in _photos)
+            {
+                var photo = ph;
+                <figure>
+                    <a href="catalog/photos/@photo.Id" target="_blank" rel="noopener"><img src="catalog/photos/@photo.Id" alt="@L("Фото позиции")" loading="lazy" /></a>
+                    <figcaption>
+                        @if (photo == _photos[0])
+                        {
+                            <span class="tag ok">@L("основное")</span>
+                        }
+                        else if (editable)
+                        {
+                            <button type="button" class="secondary" @onclick='() => RunAsync(() => Modifications.MakeMainPhotoAsync(photo.Id), L("Основное фото изменено."))' disabled="@_busy">@L("Основное")</button>
+                        }
+                        @if (editable)
+                        {
+                            <button type="button" class="secondary" @onclick='() => RunAsync(() => Modifications.RemovePhotoAsync(photo.Id), L("Фото удалено."))' disabled="@_busy"
+                                    aria-label="@L("Удалить фото")">✕</button>
+                        }
+                    </figcaption>
+                </figure>
+            }
+        </div>
+    }
+    @if (editable && _photos.Count < ItemPhoto.MaxPerItem)
+    {
+        <label class="file-pick">@L("Добавить фото") <InputFile OnChange="UploadAsync" accept="image/jpeg,image/png,image/webp" multiple disabled="@_busy" /></label>
+    }
+
     @if (_item.CanSeePrices)
     {
         <h2 style="margin-top: 20px">@L("Цены")</h2>
@@ -217,6 +264,63 @@ else
             }
         </form>
     }
+
+    @if (_variants is { Parent: null } variants)
+    {
+        <h2 style="margin-top: 20px">@L("Модификации")</h2>
+        <p class="muted">@L("Цвет, размер и другие характеристики. Каждая модификация — отдельная позиция со своим кодом, остатком, штрихкодом и ценой: в документах и отчётах она выбирается как обычная позиция.")</p>
+        @if (variants.Modifications.Count > 0)
+        {
+            <div class="scroll">
+                <table class="compact">
+                    <thead><tr><th>@L("Код")</th><th>@L("Наименование")</th><th>@L("Характеристики")</th><th class="num">@L("Остаток")</th></tr></thead>
+                    <tbody>
+                        @foreach (var m in variants.Modifications)
+                        {
+                            <tr class="@(m.IsArchived ? "archived" : null)">
+                                <td><a href="catalog/items/@m.Id">@m.Code</a></td>
+                                <td>@m.Name @if (m.IsArchived) { <span class="tag">@L("архив")</span> }</td>
+                                <td>@string.Join(", ", m.Values.Select(v => $"{v.Characteristic}: {v.Value}"))</td>
+                                <td class="num">@Quantities.Format(m.Stock) @_item.UnitSymbol</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        @if (editable)
+        {
+            var active = _characteristics.Where(c => !c.IsArchived).ToList();
+            @if (active.Count == 0)
+            {
+                <p class="muted">@L("Сначала заведите характеристики — например, «Цвет» и «Размер»:") <a href="catalog/settings?tab=Characteristics">@L("Характеристики")</a></p>
+            }
+            else
+            {
+                <form class="inline-form" @onsubmit="CreateModificationsAsync">
+                    @foreach (var c in active)
+                    {
+                        var id = c.Id;
+                        <label>@c.Name <input value="@_axes.GetValueOrDefault(id)" @onchange="e => _axes[id] = e.Value?.ToString()" placeholder="@L("через запятую")" size="18" /></label>
+                    }
+                    <button type="submit" disabled="@_busy">@L("Создать модификации")</button>
+                </form>
+                <p class="muted small">@L("Например, Цвет «красный, синий» и Размер «46, 48, 50» — 6 модификаций. Уже созданные сочетания пропускаются; цены копируются с этой позиции.")</p>
+            }
+        }
+    }
+    else if (_variants is { Parent: not null } own && editable)
+    {
+        <h2 style="margin-top: 20px">@L("Характеристики модификации")</h2>
+        <form class="inline-form" @onsubmit="SaveValuesAsync">
+            @foreach (var c in _characteristics.Where(c => !c.IsArchived || own.Values.Any(v => v.CharacteristicId == c.Id)))
+            {
+                var id = c.Id;
+                <label>@c.Name <input value="@_values.GetValueOrDefault(id)" @onchange="e => _values[id] = e.Value?.ToString()" maxlength="@ItemCharacteristicValue.ValueMaxLength" size="14" /></label>
+            }
+            <button type="submit" disabled="@_busy">@L("Сохранить")</button>
+        </form>
+    }
 }
 
 @code {
@@ -227,6 +331,11 @@ else
     public CurrentAccessDto CurrentAccess { get; set; } = default!;
 
     private ItemCardDto? _item;
+    private ItemVariantsDto? _variants;
+    private IReadOnlyList<ItemPhotoDto> _photos = [];
+    private IReadOnlyList<CharacteristicDto> _characteristics = [];
+    private Dictionary<long, string?> _axes = [];
+    private Dictionary<long, string?> _values = [];
     private IReadOnlyList<ItemGroupDto> _groups = [];
     private IReadOnlyDictionary<long, IReadOnlyList<UserCatalogEntryDto>> _entries = new Dictionary<long, IReadOnlyList<UserCatalogEntryDto>>();
     private DetailsForm _form = new();
@@ -289,7 +398,39 @@ else
         }
 
         _prices = _item.Prices.ToDictionary(p => p.PriceTypeId, p => p.Price is { } v ? Amounts.Input(v) : null);
+        _variants = await Modifications.VariantsAsync(Id);
+        _photos = await Modifications.PhotosAsync(Id);
+        _characteristics = await Modifications.CharacteristicsAsync(includeArchived: true);
+        _values = _variants.Values.ToDictionary(v => v.CharacteristicId, v => (string?)v.Value);
     }
+
+    private Task CreateModificationsAsync() => RunAsync(async () =>
+    {
+        var result = await Modifications.CreateModificationsAsync(Id, _axes);
+        _axes = [];
+        _message = result.Skipped > 0
+            ? L("Создано модификаций: {0}; уже были: {1}.", result.Created, result.Skipped)
+            : L("Создано модификаций: {0}.", result.Created);
+    }, null);
+
+    private Task SaveValuesAsync() => RunAsync(() => Modifications.SetValuesAsync(Id, _values, _variants!.RowVersion), L("Характеристики сохранены."));
+
+    /// <summary>Фото по одному: каждое проверяется на сервере по содержимому (тип и размер).</summary>
+    private Task UploadAsync(InputFileChangeEventArgs e) => RunAsync(async () =>
+    {
+        foreach (var file in e.GetMultipleFiles(ItemPhoto.MaxPerItem))
+        {
+            if (file.Size > ItemPhoto.MaxBytes)
+            {
+                throw new BusinessRuleException("catalog.photo.too_large", L("Фото — не больше 2 МБ. Уменьшите размер снимка."));
+            }
+
+            await using var stream = file.OpenReadStream(ItemPhoto.MaxBytes);
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+            await Modifications.AddPhotoAsync(Id, buffer.ToArray());
+        }
+    }, L("Фото добавлено."));
 
     private void SetFlag(long fieldId, ChangeEventArgs e) => _form.Values[fieldId] = e.Value is true ? "true" : null;
 
@@ -330,7 +471,7 @@ else
         try
         {
             await action();
-            _message = success;
+            _message = success ?? _message;
             await LoadAsync();
         }
         catch (Exception ex) when (UiErrors.IsUserFacing(ex))

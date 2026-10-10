@@ -180,6 +180,14 @@ public sealed class Item
     /// <summary>Закупочная цена по умолчанию — подставляется в заказ поставщику.</summary>
     public decimal? PurchasePrice { get; private set; }
 
+    /// <summary>Основная позиция, если это модификация (D82): «Свитер» → «Свитер, красный, 48».</summary>
+    public long? ParentItemId { get; private set; }
+
+    /// <summary>Ключ набора значений характеристик модификации (<see cref="Variants.Key"/>); уникален у одной основной позиции.</summary>
+    public string? VariantKey { get; private set; }
+
+    public bool IsModification => ParentItemId is not null;
+
     public bool IsArchived { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
     public DateTime? ArchivedAtUtc { get; private set; }
@@ -217,6 +225,41 @@ public sealed class Item
 
     public ItemDetails Details => new(GroupId, Article, OriginCountryCode, OriginCountryName, CustomsDeclaration, TnVedCode, WeightKg, VolumeM3,
         MinStock, PurchasePrice);
+
+    /// <summary>
+    /// Модификация (D82): тип, единица, НДС, группа и сведения карточки — как у основной позиции; код, название, остаток,
+    /// штрихкоды и цены — свои. У модификации не бывает своих модификаций.
+    /// </summary>
+    public static Item CreateModification(Item parent, string code, string name, string variantKey, DateTime nowUtc)
+    {
+        if (parent.IsModification)
+        {
+            throw new BusinessRuleException("catalog.variant.nested", "У модификации не может быть своих модификаций — создайте их у основной позиции.");
+        }
+
+        if (parent.IsArchived)
+        {
+            throw new BusinessRuleException("catalog.archived", "Позиция в архиве. Сначала верните её из архива.");
+        }
+
+        var item = Create(parent.OrganizationId, code, name, parent.Type, parent.UnitId, parent.Description, nowUtc);
+        item.ParentItemId = parent.Id;
+        item.VariantKey = variantKey;
+        item.VatRateId = parent.VatRateId;
+        item.SetDetails(parent.Details);
+        return item;
+    }
+
+    /// <summary>Новый набор значений характеристик модификации.</summary>
+    public void SetVariantKey(string variantKey)
+    {
+        if (!IsModification)
+        {
+            throw new BusinessRuleException("catalog.variant.not_modification", "Это не модификация.");
+        }
+
+        VariantKey = variantKey;
+    }
 
     public static Item Create(long organizationId, string code, string name, ItemType type, long unitId, string? description, DateTime nowUtc)
     {

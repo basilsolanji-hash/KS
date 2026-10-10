@@ -231,6 +231,25 @@ app.MapGet("/catalog/items.xlsx", (ItemExchangeService exchange, CancellationTok
     FileOrForbid(() => exchange.ExportAsync(ct), $"nomenklatura-{DateTime.UtcNow:yyyy-MM-dd}.xlsx"));
 app.MapGet("/catalog/items-template.xlsx", (ItemExchangeService exchange, CancellationToken ct) =>
     FileOrForbid(() => exchange.TemplateAsync(ct), "shablon-nomenklatury.xlsx"));
+// Фото номенклатуры (D82): только вошедшему с правом просмотра номенклатуры своей организации; кэш — только в браузере.
+app.MapGet("/catalog/photos/{id:long}", async (long id, KnitErp.Application.Catalog.ModificationService photos, HttpContext http, CancellationToken ct) =>
+{
+    try
+    {
+        var (contentType, content) = await photos.GetPhotoAsync(id, ct);
+        http.Response.Headers.CacheControl = "private, max-age=86400";
+        http.Response.Headers.ContentDisposition = "inline";
+        return Results.File(content, contentType);
+    }
+    catch (AccessDeniedException)
+    {
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
+    }
+    catch (NotFoundException)
+    {
+        return Results.NotFound();
+    }
+});
 app.MapGet("/counterparties.xlsx", (CounterpartyExchangeService exchange, CancellationToken ct) =>
     FileOrForbid(() => exchange.ExportAsync(ct), $"kontragenty-{DateTime.UtcNow:yyyy-MM-dd}.xlsx"));
 app.MapGet("/counterparties-template.xlsx", (CounterpartyExchangeService exchange, CancellationToken ct) =>

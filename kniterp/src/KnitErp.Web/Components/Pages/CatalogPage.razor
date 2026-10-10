@@ -220,7 +220,7 @@ else
                 {
                     <tr class="@(i.IsArchived ? "archived" : null)">
                         <td>@i.Code</td>
-                        <td><a href="catalog/items/@i.Id">@i.Name</a> @if (i.IsArchived) { <span class="tag">@L("архив")</span> }@if (i.Description is not null) { <div class="muted">@i.Description</div> }</td>
+                        <td>@if (i.PhotoId is { } photo) { <img class="item-thumb" src="catalog/photos/@photo" alt="" loading="lazy" /> }@if (i.ParentItemId is not null) { <span class="variant-of" title="@L("Модификация")">↳ </span> }<a href="catalog/items/@i.Id">@i.Name</a> @if (i.Modifications > 0) { <span class="tag">@L("модификаций: {0}", i.Modifications)</span> } @if (i.IsArchived) { <span class="tag">@L("архив")</span> }@if (i.Description is not null) { <div class="muted">@i.Description</div> }</td>
                         <td>@(i.Article ?? "—")</td>
                         <td>@L(i.TypeName)</td>
                         <td>@i.UnitSymbol</td>

@@ -13,7 +13,8 @@ public sealed record UnitDto(long Id, string Code, string Name, string Symbol, b
 
 public sealed record ItemDto(
     long Id, string Code, string Name, ItemType Type, long UnitId, string UnitSymbol, string? Description, bool IsArchived, byte[] RowVersion,
-    long? VatRateId = null, string? VatRateName = null, string? Article = null, long? GroupId = null, decimal? SalePrice = null)
+    long? VatRateId = null, string? VatRateName = null, string? Article = null, long? GroupId = null, decimal? SalePrice = null,
+    long? ParentItemId = null, int Modifications = 0, long? PhotoId = null)
 {
     public string TypeName => ItemTypes.Name(Type);
 }
@@ -133,8 +134,22 @@ public sealed class CatalogService(IKnitErpDbContext db, IAccessGuard guard, ICu
             .GroupJoin(db.VatRates.AsNoTracking(), x => x.i.VatRateId, r => (long?)r.Id, (x, rates) => new { x.i, x.Symbol, rates })
             .SelectMany(x => x.rates.DefaultIfEmpty(), (x, r) => new ItemDto(
                 x.i.Id, x.i.Code, x.i.Name, x.i.Type, x.i.UnitId, x.Symbol, x.i.Description, x.i.IsArchived, x.i.RowVersion,
-                x.i.VatRateId, r == null ? null : r.Name, x.i.Article, x.i.GroupId))
+                x.i.VatRateId, r == null ? null : r.Name, x.i.Article, x.i.GroupId, null, x.i.ParentItemId))
             .ToListAsync(ct);
+        if (items.Count > 0)
+        {
+            // Модификации и основное фото (D82): число модификаций у основной позиции, первое фото — миниатюра в списке.
+            var ids = items.Select(i => i.Id).ToList();
+            var variants = await db.Items.AsNoTracking()
+                .Where(i => i.OrganizationId == ctx.OrganizationId && i.ParentItemId != null && ids.Contains(i.ParentItemId.Value) && !i.IsArchived)
+                .GroupBy(i => i.ParentItemId!.Value).Select(g => new { g.Key, Count = g.Count() }).ToDictionaryAsync(x => x.Key, x => x.Count, ct);
+            var photos = await db.ItemPhotos.AsNoTracking().Where(p => p.OrganizationId == ctx.OrganizationId && ids.Contains(p.ItemId))
+                .GroupBy(p => p.ItemId).Select(g => new { g.Key, Id = g.OrderBy(p => p.SortOrder).ThenBy(p => p.Id).Select(p => p.Id).First() })
+                .ToDictionaryAsync(x => x.Key, x => x.Id, ct);
+            items = items.Select(i => i with { Modifications = variants.GetValueOrDefault(i.Id), PhotoId = photos.TryGetValue(i.Id, out var ph) ? ph : null })
+                .ToList();
+        }
+
         if (ctx.Permissions.Has(Permissions.PriceView) && items.Count > 0)
         {
             // Цена основного вида (D79) — только с правом видеть цены.

@@ -179,7 +179,8 @@ public sealed class SqlTestHost : IAsyncLifetime
             new KnitErp.Application.Catalog.NomenclatureService(db, guard, user, Clock),
             new KnitErp.Application.Finance.MoneyService(db, guard),
             new PasswordResetService(db, Hasher, Mail, user, Clock),
-            new TrustedDeviceService(db, user, Clock));
+            new TrustedDeviceService(db, user, Clock),
+            new KnitErp.Application.Catalog.ModificationService(db, guard, user, Clock));
     }
 
     private static readonly IPasswordHasher<UserAccount> Hasher = new PasswordHasher<UserAccount>();
@@ -256,7 +257,8 @@ public sealed record Services(
     KnitErp.Application.Catalog.NomenclatureService Nomenclature,
     KnitErp.Application.Finance.MoneyService Money,
     PasswordResetService PasswordReset,
-    TrustedDeviceService Devices) : IAsyncDisposable
+    TrustedDeviceService Devices,
+    KnitErp.Application.Catalog.ModificationService Modifications) : IAsyncDisposable
 {
     public ValueTask DisposeAsync() => Db.DisposeAsync();
 }

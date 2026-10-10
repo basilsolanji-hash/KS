@@ -48,6 +48,9 @@ public interface IKnitErpDbContext : IAsyncDisposable
     DbSet<UserAccount> Users { get; }
     DbSet<RecoveryCode> RecoveryCodes { get; }
     DbSet<TrustedDevice> TrustedDevices { get; }
+    DbSet<Characteristic> Characteristics { get; }
+    DbSet<ItemCharacteristicValue> ItemCharacteristicValues { get; }
+    DbSet<ItemPhoto> ItemPhotos { get; }
     DbSet<OrganizationMember> OrganizationMembers { get; }
     DbSet<Role> Roles { get; }
     DbSet<RoleAssignment> RoleAssignments { get; }

@@ -39,6 +39,7 @@ public static class DependencyInjection
         services.AddScoped<Sales.SalesSettingsService>();
         services.AddScoped<Organizations.LegalEntityService>();
         services.AddScoped<Catalog.NomenclatureService>();
+        services.AddScoped<Catalog.ModificationService>();
         services.AddScoped<Finance.MoneyService>();
         services.AddScoped<Common.RequisitesLookupService>();
         services.AddScoped<Sales.SalesAnalyticsService>();
