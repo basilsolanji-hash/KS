@@ -9,12 +9,12 @@
 <div class="shell @(_narrow ? "narrow" : "")">
     <nav class="side" aria-label="@L("Разделы")">
         <div class="side-head">
-            <div class="logo">knit<span style="color: #2BA89A">ERP</span></div>
+            <div class="logo">knit<span style="color: var(--accent)">ERP</span></div>
             @if (_access is not null && _panel is not null)
             {
                 @* Телефон и узкий планшет: инструменты и профиль — в этой же строке, одной кнопкой. *@
                 <div class="side-tools">
-                    <QuickBar Access="_access" Settings="_panel" Compact="true" ActiveTool="@_activeTool" Badge="_badge" OnOpen="OpenTool" />
+                    <QuickBar Access="_access" Settings="_panel" Compact="true" ActiveTool="@_activeTool" Badge="_badge" OnOpen="OpenTool" OpenWindows="Windows" />
                 </div>
             }
             @* На телефоне меню свёрнуто в кнопку, чтобы не занимать экран над страницей. *@
@@ -30,13 +30,14 @@
                 @if (group.Items.Length == 1)
                 {
                     var item = group.Items[0];
-                    <NavLink class="nav-single" href="@item.Href" Match="@(item.Href == "" ? NavLinkMatch.All : NavLinkMatch.Prefix)" title="@L(group.Title)">
+                    <NavLink class="nav-single" href="@item.Href" Match="@(item.Href == "" ? NavLinkMatch.All : NavLinkMatch.Prefix)" title="@L(group.Title)"
+                             style="@($"--sec: var(--sec-{group.Key})")">
                         <Icon Name="@group.Key" Size="16" /><span class="nav-text">@L(group.Title)</span>
                     </NavLink>
                     continue;
                 }
 
-                <div class="nav-group @(open ? "open" : "")">
+                <div class="nav-group @(open ? "open" : "")" style="@($"--sec: var(--sec-{group.Key})")">
                     <button type="button" class="nav-group-head" aria-expanded="@(open ? "true" : "false")" title="@L(group.Title)"
                             @onclick="() => Toggle(group.Key)">
                         <Icon Name="@group.Key" Size="16" /><span class="nav-text">@L(group.Title)</span><span class="caret" aria-hidden="true">▾</span>
@@ -67,12 +68,16 @@
             <button type="button" class="nav-collapse" @onclick="ToggleNarrow" title="@(_narrow ? L("Развернуть меню") : L("Свернуть меню"))">@(_narrow ? "»" : "«")</button>
         }
         </div>
+        @if (_access is not null)
+        {
+            <SideFooter Access="_access" Narrow="_narrow" Route="@Navigation.ToBaseRelativePath(Navigation.Uri)" OnOpen="OpenTool" />
+        }
     </nav>
     <div class="main-col">
         @if (_access is not null && _panel is not null)
         {
             <header class="topbar">
-                <QuickBar Access="_access" Settings="_panel" ActiveTool="@_activeTool" Badge="_badge" OnOpen="OpenTool" />
+                <QuickBar Access="_access" Settings="_panel" ActiveTool="@_activeTool" Badge="_badge" OnOpen="OpenTool" OpenWindows="Windows" ShowProfile="false" />
             </header>
         }
         <main class="main">
@@ -94,6 +99,10 @@
     {
         <ToolDrawer Context="ToolContext()" Settings="_panel" Active="@_activeTool" Opened="_opened" HelpArticleId="@_helpArticle"
                     OnClose="CloseTool" OnBadge="count => _badge = count" OnSaveSettings="SavePanelAsync" />
+    }
+    @if (_calculatorOpen)
+    {
+        <CalculatorWindow OnClose="() => _calculatorOpen = false" />
     }
 </div>
 
@@ -311,9 +320,21 @@
 
     private async Task OpenTool(string id) => await OpenTool(id, null);
 
+    private bool _calculatorOpen;
+
+    private IReadOnlyCollection<string> Windows => _calculatorOpen ? [ToolCatalog.Calculator] : [];
+
     private async Task OpenTool(string id, string? arg)
     {
         _menuOpen = false;
+        if (id == ToolCatalog.Calculator)
+        {
+            // Калькулятор — отдельным окном: повторный щелчок по значку закрывает его.
+            _calculatorOpen = !_calculatorOpen;
+            StateHasChanged();
+            return;
+        }
+
         if (id == ToolCatalog.Help)
         {
             _helpArticle = arg;

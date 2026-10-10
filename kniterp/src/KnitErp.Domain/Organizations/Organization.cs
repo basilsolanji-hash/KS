@@ -33,7 +33,7 @@ public sealed class Organization
     public bool KppVerified { get; private set; }
     public string? ActualAddress { get; private set; }
 
-    /// <summary>Сайт фабрики для ярлыка на панели быстрого доступа. Только http(s).</summary>
+    /// <summary>Сайт организации для ярлыка на панели быстрого доступа. Только http(s).</summary>
     public string? WebsiteUrl { get; private set; }
 
     /// <summary>Часовой пояс учёта (IANA). Время хранится в UTC, показывается в этом поясе.</summary>

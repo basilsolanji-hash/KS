@@ -58,7 +58,8 @@ public sealed class PersonalToolsService(IKnitErpDbContextFactory factory, ICurr
     public async Task<PanelSettings> GetPanelAsync(CancellationToken ct = default)
     {
         var stored = await LoadAsync<PanelSettings>(PanelKind, ct);
-        return stored is null ? new PanelSettings(ToolCatalog.DefaultPinned, ToolCatalog.DefaultVisible) : Clean(stored);
+        var untouched = stored is null || (stored.Pinned ?? []).SequenceEqual(ToolCatalog.LegacyDefaultPinned);
+        return untouched ? new PanelSettings(ToolCatalog.DefaultPinned, ToolCatalog.DefaultVisible) : Clean(stored!);
     }
 
     public async Task<PanelSettings> SavePanelAsync(PanelSettings settings, CancellationToken ct = default)
@@ -68,10 +69,14 @@ public sealed class PersonalToolsService(IKnitErpDbContextFactory factory, ICurr
         return clean;
     }
 
-    /// <summary>Неизвестные и повторные инструменты отбрасываются, число видимых — в допустимых пределах.</summary>
+    /// <summary>
+    /// Неизвестные, повторные и постоянные (поиск, поддержка — они на панели всегда) инструменты отбрасываются,
+    /// число видимых — в допустимых пределах.
+    /// </summary>
     public static PanelSettings Clean(PanelSettings s)
     {
-        var pinned = (s.Pinned ?? []).Where(id => ToolCatalog.Find(id) is not null).Distinct().Take(ToolCatalog.MaxPinned).ToList();
+        var pinned = (s.Pinned ?? []).Where(id => ToolCatalog.Find(id) is not null && !ToolCatalog.Fixed.Contains(id))
+            .Distinct().Take(ToolCatalog.MaxPinned).ToList();
         return new PanelSettings(pinned, Math.Clamp(s.Visible, 0, ToolCatalog.MaxVisible));
     }
 

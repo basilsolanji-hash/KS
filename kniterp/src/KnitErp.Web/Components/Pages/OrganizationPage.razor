@@ -53,12 +53,12 @@ else
                 </td>
             </tr>
             <tr>
-                <td class="muted"><label for="org-site">@L("Сайт фабрики")</label></td>
+                <td class="muted"><label for="org-site">@L("Сайт организации")</label></td>
                 <td>
                     @if (_editing)
                     {
                         <InputText id="org-site" @bind-Value="_draft.Website" maxlength="300" style="width: 100%" placeholder="https://fabrika.ru" />
-                        <div class="muted">@L("Открывается ярлыком «Сайт фабрики» на панели быстрого доступа.")</div>
+                        <div class="muted">@L("Открывается ярлыком «Сайт организации» на панели быстрого доступа.")</div>
                     }
                     else if (_org.WebsiteUrl is { } site)
                     {

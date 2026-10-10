@@ -1,0 +1,138 @@
+@implements IDisposable
+@inject WorkdayService Workday
+@*
+    Низ меню слева: срочные задачи, рабочий день (вход, отработано и осталось от нормы, задачи сегодня),
+    обучение и поддержка, пользователь. Время пересчитывается каждую минуту в браузере сессии без запросов к базе;
+    задачи и вход перечитываются раз в 5 минут и при переходе между страницами (D72).
+*@
+
+<div class="side-foot @(Narrow ? "narrow" : "")">
+    @if (_data is { } d)
+    {
+        var (elapsed, remaining, percent) = d.Progress(NowLocal());
+        @if (!Narrow)
+        {
+            @if (d.Urgent.Count > 0)
+            {
+                <section class="sf-block sf-urgent" aria-label="@L("Срочные задачи")">
+                    <div class="sf-head">
+                        <span><Icon Name="tasks" Size="14" /> @L("Срочно")</span>
+                        @if (d.OverdueCount > 0)
+                        {
+                            <span class="tag bad">@L("просрочено: {0}", d.OverdueCount)</span>
+                        }
+                    </div>
+                    <ul>
+                        @foreach (var t in d.Urgent)
+                        {
+                            <li class="@(t.Overdue ? "overdue" : null)">
+                                <button type="button" class="link" @onclick="() => OnOpen.InvokeAsync(ToolCatalog.Tasks)" title="@L("Открыть задачи")">@t.Title</button>
+                                <span class="sf-when">@(t.Overdue ? t.Date.ToString("dd.MM") : t.Time?.ToString("HH:mm") ?? L("сегодня"))</span>
+                            </li>
+                        }
+                    </ul>
+                    <button type="button" class="link sf-all" @onclick="() => OnOpen.InvokeAsync(ToolCatalog.Tasks)">@L("Все задачи →")</button>
+                </section>
+            }
+
+            <section class="sf-block" aria-label="@L("Рабочий день")">
+                <div class="sf-head">
+                    <span><Icon Name="calendar" Size="14" /> @L("Рабочий день")</span>
+                    <span class="muted">@(d.StartedLocal is { } s ? L("вход {0}", s.ToString("HH:mm")) : L("вход не найден"))</span>
+                </div>
+                <div class="sf-meter" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@percent" aria-label="@L("Отработано от нормы")">
+                    <span style="width: @(percent)%"></span>
+                </div>
+                <div class="sf-row">
+                    <span>@Hours(elapsed) @L("из") @Hours(d.NormMinutes)</span>
+                    <b>@(percent)%</b>
+                </div>
+                <div class="sf-row muted">
+                    <span>@(remaining > 0 ? L("осталось {0}", Hours(remaining)) : L("норма выполнена"))</span>
+                </div>
+                <div class="sf-row">
+                    <span>@L("Задачи сегодня")</span>
+                    <b>@(d.TasksPercent)%</b>
+                </div>
+                <div class="sf-row muted">
+                    <span>@d.TasksDone @L("из") @d.TasksToday @L("шт.")</span>
+                </div>
+            </section>
+        }
+    }
+
+    <nav class="sf-links" aria-label="@L("Помощь")">
+        <button type="button" class="sf-link" @onclick="() => OnOpen.InvokeAsync(ToolCatalog.Help)" title="@L("Обучение и справка")">
+            <Icon Name="help" Size="16" /><span class="nav-text">@L("Обучение")</span>
+        </button>
+        <button type="button" class="sf-link" @onclick="() => OnOpen.InvokeAsync(ToolCatalog.Support)" title="@L("Поддержка: создать обращение и следить за ответом")">
+            <Icon Name="support" Size="16" /><span class="nav-text">@L("Поддержка")</span>
+        </button>
+    </nav>
+
+    <ProfileMenu Access="Access" OnOpen="id => OnOpen.InvokeAsync(id)" Up="true" AvatarOnly="Narrow" />
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public CurrentAccessDto Access { get; set; } = default!;
+
+    [Parameter]
+    public bool Narrow { get; set; }
+
+    /// <summary>Меняется при переходе между страницами — блок перечитывает задачи.</summary>
+    [Parameter]
+    public string? Route { get; set; }
+
+    [Parameter]
+    public EventCallback<string> OnOpen { get; set; }
+
+    private WorkdayDto? _data;
+    private Timer? _timer;
+    private DateTime _loadedAt;
+    private string? _loadedRoute;
+
+    protected override void OnInitialized() =>
+        _timer = new Timer(_ => InvokeAsync(TickAsync), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_data is null || _loadedRoute != Route)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task TickAsync()
+    {
+        if (DateTime.UtcNow - _loadedAt > TimeSpan.FromMinutes(5))
+        {
+            await LoadAsync();
+        }
+
+        StateHasChanged();
+    }
+
+    /// <summary>Блок не должен мешать работе: при ошибке просто не показывается.</summary>
+    private async Task LoadAsync()
+    {
+        _loadedRoute = Route;
+        _loadedAt = DateTime.UtcNow;
+        try
+        {
+            _data = await Workday.GetAsync();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _data = null;
+        }
+    }
+
+    private DateTime NowLocal() => TimeZones.ToLocal(DateTime.UtcNow, _data?.TimeZoneId ?? Access.TimeZoneId);
+
+    private static string Hours(int minutes) => minutes >= 60
+        ? L("{0} ч {1} мин", minutes / 60, minutes % 60)
+        : L("{0} мин", minutes);
+
+    public void Dispose() => _timer?.Dispose();
+}

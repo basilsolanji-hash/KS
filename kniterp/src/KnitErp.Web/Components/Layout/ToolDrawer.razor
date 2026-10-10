@@ -22,9 +22,6 @@
                     case ToolCatalog.Notifications:
                         <NotificationsTool Context="Context" Active="@(id == Active)" OnCount="OnBadge" />
                         break;
-                    case ToolCatalog.Calculator:
-                        <CalculatorTool />
-                        break;
                     case ToolCatalog.Calendar:
                         <TasksTool Context="Context" CalendarView="true" Active="@(id == Active)" />
                         break;

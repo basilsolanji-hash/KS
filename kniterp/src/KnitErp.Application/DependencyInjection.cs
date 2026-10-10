@@ -48,6 +48,7 @@ public static class DependencyInjection
         services.AddScoped<PeriodService>();
         services.AddScoped<StockReportService>();
         services.AddScoped<Workspace.PersonalToolsService>();
+        services.AddScoped<Workspace.WorkdayService>();
         services.AddScoped<Workspace.SupportService>();
         services.AddScoped<Workspace.NotificationService>();
         services.AddScoped<Workspace.QuickSearchService>();

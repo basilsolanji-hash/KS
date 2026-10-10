@@ -41,8 +41,12 @@ public sealed class WorkspaceTests
     [Fact]
     public void Panel_settings_drop_unknown_and_duplicate_tools_and_clamp_visible()
     {
-        var clean = PersonalToolsService.Clean(new PanelSettings(["help", "unknown", "help", "calculator"], 99));
-        Assert.Equal(["help", "calculator"], clean.Pinned);
+        var clean = PersonalToolsService.Clean(new PanelSettings(["weather", "unknown", "weather", "calculator"], 99));
+        Assert.Equal(["weather", "calculator"], clean.Pinned);
+        // Поиск, обучение и поддержка на своих местах всегда — в закреплённые не попадают.
+        Assert.Equal(["notes"], PersonalToolsService.Clean(new PanelSettings(["search", "notes", "support", "help"], 5)).Pinned);
+        Assert.Equal(5, ToolCatalog.DefaultPinned.Count);
+        Assert.DoesNotContain(ToolCatalog.DefaultPinned, ToolCatalog.Fixed.Contains);
         Assert.Equal(ToolCatalog.MaxVisible, clean.Visible);
         Assert.Equal(0, PersonalToolsService.Clean(new PanelSettings([], -5)).Visible);
     }
