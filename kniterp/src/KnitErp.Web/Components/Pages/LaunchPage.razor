@@ -1,0 +1,96 @@
+@page "/launch"
+@using KnitErp.Web.Components.Shared
+@inject LaunchReadinessService Readiness
+
+<PageTitle>@L("Готовность к запуску") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_dto is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <div class="page-head">
+        <h1>@L("Готовность к запуску")</h1>
+        <button type="button" class="secondary" @onclick="ReloadAsync" disabled="@_busy">@L("Обновить")</button>
+    </div>
+    <p class="muted">
+        @L("Что уже сделано, чтобы склад фабрики работал в программе. Пункты проверяются по данным; последние два — вручную. Порядок и сроки — в плане пилота (docs/pilot.md).")
+    </p>
+
+    @if (_error is not null)
+    {
+        <div class="error" role="alert">@_error</div>
+    }
+
+    <div class="totals" role="status">
+        <span>@L("Готово:") <b>@L("{0} из {1}", _dto.Completed, _dto.Checked)</b></span>
+        <span class="@(_dto.Ready ? null : "bad")">@(_dto.Ready ? L("Можно начинать пилот") : L("Есть незавершённые пункты"))</span>
+    </div>
+
+    <ol class="checklist">
+        @foreach (var i in _dto.Items)
+        {
+            <li class="@StateClass(i.Done)">
+                <span class="mark" aria-hidden="true">@(i.Done switch { true => "✓", false => "✗", null => "?" })</span>
+                <div>
+                    <b>@L(i.Title)</b>
+                    <span class="sr-only">@(i.Done switch { true => L("выполнено"), false => L("не выполнено"), null => L("проверить вручную") })</span>
+                    <div class="muted">@i.Detail</div>
+                </div>
+                @if (i.Link is not null)
+                {
+                    <a class="button secondary" href="@(i.Link.Length == 0 ? "./" : i.Link)">@L("Открыть")</a>
+                }
+            </li>
+        }
+    </ol>
+}
+
+@code {
+    private LaunchReadinessDto? _dto;
+    private bool _busy;
+    private string? _denied;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _dto = await Readiness.GetAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            _dto = await Readiness.GetAsync();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string StateClass(bool? done) => done switch { true => "done", false => "todo", null => "manual" };
+}

@@ -1,0 +1,174 @@
+@page "/organization"
+@using KnitErp.Web.Components.Shared
+@inject OrganizationService Organizations
+
+<PageTitle>@L("Организация") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_org is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <div class="page-head">
+        <h1>@L("Организация")</h1>
+        @if (_org.CanEdit && !_editing)
+        {
+            <button type="button" @onclick="StartEdit">@L("Изменить")</button>
+        }
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="error" role="alert">@_message</div>
+    }
+
+    <EditForm Model="_draft" OnValidSubmit="SaveAsync" FormName="organization">
+        <table>
+            <tr><td class="muted">@L("Полное наименование")</td><td>@_org.FullName</td></tr>
+            <tr><td class="muted">@L("Страна")</td><td>@_org.Country.Name</td></tr>
+            <tr><td class="muted">@_org.Country.TaxIdName</td><td>@_org.Inn</td></tr>
+            @if (_org.Country.HasKpp)
+            {
+            <tr>
+                <td class="muted">@L("КПП")</td>
+                <td>@(_org.Kpp ?? "—") @if (_org.Kpp is not null && !_org.KppVerified) { <span class="tag">@L("требует сверки · D15")</span><div class="muted">@L("До сверки по документу организации КПП не выводится в печатные формы.")</div> }</td>
+            </tr>
+            }
+            <tr>
+                <td class="muted"><label for="org-address">@L("Фактический адрес")</label></td>
+                <td>
+                    @if (_editing)
+                    {
+                        <InputText id="org-address" @bind-Value="_draft.Address" maxlength="500" style="width: 100%" />
+                    }
+                    else
+                    {
+                        @(_org.ActualAddress ?? "—")
+                    }
+                </td>
+            </tr>
+            <tr>
+                <td class="muted"><label for="org-site">@L("Сайт организации")</label></td>
+                <td>
+                    @if (_editing)
+                    {
+                        <InputText id="org-site" @bind-Value="_draft.Website" maxlength="300" style="width: 100%" placeholder="https://fabrika.ru" />
+                        <div class="muted">@L("Открывается ярлыком «Сайт организации» на панели быстрого доступа.")</div>
+                    }
+                    else if (_org.WebsiteUrl is { } site)
+                    {
+                        <a href="@site" target="_blank" rel="noopener noreferrer">@site</a>
+                    }
+                    else
+                    {
+                        @("—")
+                    }
+                </td>
+            </tr>
+            <tr>
+                <td class="muted"><label for="org-tz">@L("Часовой пояс учёта")</label></td>
+                <td>
+                    @if (_editing)
+                    {
+                        <InputSelect id="org-tz" @bind-Value="_draft.TimeZoneId">
+                            @foreach (var zone in TimeZones.Russian)
+                            {
+                                <option value="@zone.Id">@zone.Label</option>
+                            }
+                        </InputSelect>
+                    }
+                    else
+                    {
+                        @TimeZones.Label(_org.TimeZoneId)
+                    }
+                </td>
+            </tr>
+            <tr><td class="muted">@L("Валюта учёта")</td><td>@_org.CurrencyCode — @_org.Country.CurrencyName</td></tr>
+        </table>
+
+        @if (_editing)
+        {
+            <div class="actions">
+                <button type="submit" disabled="@_busy">@L("Сохранить")</button>
+                <button type="button" class="secondary" @onclick="CancelEdit" disabled="@_busy">@L("Отмена")</button>
+            </div>
+        }
+    </EditForm>
+
+    <div class="panel" style="margin-top: 20px">
+        <h2>@L("Юрлица и расчётные счета")</h2>
+        <p class="muted">@L("Реквизиты для счетов, УПД и счетов-фактур — у каждого своего юрлица (ООО, ИП) отдельно, со своими расчётными счетами.")</p>
+        <a class="button secondary" href="legal-entities">@L("Открыть «Юрлица и счета»")</a>
+    </div>
+
+    @if (!_org.CanEdit)
+    {
+        <p class="muted">@L("У вашей роли только просмотр реквизитов.")</p>
+    }
+}
+
+@code {
+    private OrganizationDto? _org;
+    private RequisitesDraft _draft = new();
+    private bool _editing;
+    private bool _busy;
+    private string? _denied;
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _org = await Organizations.GetCurrentAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private void StartEdit()
+    {
+        _draft = new RequisitesDraft { Address = _org!.ActualAddress ?? string.Empty, TimeZoneId = _org.TimeZoneId, Website = _org.WebsiteUrl ?? string.Empty };
+        _message = null;
+        _editing = true;
+    }
+
+    private void CancelEdit()
+    {
+        _editing = false;
+        _message = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        try
+        {
+            _org = await Organizations.UpdateRequisitesAsync(new UpdateRequisitesCommand(_draft.Address, _draft.TimeZoneId, _org!.RowVersion, _draft.Website));
+            _editing = false;
+            _message = null;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private sealed class RequisitesDraft
+    {
+        public string Website { get; set; } = string.Empty;
+
+        public string Address { get; set; } = string.Empty;
+        public string TimeZoneId { get; set; } = "Europe/Moscow";
+    }
+}

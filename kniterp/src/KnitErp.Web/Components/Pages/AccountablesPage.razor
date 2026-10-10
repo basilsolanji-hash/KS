@@ -1,0 +1,182 @@
+@page "/accountables"
+@using KnitErp.Application.Finance
+@using KnitErp.Domain.Finance
+@inject AccountableService Accountables
+@inject NavigationManager Navigation
+
+<PageTitle>@L("Подотчётные лица") — knitERP</PageTitle>
+
+@*
+    D86: расчёты с подотчётными лицами — выдано под отчёт, возвращено, отчитано, долг; авансовые отчёты. Выдача и возврат денег —
+    на странице «Касса и счета» со статьями «Выдача под отчёт» и «Возврат подотчётных сумм».
+*@
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_balances is null || _reports is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <div class="page-head">
+        <h1>@L("Подотчётные лица")</h1>
+        <a class="button secondary" href="money">@L("Выдать или принять деньги")</a>
+    </div>
+    <p class="muted">@L("Выдача под отчёт и возврат остатка — на странице «Касса и счета» (статьи «Выдача под отчёт» и «Возврат подотчётных сумм»). Расходы подтверждаются авансовым отчётом; утверждённый отчёт уменьшает долг сотрудника.")</p>
+
+    @if (_message is not null)
+    {
+        <div class="@(_isError ? "flash error" : "flash")" role="@(_isError ? "alert" : "status")">@_message</div>
+    }
+
+    <div class="scroll">
+        <table class="compact">
+            <thead><tr><th>@L("Сотрудник")</th><th class="num">@L("Выдано")</th><th class="num">@L("Возвращено")</th><th class="num">@L("Отчитано")</th><th class="num">@L("Долг")</th></tr></thead>
+            <tbody>
+                @if (_balances.Count == 0)
+                {
+                    <tr><td colspan="5" class="muted">@L("Выдач под отчёт пока не было.")</td></tr>
+                }
+                @foreach (var b in _balances)
+                {
+                    <tr>
+                        <td>@b.Employee <span class="muted small">@b.PersonnelNumber</span></td>
+                        <td class="num">@Amounts.Format(b.Issued)</td>
+                        <td class="num">@Amounts.Format(b.Returned)</td>
+                        <td class="num">@Amounts.Format(b.Reported)</td>
+                        <td class="num">
+                            <b class="@(b.Debt > 0 ? "warn-text" : "")">@Amounts.Format(b.Debt)</b>
+                            @if (b.Debt < 0) { <div class="muted small">@L("перерасход — доплатить сотруднику")</div> }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="page-head" style="margin-top: 18px">
+        <h2>@L("Авансовые отчёты")</h2>
+    </div>
+    @if (CanEdit && _options is not null)
+    {
+        <form class="inline-form" @onsubmit="CreateAsync">
+            <label>
+                @L("Подотчётное лицо")
+                <select @bind="_employee" required>
+                    <option value="">—</option>
+                    @foreach (var e in _options.Employees)
+                    {
+                        <option value="@e.Id">@e.Name</option>
+                    }
+                </select>
+            </label>
+            @if (_options.LegalEntities.Count > 1)
+            {
+                <label>
+                    @L("Юрлицо")
+                    <select @bind="_entity">
+                        @foreach (var e in _options.LegalEntities)
+                        {
+                            <option value="@e.Id">@e.Name</option>
+                        }
+                    </select>
+                </label>
+            }
+            <label>@L("Дата") <input type="date" @bind="_date" required /></label>
+            <label>@L("Назначение аванса") <input @bind="_purpose" maxlength="@ExpenseReport.PurposeMaxLength" placeholder="@L("Хозяйственные нужды")" /></label>
+            <button type="submit" disabled="@_busy">@L("Новый отчёт")</button>
+        </form>
+    }
+    <div class="scroll">
+        <table class="compact">
+            <thead><tr><th>@L("Номер")</th><th>@L("Дата")</th><th>@L("Сотрудник")</th><th class="opt">@L("Назначение")</th><th class="num">@L("Сумма")</th><th>@L("Статус")</th></tr></thead>
+            <tbody>
+                @if (_reports.Count == 0)
+                {
+                    <tr><td colspan="6" class="muted">@L("Отчётов пока нет.")</td></tr>
+                }
+                @foreach (var r in _reports)
+                {
+                    <tr class="@(r.Status == ExpenseReportStatus.Cancelled ? "archived" : null)">
+                        <td><a href="expense-reports/@r.Id">@r.Number</a></td>
+                        <td>@r.Date.ToString("dd.MM.yyyy")</td>
+                        <td>@r.Employee</td>
+                        <td>@r.Purpose</td>
+                        <td class="num">@Amounts.Format(r.Total)</td>
+                        <td>@L(r.StatusName)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private IReadOnlyList<AccountableBalanceDto>? _balances;
+    private IReadOnlyList<ExpenseReportRowDto>? _reports;
+    private AccountableOptionsDto? _options;
+    private string _employee = string.Empty;
+    private string _entity = string.Empty;
+    private DateTime _date;
+    private string? _purpose;
+    private bool _busy;
+    private string? _denied;
+    private string? _message;
+    private bool _isError;
+
+    private bool CanEdit => CurrentAccess.Has(Permissions.PriceView) && (CurrentAccess.Has(Permissions.SalesEdit) || CurrentAccess.Has(Permissions.PurchaseEdit));
+
+    protected override async Task OnInitializedAsync()
+    {
+        _date = TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId).Date;
+        try
+        {
+            _balances = await Accountables.BalancesAsync();
+            _reports = await Accountables.ListReportsAsync();
+            if (CanEdit)
+            {
+                _options = await Accountables.OptionsAsync();
+                _entity = _options.LegalEntities.FirstOrDefault()?.Id.ToString() ?? string.Empty;
+            }
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private async Task CreateAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        try
+        {
+            if (!long.TryParse(_employee, out var employee))
+            {
+                throw new BusinessRuleException("money.accountable.employee", L("Выберите подотчётное лицо."));
+            }
+
+            var id = await Accountables.CreateReportAsync(employee, DateOnly.FromDateTime(_date), long.TryParse(_entity, out var e) ? e : null, _purpose);
+            Navigation.NavigateTo($"expense-reports/{id}");
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+            _isError = true;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

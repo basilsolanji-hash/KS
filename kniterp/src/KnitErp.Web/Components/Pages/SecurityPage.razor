@@ -1,0 +1,172 @@
+@page "/security"
+@using KnitErp.Web.Components.Shared
+@inject RecoveryCodeService Recovery
+@inject TrustedDeviceService Devices
+
+<PageTitle>@L("Вход и резервные коды") — knitERP</PageTitle>
+
+@if (_status is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <h1>@L("Вход и резервные коды")</h1>
+
+    @if (Left is { } left)
+    {
+        <div class="@(left <= 3 ? "flash error" : "flash")" role="status">
+            <span>
+                @L("Вы вошли по резервному коду, он больше не действует. Осталось кодов:") <b>@left</b>.
+                @L("Если телефон потерян — попросите Владельца или Администратора сбросить вход с кодом (2FA) и подключите приложение на новом телефоне. Коды заканчиваются — выпустите новые ниже.")
+            </span>
+        </div>
+    }
+
+    @if (_error is not null)
+    {
+        <div class="error" role="alert">@_error</div>
+    }
+
+    @if (!_status.TwoFactorEnabled)
+    {
+        <p>@L("Вход с кодом из приложения (2FA) у вас не подключён. Резервные коды нужны только тем, кто входит с кодом.")</p>
+    }
+    else if (_codes is not null)
+    {
+        <div class="panel" role="region" aria-label="@L("Новые резервные коды")">
+            <h2>@L("Ваши резервные коды")</h2>
+            <p>
+                @L("Перепишите или распечатайте и храните отдельно от телефона — например, в сейфе.") <b>@L("Коды показываются один раз.")</b>
+                @L("Каждый код действует один раз вместо кода из приложения. Прежние коды больше не действуют.")
+            </p>
+            <ol class="codes">
+                @foreach (var c in _codes)
+                {
+                    <li class="key">@c</li>
+                }
+            </ol>
+            <div class="actions">
+                <button type="button" @onclick="() => _codes = null">@L("Я сохранил коды")</button>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="totals" role="status">
+            <span>@L("Неиспользованных кодов:") <b class="@(_status.Remaining <= 3 ? "bad" : null)">@L("{0} из {1}", _status.Remaining, RecoveryCode.SetSize)</b></span>
+            @if (_status.IssuedAtUtc is { } issued)
+            {
+                <span class="muted">@L("выданы {0}", TimeZones.ToLocal(issued, CurrentAccess.TimeZoneId).ToString("dd.MM.yyyy HH:mm"))</span>
+            }
+        </div>
+        @if (_status.Remaining == 0)
+        {
+            <div class="flash error" role="alert">
+                <span>@(Setup ? L("Вход с кодом подключён.") + " " : "")@L("У вас нет резервных кодов: если телефон потеряется, войти будет нечем. Выпустите их сейчас.")</span>
+            </div>
+        }
+        <p class="muted">
+            @L("Резервный код вводится на странице «Код подтверждения» вместо 6 цифр из приложения, если телефона нет под рукой. Новый набор заменяет прежний.")
+        </p>
+        <div class="actions">
+            <button type="button" @onclick="IssueAsync" disabled="@_busy">@(_status.Remaining == 0 ? L("Выпустить резервные коды") : L("Выпустить новые коды"))</button>
+        </div>
+    }
+
+    @if (_status.TwoFactorEnabled && _devices is not null)
+    {
+        <h2 style="margin-top: 20px">@L("Доверенные устройства")</h2>
+        <p class="muted">@L("С этих браузеров вход — только по паролю, без кода, 30 дней с момента доверия. Смена пароля, сброс 2FA и блокировка отзывают доверие у всех устройств.")</p>
+        @if (_devices.Count == 0)
+        {
+            <p class="muted">@L("Доверенных устройств нет. Отметьте «Доверять этому устройству» при вводе кода.")</p>
+        }
+        else
+        {
+            <div class="scroll">
+                <table class="compact">
+                    <thead><tr><th>@L("Устройство")</th><th>@L("Доверено")</th><th class="opt">@L("Последний вход")</th><th class="opt">@L("До")</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var d in _devices)
+                        {
+                            <tr>
+                                <td>@d.Label</td>
+                                <td>@Local(d.CreatedAtUtc)</td>
+                                <td>@(d.LastUsedAtUtc is { } used ? Local(used) : "—")</td>
+                                <td>@Local(d.ExpiresAtUtc)</td>
+                                <td><button type="button" class="secondary" @onclick="() => RevokeAsync(d.Id)" disabled="@_busy">@L("Забыть")</button></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div class="actions">
+                <button type="button" class="secondary" @onclick="() => RevokeAsync(null)" disabled="@_busy">@L("Забыть все устройства")</button>
+            </div>
+        }
+    }
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    /// <summary>Сразу после подключения 2FA.</summary>
+    [SupplyParameterFromQuery(Name = "setup")]
+    public bool Setup { get; set; }
+
+    /// <summary>Вход был по резервному коду; сколько осталось.</summary>
+    [SupplyParameterFromQuery(Name = "left")]
+    public int? Left { get; set; }
+
+    private RecoveryCodeStatus? _status;
+    private IReadOnlyList<TrustedDeviceDto>? _devices;
+    private IReadOnlyList<string>? _codes;
+    private bool _busy;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _status = await Recovery.GetStatusAsync();
+        _devices = await Devices.ListAsync();
+    }
+
+    private string Local(DateTime utc) => TimeZones.ToLocal(utc, CurrentAccess.TimeZoneId).ToString("dd.MM.yyyy HH:mm");
+
+    private Task IssueAsync() => RunAsync(async () =>
+    {
+        _codes = await Recovery.IssueAsync();
+        _status = await Recovery.GetStatusAsync();
+    });
+
+    private Task RevokeAsync(long? id) => RunAsync(async () =>
+    {
+        await Devices.RevokeAsync(id);
+        _devices = await Devices.ListAsync();
+    });
+
+    /// <summary>Одна операция за раз: у вкладки один DbContext.</summary>
+    private async Task RunAsync(Func<Task> action)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await action();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

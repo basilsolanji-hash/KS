@@ -1,0 +1,261 @@
+@page "/stock-documents"
+@using KnitErp.Application.Warehousing
+@using KnitErp.Domain.Warehousing
+@using KnitErp.Web.Components.Shared
+@inject StockDocumentService Documents
+@inject NavigationManager Navigation
+
+<PageTitle>@L("Складские документы") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_rows is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <div class="page-head">
+        <h1>@(KindQuery == "1" && OrderQuery == "1" ? L("Приёмка") : KindQuery == "1" && OrderQuery == "0" ? L("Оприходования") : KindQuery switch { "1" => L("Поступления"), "2" => L("Списания"), "3" => L("Перемещения"), "5" => L("Возвраты поставщикам"), "6" => L("Отгрузки"), "7" => L("Возвраты от покупателей"), _ => L("Складские документы") })</h1>
+        @if (CurrentAccess.Has(Permissions.WarehouseDocumentCreate) && _form is null)
+        {
+            <div class="actions">
+                @foreach (var kind in StockDocument.Kinds.Where(k => KindQuery is null ? (byte)k <= 3 : ((byte)k).ToString() == KindQuery))
+                {
+                    <button type="button" @onclick="() => OpenCreateAsync(kind)" disabled="@_busy">@NewLabel(kind)</button>
+                }
+            </div>
+        }
+    </div>
+    <p class="muted">
+        @L("Черновик можно править сколько угодно. Проведение записывает движения в остатки — после этого документ не меняется. Ошибку в проведённом документе исправляет сторно и новый документ.")
+    </p>
+
+    @if (_error is not null)
+    {
+        <div class="error" role="alert">@_error</div>
+    }
+
+    @if (_form is not null)
+    {
+        <div class="panel">
+            <h2>@NewLabel(_form.Kind)</h2>
+            @if (_form.Options.Warehouses.Count == 0)
+            {
+                <p class="muted">@L("Нет складов, доступных вам для документов. Склады заводятся в разделе «Склады», доступ к ним — в «Пользователях».")</p>
+                <button type="button" class="secondary" @onclick="() => _form = null">@L("Закрыть")</button>
+            }
+            else
+            {
+                <form @onsubmit="CreateAsync">
+                    <div class="grid">
+                        <StockDocumentHeaderFields Form="_form.Header" Kind="_form.Kind" Options="_form.Options" />
+                    </div>
+                    <div class="actions">
+                        <button type="submit" disabled="@_busy">@L("Создать черновик")</button>
+                        <button type="button" class="secondary" @onclick="() => _form = null">@L("Отмена")</button>
+                    </div>
+                </form>
+            }
+        </div>
+    }
+
+    <form class="inline-form" @onsubmit="ReloadAsync">
+        <label>
+            @L("Вид")
+            <select @bind="_kind">
+                <option value="">@L("Все")</option>
+                @foreach (var k in StockDocument.Kinds)
+                {
+                    <option value="@((byte)k)">@L(StockDocument.KindName(k))</option>
+                }
+            </select>
+        </label>
+        <label>
+            @L("Статус")
+            <select @bind="_status">
+                <option value="">@L("Все")</option>
+                @foreach (var st in Statuses)
+                {
+                    <option value="@((byte)st)">@L(StockDocument.StatusName(st))</option>
+                }
+            </select>
+        </label>
+        <label>
+            @L("Склад")
+            <select @bind="_warehouse">
+                <option value="">@L("Все доступные")</option>
+                @foreach (var w in _warehouses)
+                {
+                    <option value="@w.Id">@w.Name</option>
+                }
+            </select>
+        </label>
+        <label>@L("С") <input type="date" @bind="_from" /></label>
+        <label>@L("По") <input type="date" @bind="_to" /></label>
+        <label>@L("Поиск") <input @bind="_search" placeholder="@L("Номер или контрагент")" /></label>
+        <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
+        <a class="button secondary" href="@ExportHref" download data-enhance-nav="false" title="@L("Реестр с текущими фильтрами")">Excel</a>
+    </form>
+    @if (_rows.Count >= StockDocumentService.MaxListRows)
+    {
+        <p class="muted">@L("Показаны последние {0} документов — сузьте период или выгрузите реестр в Excel.", StockDocumentService.MaxListRows)</p>
+    }
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>@L("Номер")</th><th>@L("Дата")</th><th>@L("Вид")</th><th>@L("Склад")</th><th>@L("Поставщик / получатель")</th><th class="opt">@L("Причина")</th><th class="opt num">@L("Строк")</th><th>@L("Статус")</th></tr></thead>
+            <tbody>
+                @if (_rows.Count == 0)
+                {
+                    <tr><td colspan="8" class="muted">@L("Документов нет.")</td></tr>
+                }
+                @foreach (var d in _rows)
+                {
+                    <tr>
+                        <td><a href="stock-documents/@d.Id">@d.Number</a></td>
+                        <td>@d.DocumentDate.ToString("dd.MM.yyyy")</td>
+                        <td>@L(d.KindName)</td>
+                        <td>@d.WarehouseName</td>
+                        <td>@(d.TargetWarehouseName is { } t ? $"→ {t}" : d.CounterpartyName)</td>
+                        <td>@d.ReasonName</td>
+                        <td class="num">@d.LineCount</td>
+                        <td><span class="tag @StatusClass(d.Status)">@L(d.StatusName)</span></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private static readonly StockDocumentStatus[] Statuses =
+        [StockDocumentStatus.Draft, StockDocumentStatus.Posted, StockDocumentStatus.Reversed, StockDocumentStatus.Cancelled];
+
+    private IReadOnlyList<StockDocumentRowDto>? _rows;
+    private CreateForm? _form;
+    private bool _busy;
+    private string? _denied;
+    private string? _error;
+    private string _kind = string.Empty;
+    private string _status = string.Empty;
+    private string _warehouse = string.Empty;
+    private string _search = string.Empty;
+    private DateTime? _from;
+    private DateTime? _to;
+    private IReadOnlyList<LookupWarehouseDto> _warehouses = [];
+
+    private sealed record CreateForm(StockOperationKind Kind, StockDocumentOptions Options, StockDocumentHeaderFields.Model Header);
+
+    /// <summary>Из меню и с главного экрана: ?kind=1 — поступления, ?status=1 — черновики.</summary>
+    [SupplyParameterFromQuery(Name = "kind")]
+    public string? KindQuery { get; set; }
+
+    [SupplyParameterFromQuery(Name = "status")]
+    public string? StatusQuery { get; set; }
+
+    /// <summary>?order=1 — документы по заказам (приёмка), ?order=0 — без заказа (оприходования).</summary>
+    [SupplyParameterFromQuery(Name = "order")]
+    public string? OrderQuery { get; set; }
+
+    private string? _appliedQuery;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var query = $"{KindQuery}|{StatusQuery}|{OrderQuery}";
+        if (_rows is not null && _appliedQuery == query)
+        {
+            return;
+        }
+
+        _appliedQuery = query;
+        _kind = KindQuery ?? string.Empty;
+        _status = StatusQuery ?? string.Empty;
+        try
+        {
+            if (_warehouses.Count == 0)
+            {
+                _warehouses = await Documents.ListVisibleWarehousesAsync();
+            }
+
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private StockDocumentListFilter Filter => new(
+        byte.TryParse(_kind, out var k) ? (StockOperationKind)k : null,
+        byte.TryParse(_status, out var st) ? (StockDocumentStatus)st : null,
+        _from is { } f ? DateOnly.FromDateTime(f) : null, _to is { } t ? DateOnly.FromDateTime(t) : null,
+        long.TryParse(_warehouse, out var w) ? w : null, _search, OrderQuery switch { "1" => true, "0" => false, _ => null });
+
+    private string ExportHref => KnitErp.Web.Exports.ExportLink.Build("stock-documents.xlsx", ("kind", _kind), ("status", _status),
+        ("from", KnitErp.Web.Exports.ExportLink.Date(_from)), ("to", KnitErp.Web.Exports.ExportLink.Date(_to)), ("warehouse", _warehouse), ("search", _search), ("order", OrderQuery));
+
+    private async Task LoadAsync() => _rows = await Documents.ListAsync(Filter);
+
+    private Task ReloadAsync() => RunAsync(LoadAsync);
+
+    private Task OpenCreateAsync(StockOperationKind kind) => RunAsync(async () =>
+    {
+        var options = await Documents.GetOptionsAsync(kind);
+        var today = DateOnly.FromDateTime(TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId));
+        _form = new CreateForm(kind, options, StockDocumentHeaderFields.Model.For(kind, options, today));
+    });
+
+    private Task CreateAsync() => RunAsync(async () =>
+    {
+        var id = await Documents.CreateAsync(_form!.Kind, _form.Header.ToHeader());
+        Navigation.NavigateTo($"stock-documents/{id}");
+    });
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await action();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string NewLabel(StockOperationKind kind) => kind switch
+    {
+        StockOperationKind.Receipt => L("Новое поступление"),
+        StockOperationKind.Transfer => L("Новое перемещение"),
+        StockOperationKind.WriteOff => L("Новое списание"),
+        StockOperationKind.ReturnToSupplier => L("Новый возврат поставщику"),
+        StockOperationKind.Shipment => L("Новая отгрузка"),
+        StockOperationKind.CustomerReturn => L("Новый возврат от покупателя"),
+        _ => L("Новый документ"),
+    };
+
+    public static string StatusClass(StockDocumentStatus status) => status switch
+    {
+        StockDocumentStatus.Posted => "ok",
+        StockDocumentStatus.Reversed => "warn",
+        StockDocumentStatus.Cancelled => "bad",
+        _ => "",
+    };
+}

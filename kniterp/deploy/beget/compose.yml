@@ -1,0 +1,68 @@
+# knitERP на VPS Beget: SQL Server 2022 Express и приложение. HTTPS — Caddy на самом сервере (install.sh).
+# Секреты — в файле .env рядом (создаёт install.sh, в репозиторий не попадает).
+name: kniterp
+
+# Журналы контейнеров не растут бесконечно: до 5 файлов по 10 МБ.
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "5" }
+
+services:
+  sql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Express
+      MSSQL_SA_PASSWORD: ${SQL_SA_PASSWORD:?нет SQL_SA_PASSWORD в .env}
+      MSSQL_MEMORY_LIMIT_MB: ${SQL_MEMORY_MB:-2048}
+      TZ: UTC
+    volumes:
+      - sql-data:/var/opt/mssql
+      - ${BACKUP_DIR:-/opt/kniterp/backups}/raw:/var/opt/mssql/backup
+    networks: [kniterp]
+    # Порт базы наружу не открывается.
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' -b -o /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  app:
+    build:
+      context: ../..
+      dockerfile: deploy/beget/Dockerfile
+    image: kniterp-web:latest
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      sql:
+        condition: service_healthy
+    environment:
+      # Отдельная учётная запись базы только для чтения и записи данных (без прав менять схему и отключать триггеры).
+      ConnectionStrings__KnitErp: "Server=sql;Database=kniterp;User Id=kniterp_app;Password=${SQL_APP_PASSWORD:?нет SQL_APP_PASSWORD};Encrypt=true;TrustServerCertificate=true"
+      Security__MasterKey: ${MASTER_KEY:?нет MASTER_KEY в .env}
+      Security__PreviousMasterKeys: ${PREVIOUS_MASTER_KEYS:-}
+      ReverseProxy__KnownNetwork: 172.30.0.0/24
+      Assistant__ApiKey: ${ASSISTANT_API_KEY:-}
+      Requisites__ApiKey: ${REQUISITES_API_KEY:-}
+      # Ссылки в письмах «Забыли пароль» ведут только на этот адрес (D81); почта — тот же ящик, что у оповещений монитора.
+      App__PublicUrl: https://${KNITERP_DOMAIN:?нет KNITERP_DOMAIN}
+      Email__Url: ${SMTP_URL:-}
+      Email__User: ${SMTP_USER:-}
+      Email__Password: ${SMTP_PASSWORD:-}
+      Email__From: ${SMTP_FROM:-}
+    ports:
+      # Только для Caddy на этом же сервере.
+      - "127.0.0.1:8080:8080"
+    networks: [kniterp]
+
+volumes:
+  sql-data:
+
+networks:
+  kniterp:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24

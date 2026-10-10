@@ -1,0 +1,74 @@
+@page "/account/invite"
+@attribute [AllowAnonymous]
+@attribute [ExcludeFromInteractiveRouting]
+@layout AccountLayout
+@inject SignInService SignIn
+
+<PageTitle>@L("Приглашение") — knitERP</PageTitle>
+<HeadContent><meta name="referrer" content="no-referrer" /></HeadContent>
+<h1>@L("Установка пароля")</h1>
+
+@if (_done)
+{
+    <p>@L("Пароль установлен.") <a href="account/login">@L("Войти")</a></p>
+}
+else if (_email is null)
+{
+    <div class="error" role="alert">@L("Ссылка недействительна или срок приглашения истёк. Попросите администратора отправить новое.")</div>
+}
+else
+{
+    <p class="muted">@L("Учётная запись"): @_email</p>
+    @if (_message is not null)
+    {
+        <div class="error" role="alert">@_message</div>
+    }
+
+    <EditForm Model="Input" method="post" FormName="accept-invitation" OnValidSubmit="SubmitAsync">
+        <label>@L("Новый пароль") <InputText @bind-Value="Input.Password" type="password" autocomplete="new-password" minlength="@SignInPolicy.PasswordMinLength" required /></label>
+        <label>@L("Повторите пароль") <InputText @bind-Value="Input.Confirmation" type="password" autocomplete="new-password" required /></label>
+        <p class="muted">@L("Не короче {0} символов. Удобно взять фразу из нескольких слов.", SignInPolicy.PasswordMinLength)</p>
+        <button type="submit">@L("Сохранить пароль")</button>
+    </EditForm>
+}
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? Token { get; set; }
+
+    [SupplyParameterFromForm]
+    private PasswordInput Input { get; set; } = default!;
+
+    private string? _email;
+    private string? _message;
+    private bool _done;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+        _email = await SignIn.DescribeInvitationAsync(Token, HttpContext.RequestAborted);
+    }
+
+    private async Task SubmitAsync()
+    {
+        try
+        {
+            await SignIn.AcceptInvitationAsync(Token, Input.Password, Input.Confirmation, HttpContext.RequestAborted);
+            _done = true;
+        }
+        catch (BusinessRuleException ex)
+        {
+            _message = KnitErp.Web.Components.Shared.UiErrors.Message(ex);
+            Input = new PasswordInput();
+        }
+    }
+
+    private sealed class PasswordInput
+    {
+        public string Password { get; set; } = string.Empty;
+        public string Confirmation { get; set; } = string.Empty;
+    }
+}

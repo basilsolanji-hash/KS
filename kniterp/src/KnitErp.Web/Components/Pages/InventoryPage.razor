@@ -1,0 +1,192 @@
+@page "/inventory"
+@using KnitErp.Application.Warehousing
+@using KnitErp.Domain.Warehousing
+@using KnitErp.Web.Components.Shared
+@inject InventoryService Inventory
+@inject StockDocumentService Documents
+@inject NavigationManager Navigation
+
+<PageTitle>@L("Инвентаризация") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_rows is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <div class="page-head">
+        <h1>@L("Инвентаризация")</h1>
+        @if (CurrentAccess.Has(Permissions.WarehouseDocumentCreate) && !_creating)
+        {
+            <button type="button" @onclick="OpenCreateAsync" disabled="@_busy">@L("Новая инвентаризация")</button>
+        }
+    </div>
+    <p class="muted">
+        @L("Документ сразу заполняется остатками по учёту. Внесите фактическое количество (вручную или из Excel) и проведите: излишки придут на склад, недостачи спишутся. Недостачу нужно пояснить в комментарии.")
+    </p>
+
+    @if (_error is not null)
+    {
+        <div class="error" role="alert">@_error</div>
+    }
+
+    @if (_creating)
+    {
+        <div class="panel">
+            <h2>@L("Новая инвентаризация")</h2>
+            @if (_warehouses.Count == 0)
+            {
+                <p class="muted">@L("Нет складов, доступных вам для документов.")</p>
+                <button type="button" class="secondary" @onclick="() => _creating = false">@L("Закрыть")</button>
+            }
+            else
+            {
+                <form class="inline-form" @onsubmit="CreateAsync">
+                    <label>
+                        @L("Склад")
+                        <select @bind="_warehouseId">
+                            @foreach (var w in _warehouses)
+                            {
+                                <option value="@w.Id">@w.Name</option>
+                            }
+                        </select>
+                    </label>
+                    <label>@L("Дата") <input type="date" @bind="_date" /></label>
+                    <label>@L("Комментарий") <input @bind="_comment" maxlength="1000" size="30" /></label>
+                    <button type="submit" disabled="@_busy">@L("Создать")</button>
+                    <button type="button" class="secondary" @onclick="() => _creating = false">@L("Отмена")</button>
+                </form>
+            }
+        </div>
+    }
+
+    <form class="inline-form" @onsubmit="ReloadAsync">
+        <label>
+            @L("Склад")
+            <select @bind="_filterWarehouse">
+                <option value="">@L("Все доступные")</option>
+                @foreach (var w in _visibleWarehouses)
+                {
+                    <option value="@w.Id">@w.Name</option>
+                }
+            </select>
+        </label>
+        <label>@L("С") <input type="date" @bind="_from" /></label>
+        <label>@L("По") <input type="date" @bind="_to" /></label>
+        <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
+        <a class="button secondary" href="@ExportHref" download data-enhance-nav="false" title="@L("Реестр с текущими фильтрами")">Excel</a>
+    </form>
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>@L("Номер")</th><th>@L("Дата")</th><th>@L("Склад")</th><th class="opt num">@L("Позиций")</th><th class="opt num">@L("Излишков")</th><th class="opt num">@L("Недостач")</th><th>@L("Статус")</th><th class="opt">@L("Автор")</th></tr></thead>
+            <tbody>
+                @if (_rows.Count == 0)
+                {
+                    <tr><td colspan="8" class="muted">@L("Инвентаризаций пока нет.")</td></tr>
+                }
+                @foreach (var d in _rows)
+                {
+                    <tr>
+                        <td><a href="inventory/@d.Id">@d.Number</a></td>
+                        <td>@d.CountDate.ToString("dd.MM.yyyy")</td>
+                        <td>@d.WarehouseName</td>
+                        <td class="num">@d.LineCount</td>
+                        <td class="num">@d.SurplusCount</td>
+                        <td class="num">@d.ShortageCount</td>
+                        <td><span class="tag @StatusClass(d.Status)">@L(d.StatusName)</span></td>
+                        <td>@d.CreatedBy</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private IReadOnlyList<InventoryRowDto>? _rows;
+    private IReadOnlyList<LookupWarehouseDto> _warehouses = [];
+    private bool _creating;
+    private bool _busy;
+    private string? _denied;
+    private string? _error;
+    private long _warehouseId;
+    private DateTime _date = DateTime.Today;
+    private string? _comment;
+    private IReadOnlyList<LookupWarehouseDto> _visibleWarehouses = [];
+    private string _filterWarehouse = string.Empty;
+    private DateTime? _from;
+    private DateTime? _to;
+
+    private InventoryListFilter Filter => new(_from is { } f ? DateOnly.FromDateTime(f) : null, _to is { } t ? DateOnly.FromDateTime(t) : null,
+        long.TryParse(_filterWarehouse, out var w) ? w : null);
+
+    private string ExportHref => KnitErp.Web.Exports.ExportLink.Build("inventory.xlsx",
+        ("from", KnitErp.Web.Exports.ExportLink.Date(_from)), ("to", KnitErp.Web.Exports.ExportLink.Date(_to)), ("warehouse", _filterWarehouse));
+
+    private Task ReloadAsync() => RunAsync(async () => _rows = await Inventory.ListAsync(Filter));
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _visibleWarehouses = await Documents.ListVisibleWarehousesAsync();
+            _rows = await Inventory.ListAsync(Filter);
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private Task OpenCreateAsync() => RunAsync(async () =>
+    {
+        _warehouses = await Inventory.ListWarehousesForEntryAsync();
+        _warehouseId = _warehouses.FirstOrDefault()?.Id ?? 0;
+        _date = TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId).Date;
+        _creating = true;
+    });
+
+    private Task CreateAsync() => RunAsync(async () =>
+    {
+        var id = await Inventory.CreateAsync(_warehouseId, DateOnly.FromDateTime(_date), _comment);
+        Navigation.NavigateTo($"inventory/{id}");
+    });
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await action();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    public static string StatusClass(InventoryStatus status) => status switch
+    {
+        InventoryStatus.Posted => "ok",
+        InventoryStatus.Cancelled => "bad",
+        _ => "",
+    };
+}

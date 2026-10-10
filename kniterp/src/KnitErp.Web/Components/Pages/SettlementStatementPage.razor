@@ -1,0 +1,177 @@
+@page "/settlement-statement"
+@using KnitErp.Application.Finance
+@inject SettlementStatementService Statements
+
+<PageTitle>@L("Акт сверки") — knitERP</PageTitle>
+
+@*
+    D85: акт сверки взаимных расчётов с контрагентом по своему юрлицу за период — сальдо на начало, документы и оплаты, сальдо
+    на конец. Печатная форма — по кнопке «Печать» (в отдельной вкладке).
+*@
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_options is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <h1>@L("Акт сверки")</h1>
+    <p class="muted">@L("Отгрузки, возвраты и поступления — по ценам заказа с НДС, оплаты — действующие. Дебет — долг контрагента перед нами растёт, кредит — уменьшается.")</p>
+
+    @if (_message is not null)
+    {
+        <div class="flash error" role="alert">@_message</div>
+    }
+
+    <form class="inline-form" @onsubmit="BuildAsync">
+        <label>
+            @L("Контрагент")
+            <select @bind="_counterparty" required>
+                <option value="">—</option>
+                @foreach (var c in _options.Counterparties)
+                {
+                    <option value="@c.Id">@c.Name</option>
+                }
+            </select>
+        </label>
+        @if (_options.LegalEntities.Count > 1)
+        {
+            <label>
+                @L("Юрлицо")
+                <select @bind="_entity">
+                    @foreach (var e in _options.LegalEntities)
+                    {
+                        <option value="@e.Id">@e.Name</option>
+                    }
+                </select>
+            </label>
+        }
+        <label>@L("С") <input type="date" @bind="_from" required /></label>
+        <label>@L("По") <input type="date" @bind="_to" required /></label>
+        <button type="submit" disabled="@_busy">@L("Сформировать")</button>
+    </form>
+
+    @if (_doc is { } d)
+    {
+        <div class="page-head" style="margin-top: 12px">
+            <h2>@d.EntityShort — @d.Counterparty, @d.From.ToString("dd.MM.yyyy") – @d.To.ToString("dd.MM.yyyy")</h2>
+            <a class="button secondary" href="@PrintHref" target="_blank" rel="noopener">@L("Печать")</a>
+        </div>
+        <div class="scroll">
+            <table class="compact">
+                <thead><tr><th>@L("Дата")</th><th>@L("Документ")</th><th class="num">@L("Дебет")</th><th class="num">@L("Кредит")</th></tr></thead>
+                <tbody>
+                    <tr class="group"><td colspan="2">@L("Сальдо на начало")</td><td class="num">@Debit(d.Opening)</td><td class="num">@Credit(d.Opening)</td></tr>
+                    @if (d.Rows.Count == 0)
+                    {
+                        <tr><td colspan="4" class="muted">@L("За период документов и оплат нет.")</td></tr>
+                    }
+                    @foreach (var r in d.Rows)
+                    {
+                        <tr>
+                            <td>@r.Date.ToString("dd.MM.yyyy")</td>
+                            <td>@r.Document</td>
+                            <td class="num">@(r.Debit == 0 ? "" : Amounts.Format(r.Debit))</td>
+                            <td class="num">@(r.Credit == 0 ? "" : Amounts.Format(r.Credit))</td>
+                        </tr>
+                    }
+                    <tr class="group"><td colspan="2">@L("Обороты за период")</td><td class="num">@Amounts.Format(d.DebitTotal)</td><td class="num">@Amounts.Format(d.CreditTotal)</td></tr>
+                    <tr class="group"><td colspan="2">@L("Сальдо на конец")</td><td class="num">@Debit(d.Closing)</td><td class="num">@Credit(d.Closing)</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p>
+            @if (d.Closing > 0)
+            {
+                @L("На {0} задолженность {1} перед {2}: {3}.", d.To.ToString("dd.MM.yyyy"), d.Counterparty, d.EntityShort, Amounts.Format(d.Closing))
+            }
+            else if (d.Closing < 0)
+            {
+                @L("На {0} задолженность {1} перед {2}: {3}.", d.To.ToString("dd.MM.yyyy"), d.EntityShort, d.Counterparty, Amounts.Format(-d.Closing))
+            }
+            else
+            {
+                @L("На {0} задолженности нет.", d.To.ToString("dd.MM.yyyy"))
+            }
+        </p>
+    }
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    [SupplyParameterFromQuery(Name = "counterparty")]
+    public long? CounterpartyQuery { get; set; }
+
+    private SettlementOptionsDto? _options;
+    private SettlementStatementDto? _doc;
+    private string _counterparty = string.Empty;
+    private string _entity = string.Empty;
+    private DateTime _from;
+    private DateTime _to;
+    private bool _busy;
+    private string? _denied;
+    private string? _message;
+
+    private string PrintHref => _doc is { } d
+        ? $"print/settlement-statement?counterparty={d.CounterpartyId}&entity={d.LegalEntityId}&from={d.From:yyyy-MM-dd}&to={d.To:yyyy-MM-dd}"
+        : "#";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var today = TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId).Date;
+        _to = today;
+        _from = new DateTime(today.Year, 1, 1);
+        try
+        {
+            _options = await Statements.OptionsAsync();
+            _entity = _options.LegalEntities.FirstOrDefault()?.Id.ToString() ?? string.Empty;
+            if (CounterpartyQuery is { } cp && _options.Counterparties.Any(c => c.Id == cp))
+            {
+                _counterparty = cp.ToString();
+                await BuildAsync();
+            }
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private string Debit(decimal saldo) => saldo > 0 ? Amounts.Format(saldo) : "";
+
+    private string Credit(decimal saldo) => saldo < 0 ? Amounts.Format(-saldo) : "";
+
+    private async Task BuildAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        try
+        {
+            if (!long.TryParse(_counterparty, out var cp))
+            {
+                throw new BusinessRuleException("settlement.counterparty", L("Выберите контрагента."));
+            }
+
+            _doc = await Statements.BuildAsync(cp, long.TryParse(_entity, out var e) ? e : null, DateOnly.FromDateTime(_from), DateOnly.FromDateTime(_to));
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+            _doc = null;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

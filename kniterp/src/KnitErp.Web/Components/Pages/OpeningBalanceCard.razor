@@ -1,0 +1,268 @@
+@page "/opening-balances/{Id:long}"
+@using KnitErp.Application.Warehousing
+@using KnitErp.Domain.Warehousing
+@using KnitErp.Web.Components.Shared
+@inject OpeningBalanceService Balances
+
+<PageTitle>@(_doc?.Number ?? L("Документ")) — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_notFound)
+{
+    <h1>@L("Документ не найден")</h1>
+    <p><a href="opening-balances">@L("К списку документов")</a></p>
+}
+else if (_doc is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <p><a href="opening-balances">@L("← Начальные остатки")</a></p>
+    <div class="page-head">
+        <h1>@_doc.Number <span class="tag @OpeningBalancesPage.StatusClass(_doc.Status)">@L(_doc.StatusName)</span></h1>
+    </div>
+    <table style="max-width: 720px">
+        <tr><td class="muted">@L("Склад")</td><td>@_doc.WarehouseName</td></tr>
+        <tr><td class="muted">@L("Остатки на дату")</td><td>@_doc.AsOfDate.ToString("dd.MM.yyyy")</td></tr>
+        <tr><td class="muted">@L("Автор")</td><td>@_doc.CreatedBy, @Local(_doc.CreatedAtUtc)</td></tr>
+        @if (_doc.ApprovedBy is not null)
+        {
+            <tr><td class="muted">@L("Утвердил")</td><td>@_doc.ApprovedBy, @Local(_doc.ApprovedAtUtc!.Value)</td></tr>
+        }
+        @if (_doc.Comment is not null)
+        {
+            <tr><td class="muted">@L("Комментарий")</td><td>@_doc.Comment</td></tr>
+        }
+    </table>
+
+    @if (_doc.Status == OpeningBalanceStatus.Draft && _doc.ReturnReason is not null)
+    {
+        <div class="error" role="alert" style="margin-top: 16px">@L("Возвращён на доработку:") @_doc.ReturnReason</div>
+    }
+
+    @if (_message is not null)
+    {
+        <div class="@(_messageIsError ? "flash error" : "flash")" role="@(_messageIsError ? "alert" : "status")">@_message</div>
+    }
+
+    <h2 style="margin-top: 24px">@L("Строки ({0})", _doc.Lines.Count)</h2>
+
+    @if (_doc.CanEdit)
+    {
+        <form class="inline-form" @onsubmit="AddLineAsync">
+            <label>
+                @L("Позиция")
+                <input list="items" @bind="_itemText" size="40" placeholder="@L("Начните вводить код или наименование")" />
+                <datalist id="items">
+                    @foreach (var i in _items)
+                    {
+                        <option value="@($"{i.Code} — {i.Name}")">@i.UnitSymbol</option>
+                    }
+                </datalist>
+            </label>
+            <label>@L("Количество") <input @bind="_qtyText" inputmode="decimal" size="10" /></label>
+            <button type="submit" disabled="@_busy">@L("Добавить")</button>
+        </form>
+        <div class="actions">
+            <a class="button secondary" href="opening-balances/template.xlsx" download data-enhance-nav="false">@L("Шаблон Excel")</a>
+            <label class="inline">@L("Загрузить строки из Excel (заменят текущие)") <InputFile OnChange="ImportAsync" accept=".xlsx" disabled="@_busy" /></label>
+        </div>
+    }
+
+    @if (_import is { Applied: false })
+    {
+        <div class="error" role="alert">@L("В файле есть ошибки ({0}) — строки не загружены.", _import.ErrorRows)</div>
+        <div class="scroll" style="max-height: 300px; overflow-y: auto">
+            <table>
+                <thead><tr><th>@L("Строка")</th><th>@L("Код")</th><th>@L("Количество")</th><th>@L("Ошибки")</th></tr></thead>
+                <tbody>
+                    @foreach (var r in _import.Rows.Where(r => r.Errors.Count > 0).Take(500))
+                    {
+                        <tr><td>@r.RowNumber</td><td>@r.Code</td><td>@r.QuantityText</td><td>@string.Join(" ", r.Errors)</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>@L("Код")</th><th>@L("Наименование")</th><th style="text-align: right">@L("Количество")</th><th>@L("Ед.")</th>@if (_doc.CanEdit) { <th></th> }</tr></thead>
+            <tbody>
+                @if (_doc.Lines.Count == 0)
+                {
+                    <tr><td colspan="5" class="muted">@L("Строк пока нет.")</td></tr>
+                }
+                @foreach (var l in _doc.Lines)
+                {
+                    <tr>
+                        <td>@l.Code</td>
+                        <td>@l.Name</td>
+                        <td style="text-align: right">@Quantities.Format(l.Quantity)</td>
+                        <td>@l.UnitSymbol</td>
+                        @if (_doc.CanEdit)
+                        {
+                            <td><ConfirmButton Class="secondary" OnConfirm="() => RemoveLineAsync(l)" Disabled="@_busy" AriaLabel="@L("Удалить строку {0}", l.Code)" Question='@L("Удалить?")'>@L("Удалить")</ConfirmButton></td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="actions" style="margin-top: 16px">
+        @if (_doc.CanEdit)
+        {
+            <button type="button" @onclick="SubmitAsync" disabled="@(_busy || _doc.Lines.Count == 0)">@L("Отправить на утверждение")</button>
+            <ConfirmButton Class="secondary" OnConfirm="CancelAsync" Disabled="@_busy" Question='@L("Отменить документ?")'>@L("Отменить документ")</ConfirmButton>
+        }
+        @if (_doc.CanApprove)
+        {
+            <button type="button" @onclick="ApproveAsync" disabled="@_busy">@L("Утвердить")</button>
+        }
+    </div>
+
+    @if (_doc.CanApprove)
+    {
+        <form class="inline-form" @onsubmit="ReturnAsync">
+            <label>@L("Причина возврата") <input @bind="_returnReason" maxlength="500" size="40" /></label>
+            <button type="submit" class="secondary" disabled="@_busy">@L("Вернуть на доработку")</button>
+        </form>
+    }
+
+    @if (_doc.Status == OpeningBalanceStatus.Submitted && !_doc.CanApprove && CurrentAccess.Has(Permissions.OpeningBalanceApprove))
+    {
+        <p class="muted">@L("Вы автор этого документа — утвердить его должен другой человек.")</p>
+    }
+}
+
+@code {
+    [Parameter]
+    public long Id { get; set; }
+
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private OpeningBalanceDto? _doc;
+    private IReadOnlyList<EntryItemDto> _items = [];
+    private LineImportResult? _import;
+    private bool _busy;
+    private bool _notFound;
+    private string? _denied;
+    private string? _message;
+    private bool _messageIsError;
+    private string _itemText = string.Empty;
+    private string _qtyText = string.Empty;
+    private string _returnReason = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+            if (_doc!.CanEdit)
+            {
+                _items = await Balances.ListItemsForEntryAsync();
+            }
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+        catch (NotFoundException)
+        {
+            _notFound = true;
+        }
+    }
+
+    private async Task LoadAsync() => _doc = await Balances.GetAsync(Id);
+
+    private Task AddLineAsync() => RunAsync(async () =>
+    {
+        var code = _itemText.Split(" — ", 2)[0].Trim();
+        var item = _items.FirstOrDefault(i => string.Equals(i.Code, code, StringComparison.OrdinalIgnoreCase))
+                   ?? throw new BusinessRuleException("stock.item.unknown", L("Позиция «{0}» не найдена. Выберите из списка.", _itemText));
+        if (!Quantities.TryParse(_qtyText, out var qty))
+        {
+            throw new BusinessRuleException("stock.quantity.invalid", L("Укажите количество числом, например 12,5."));
+        }
+
+        await Balances.SetLineAsync(Id, item.Id, qty, _doc!.RowVersion);
+        _itemText = string.Empty;
+        _qtyText = string.Empty;
+    }, null);
+
+    private Task RemoveLineAsync(OpeningBalanceLineDto line) => RunAsync(() => Balances.RemoveLineAsync(Id, line.ItemId, _doc!.RowVersion), null);
+
+    private Task ImportAsync(InputFileChangeEventArgs e) => RunAsync(async () =>
+    {
+        const long maxSize = 5 * 1024 * 1024;
+        if (e.File.Size > maxSize)
+        {
+            throw new BusinessRuleException("import.file_too_large", L("Файл больше 5 МБ."));
+        }
+
+        await using var upload = e.File.OpenReadStream(maxSize);
+        using var buffer = new MemoryStream();
+        await upload.CopyToAsync(buffer);
+        buffer.Position = 0;
+        _import = await Balances.ImportLinesAsync(Id, buffer, _doc!.RowVersion);
+        if (_import.Applied)
+        {
+            _message = L("Загружено строк: {0}.", _import.Lines);
+            _import = null;
+        }
+    }, null);
+
+    private Task SubmitAsync() => RunAsync(() => Balances.SubmitAsync(Id, _doc!.RowVersion), L("Документ отправлен на утверждение."));
+
+    private Task CancelAsync() => RunAsync(() => Balances.CancelAsync(Id, _doc!.RowVersion), L("Документ отменён."));
+
+    private Task ApproveAsync() => RunAsync(() => Balances.ApproveAsync(Id, _doc!.RowVersion), L("Документ утверждён, остатки записаны."));
+
+    private Task ReturnAsync() => RunAsync(async () =>
+    {
+        await Balances.ReturnAsync(Id, _returnReason, _doc!.RowVersion);
+        _returnReason = string.Empty;
+    }, L("Документ возвращён на доработку."));
+
+    /// <summary>Одна операция за раз, затем свежий документ: у вкладки один DbContext.</summary>
+    private async Task RunAsync(Func<Task> action, string? success)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _messageIsError = false;
+        try
+        {
+            await action();
+            _message = success ?? _message;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+            _messageIsError = true;
+        }
+        finally
+        {
+            try
+            {
+                await LoadAsync();
+            }
+            finally
+            {
+                _busy = false;
+            }
+        }
+    }
+
+    private string Local(DateTime utc) => TimeZones.ToLocal(utc, CurrentAccess.TimeZoneId).ToString("dd.MM.yyyy HH:mm");
+}

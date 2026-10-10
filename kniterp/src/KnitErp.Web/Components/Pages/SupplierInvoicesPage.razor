@@ -1,0 +1,93 @@
+@page "/supplier-invoices"
+@using KnitErp.Application.Purchasing
+@inject PurchaseService Purchases
+
+<PageTitle>@L("Счета поставщиков") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_rows is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <h1>@L("Счета поставщиков")</h1>
+    <p class="muted">@L("Счёт поставщика записывается в шапку заказа поставщику (поле «Счёт поставщика»). Здесь — подтверждённые и закрытые заказы со счётом: сумма, оплачено и сколько осталось оплатить.")</p>
+
+    <form class="inline-form" @onsubmit="ReloadAsync">
+        <label>@L("Поиск") <input @bind="_search" placeholder="@L("счёт, поставщик, ИНН, заказ")" /></label>
+        <label class="inline"><input type="checkbox" @bind="_unpaid" /> @L("Только неоплаченные")</label>
+        <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
+    </form>
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>@L("Счёт поставщика")</th><th>@L("Поставщик")</th><th class="opt">@L("Заказ")</th><th class="opt">@L("Ожидается")</th><th class="num">@L("Сумма")</th><th class="num">@L("Оплачено")</th><th class="num">@L("К оплате")</th></tr></thead>
+            <tbody>
+                @if (_rows.Count == 0)
+                {
+                    <tr><td colspan="7" class="muted">@L("Счетов поставщиков пока нет.")</td></tr>
+                }
+                @foreach (var r in _rows)
+                {
+                    <tr>
+                        <td>@r.Invoice</td>
+                        <td>@r.Supplier</td>
+                        <td><a href="purchase-orders/@r.OrderId">@r.OrderNumber</a> <span class="muted">@r.OrderDate.ToString("dd.MM.yyyy")</span></td>
+                        <td>@r.ExpectedDate?.ToString("dd.MM.yyyy")</td>
+                        <td class="num">@Amounts.Format(r.Total)</td>
+                        <td class="num">@Amounts.Format(r.Paid)</td>
+                        <td class="num"><b class="@(r.ToPay > 0 ? "warn-text" : "")">@Amounts.Format(r.ToPay)</b></td>
+                    </tr>
+                }
+            </tbody>
+            @if (_rows.Count > 0)
+            {
+                <tfoot><tr><td colspan="4"><b>@L("Итого")</b></td><td class="num">@Amounts.Format(_rows.Sum(r => r.Total))</td><td class="num">@Amounts.Format(_rows.Sum(r => r.Paid))</td><td class="num"><b>@Amounts.Format(_rows.Sum(r => r.ToPay))</b></td></tr></tfoot>
+            }
+        </table>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<SupplierInvoiceRowDto>? _rows;
+    private bool _busy;
+    private string? _denied;
+    private string? _search;
+    private bool _unpaid;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private async Task LoadAsync() => _rows = await Purchases.ListSupplierInvoicesAsync(_search, _unpaid);
+
+    private async Task ReloadAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

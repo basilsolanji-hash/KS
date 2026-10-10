@@ -1,0 +1,115 @@
+@using KnitErp.Application.Warehousing
+@using KnitErp.Domain.Warehousing
+
+@* Поля шапки складского документа — общие для создания и правки черновика. *@
+<label>
+    @(StockDocument.IsOutgoing(Kind) ? L("Склад-отправитель") : L("Склад-получатель"))
+    <select @bind="Form.WarehouseId">
+        @foreach (var w in Options.Warehouses)
+        {
+            <option value="@w.Id">@w.Name</option>
+        }
+    </select>
+</label>
+@if (Kind == StockOperationKind.Transfer)
+{
+    <label>
+        @L("Куда")
+        <select @bind="Form.TargetWarehouseId">
+            <option value="">@L("— выберите склад —")</option>
+            @foreach (var w in Options.TargetWarehouses)
+            {
+                <option value="@w.Id">@w.Name</option>
+            }
+        </select>
+    </label>
+}
+@if (StockDocument.WithSupplier(Kind) || StockDocument.WithCustomer(Kind))
+{
+    <label>
+        @(StockDocument.WithCustomer(Kind) ? L("Покупатель") : L("Поставщик"))
+        <select @bind="Form.CounterpartyId" disabled="@(Form.PurchaseOrderId is not null || Form.SalesOrderId is not null)">
+            <option value="">@(Kind == StockOperationKind.Receipt ? L("— без поставщика —") : StockDocument.WithCustomer(Kind) ? L("— выберите покупателя —") : L("— выберите поставщика —"))</option>
+            @foreach (var c in Options.Suppliers)
+            {
+                <option value="@c.Id">@c.Name</option>
+            }
+        </select>
+    </label>
+}
+<label>
+    @L("Причина")
+    <select @bind="Form.ReasonId">
+        <option value="">@L("— выберите —")</option>
+        @foreach (var r in Options.Reasons)
+        {
+            <option value="@r.Id">@L(r.Name)@(r.RequiresComment ? " " + L("(нужно пояснение)") : "")</option>
+        }
+    </select>
+</label>
+<label>@L("Дата") <input type="date" @bind="Form.Date" /></label>
+<label>@L("Комментарий") <input @bind="Form.Comment" maxlength="1000" /></label>
+
+@code {
+    [Parameter, EditorRequired]
+    public Model Form { get; set; } = default!;
+
+    [Parameter, EditorRequired]
+    public StockOperationKind Kind { get; set; }
+
+    [Parameter, EditorRequired]
+    public StockDocumentOptions Options { get; set; } = default!;
+
+    /// <summary>Значения формы как текст выпадающих списков; в шапку документа превращаются при отправке.</summary>
+    public sealed class Model
+    {
+        public string WarehouseId { get; set; } = string.Empty;
+        public string TargetWarehouseId { get; set; } = string.Empty;
+        public string CounterpartyId { get; set; } = string.Empty;
+        public string ReasonId { get; set; } = string.Empty;
+        public DateTime Date { get; set; }
+        public string? Comment { get; set; }
+
+        public static Model For(StockOperationKind kind, StockDocumentOptions options, DateOnly today)
+        {
+            var model = new Model
+            {
+                WarehouseId = options.Warehouses.FirstOrDefault()?.Id.ToString() ?? string.Empty,
+                Date = today.ToDateTime(TimeOnly.MinValue),
+            };
+            if (options.Reasons.Count == 1)
+            {
+                model.ReasonId = options.Reasons[0].Id.ToString();
+            }
+
+            return model;
+        }
+
+        /// <summary>Заказ поставщику — не правится в шапке: документ по заказу остаётся привязан к нему и к его поставщику.</summary>
+        public long? PurchaseOrderId { get; set; }
+
+        public long? SalesOrderId { get; set; }
+
+        public static Model From(StockDocumentDto d) => new()
+        {
+            WarehouseId = d.WarehouseId.ToString(),
+            TargetWarehouseId = d.TargetWarehouseId?.ToString() ?? string.Empty,
+            CounterpartyId = d.CounterpartyId?.ToString() ?? string.Empty,
+            ReasonId = d.ReasonId?.ToString() ?? string.Empty,
+            Date = d.DocumentDate.ToDateTime(TimeOnly.MinValue),
+            Comment = d.Comment,
+            PurchaseOrderId = d.PurchaseOrderId,
+            SalesOrderId = d.SalesOrderId,
+        };
+
+        public StockDocumentHeader ToHeader() => new(
+            long.TryParse(WarehouseId, out var w) ? w : 0,
+            long.TryParse(TargetWarehouseId, out var t) ? t : null,
+            long.TryParse(CounterpartyId, out var c) ? c : null,
+            long.TryParse(ReasonId, out var r) ? r : null,
+            DateOnly.FromDateTime(Date),
+            Comment,
+            PurchaseOrderId,
+            SalesOrderId);
+    }
+}

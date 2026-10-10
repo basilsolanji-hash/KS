@@ -1,0 +1,56 @@
+@page "/account/organizations"
+@attribute [ExcludeFromInteractiveRouting]
+@layout AccountLayout
+@using Microsoft.AspNetCore.Authentication
+@inject SignInService SignIn
+@inject NavigationManager Navigation
+
+<PageTitle>@L("Организация") — knitERP</PageTitle>
+<h1>@L("Выберите организацию")</h1>
+
+@if (_organizations is { Count: > 0 })
+{
+    <form method="post" @formname="switch-organization" @onsubmit="SwitchAsync">
+        <AntiforgeryToken />
+        @foreach (var o in _organizations)
+        {
+            <button type="submit" name="OrganizationId" value="@o.OrganizationId" disabled="@(o.OrganizationId == _session?.OrganizationId)">
+                @o.ShortName @(o.OrganizationId == _session?.OrganizationId ? L("(текущая)") : "")
+            </button>
+        }
+    </form>
+}
+
+<p style="margin-top: 24px"><a href="">@L("Вернуться")</a></p>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private long? OrganizationId { get; set; }
+
+    private SessionIdentity? _session;
+    private IReadOnlyList<OrganizationChoice>? _organizations;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _session = SessionClaims.Read(HttpContext.User);
+        if (_session is not null)
+        {
+            _organizations = await SignIn.ListOrganizationsAsync(_session.UserId, HttpContext.RequestAborted);
+        }
+    }
+
+    private async Task SwitchAsync()
+    {
+        if (_session is null || OrganizationId is not { } orgId)
+        {
+            return;
+        }
+
+        var next = await SignIn.SwitchOrganizationAsync(_session, orgId, HttpContext.RequestAborted);
+        await HttpContext.SignInAsync(AuthSchemes.Session, SessionClaims.Create(next));
+        Navigation.NavigateTo("/", forceLoad: true);
+    }
+}

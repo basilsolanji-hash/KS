@@ -1,0 +1,50 @@
+@using System.Globalization
+@*
+    Плитка показателя: подпись, значение, изменение к прошлому периоду (стрелка + цвет по смыслу: рост продаж — хорошо,
+    рост долга — плохо), спарклайн за 30 дней и пояснение. Цвет не единственный носитель смысла — есть стрелка и текст.
+*@
+
+<a class="kpi" href="@Href" style="@(Accent is null ? null : $"--kpi: var({Accent})")">
+    <span class="kpi-label">@Label</span>
+    <span class="kpi-value">@Value</span>
+    @if (Delta is { } d)
+    {
+        var good = UpIsGood ? d >= 0 : d <= 0;
+        <span class="kpi-delta @(good ? "good" : "bad")">@(d >= 0 ? "▲" : "▼") @Math.Abs(d).ToString("0", CultureInfo.InvariantCulture)% <span class="muted">@L("к пред. 30 дням")</span></span>
+    }
+    else if (Hint is not null)
+    {
+        <span class="kpi-delta muted">@Hint</span>
+    }
+    @if (Points is { Count: > 1 } points)
+    {
+        <svg class="kpi-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+            <polyline points="@Spark(points)" />
+        </svg>
+    }
+    @if (Delta is not null && Hint is not null)
+    {
+        <span class="kpi-hint">@Hint</span>
+    }
+</a>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Value { get; set; } = string.Empty;
+    [Parameter] public string Href { get; set; } = "";
+    [Parameter] public decimal? Delta { get; set; }
+    [Parameter] public bool UpIsGood { get; set; } = true;
+    [Parameter] public string? Hint { get; set; }
+    [Parameter] public IReadOnlyList<decimal>? Points { get; set; }
+
+    /// <summary>Переменная цвета полоски слева (например «--sec-sales»).</summary>
+    [Parameter] public string? Accent { get; set; }
+
+    private static string Spark(IReadOnlyList<decimal> points)
+    {
+        var max = Math.Max(points.Max(), 0);
+        var step = 100m / (points.Count - 1);
+        return string.Join(' ', points.Select((p, i) =>
+            $"{(i * step).ToString("0.##", CultureInfo.InvariantCulture)},{(22 - (max > 0 ? Math.Max(p, 0) / max * 20 : 0)).ToString("0.##", CultureInfo.InvariantCulture)}"));
+    }
+}

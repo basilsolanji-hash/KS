@@ -1,0 +1,90 @@
+@inject AssistantService Assistant
+
+<p class="muted">
+    @(Assistant.ModelConfigured
+        ? L("Помощник отвечает по работе в knitERP с учётом ваших прав и текущего раздела. Не пишите сюда пароли и персональные данные.")
+        : L("ИИ-модель не подключена — помощник подбирает ответы из справочного центра. Подключение — в настройках сервера."))
+</p>
+
+<div class="chat" aria-live="polite">
+    @foreach (var m in _messages)
+    {
+        <div class="chat-msg @(m.FromUser ? "user" : "bot")">
+            <div class="chat-text">@m.Text</div>
+            @if (m.Articles.Count > 0)
+            {
+                <div class="chat-links">
+                    @foreach (var a in m.Articles)
+                    {
+                        <button type="button" class="link" @onclick="() => Context.OpenTool(ToolCatalog.Help, a.Id)">📖 @L(a.Title)</button>
+                    }
+                </div>
+            }
+        </div>
+    }
+    @if (_busy)
+    {
+        <div class="chat-msg bot"><div class="chat-text muted">@L("Думаю…")</div></div>
+    }
+</div>
+
+@if (_error is not null)
+{
+    <div class="error" role="alert">@_error</div>
+}
+
+<form class="tool-form" @onsubmit="AskAsync">
+    <label>
+        @L("Вопрос")
+        <textarea @bind="_question" rows="3" maxlength="1000" placeholder="@L("Например: как исправить проведённое списание?")"></textarea>
+    </label>
+    <div class="actions">
+        <button type="submit" disabled="@_busy">@L("Спросить")</button>
+        @if (_messages.Count > 0)
+        {
+            <button type="button" class="secondary" @onclick="() => _messages.Clear()" disabled="@_busy">@L("Новый разговор")</button>
+        }
+    </div>
+</form>
+
+@code {
+    [Parameter, EditorRequired]
+    public ToolContext Context { get; set; } = default!;
+
+    private sealed record Message(bool FromUser, string Text, IReadOnlyList<HelpArticle> Articles);
+
+    private readonly List<Message> _messages = [];
+    private string _question = string.Empty;
+    private string? _error;
+    private bool _busy;
+
+    private async Task AskAsync()
+    {
+        if (_busy || string.IsNullOrWhiteSpace(_question))
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        var question = _question.Trim();
+        var history = _messages.Select(m => new AssistantTurn(m.FromUser, m.Text)).ToList();
+        _messages.Add(new Message(true, question, []));
+        _question = string.Empty;
+        try
+        {
+            var reply = await Assistant.AskAsync(question, Context.Route, history);
+            _messages.Add(new Message(false, reply.Text, reply.Articles));
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+            _messages.RemoveAt(_messages.Count - 1);
+            _question = question;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

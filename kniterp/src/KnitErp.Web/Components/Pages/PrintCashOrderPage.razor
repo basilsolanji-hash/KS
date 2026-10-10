@@ -1,0 +1,160 @@
+@page "/print/cash-order/{Id:long}"
+@page "/print/cash-order/{Source}/{Id:long}"
+@layout KnitErp.Web.Components.Layout.PrintLayout
+@using System.Globalization
+@using KnitErp.Application.Finance
+@inject MoneyOperationService Operations
+@inject KnitErp.Application.Sales.SalesService Sales
+@inject KnitErp.Application.Purchasing.PurchaseService Purchases
+
+@*
+    Приходный (КО-1, ОКУД 0310001) и расходный (КО-2, ОКУД 0310002) кассовые ордера по формам постановления Госкомстата России
+    от 18.08.1998 № 88; порядок — Указание Банка России от 11.03.2014 № 3210-У. Российская форма — печатается по-русски (D68).
+    Счёт 50 «Касса» — по Плану счетов (приказ Минфина России № 94н); корреспондирующий счёт заполняет бухгалтер.
+*@
+<PageTitle>@(_doc is null ? "Кассовый ордер" : $"{(_doc.Expense ? "РКО" : "ПКО")} {_doc.Number}") — knitERP</PageTitle>
+<style>@@media print { @@page { size: A4 portrait; margin: 10mm; } }</style>
+
+<div class="print-bar">
+    <button type="button" data-print>@L("Печать")</button>
+    <a href="@BackHref">@L("← Назад")</a>
+    @if (_doc is { SoleProprietor: true })
+    {
+        <span class="warn">@L("Индивидуальный предприниматель, который ведёт учёт доходов по НК РФ, может не оформлять кассовые ордера (п. 4.6 Указания № 3210-У).")</span>
+    }
+</div>
+
+@if (_error is not null)
+{
+    <div class="sheet portrait"><p>@_error</p></div>
+}
+else if (_doc is null)
+{
+    <div class="sheet portrait"><p>@L("Загрузка…")</p></div>
+}
+else
+{
+    var d = _doc;
+    <div class="sheet portrait cash-order">
+        @if (d.Cancelled)
+        {
+            <div class="stamp">ОРДЕР ОТМЕНЁН</div>
+        }
+        <div class="small" style="text-align: right">
+            Унифицированная форма № @(d.Expense ? "КО-2" : "КО-1")<br />
+            Утверждена постановлением Госкомстата России от 18.08.98 № 88
+        </div>
+        <table class="plain">
+            <tr><td></td><td style="width: 120px; text-align: right">Форма по ОКУД</td><td class="code">@(d.Expense ? "0310002" : "0310001")</td></tr>
+            <tr><td><b>@d.Organization</b>@(d.Inn is null ? "" : $", ИНН {d.Inn}")@(d.Kpp is null ? "" : $", КПП {d.Kpp}")<div class="small">организация</div></td>
+                <td style="text-align: right">по ОКПО</td><td class="code"></td></tr>
+            <tr><td>@d.Cashbox<div class="small">структурное подразделение (касса)</div></td><td></td><td></td></tr>
+        </table>
+
+        <table style="width: auto; margin: 10px 0 10px auto">
+            <tr><th>Номер документа</th><th>Дата составления</th></tr>
+            <tr><td>@d.Number</td><td>@d.Date.ToString("dd.MM.yyyy")</td></tr>
+        </table>
+        <h1 style="text-align: center">@(d.Expense ? "РАСХОДНЫЙ КАССОВЫЙ ОРДЕР" : "ПРИХОДНЫЙ КАССОВЫЙ ОРДЕР")</h1>
+
+        <table>
+            <tr>
+                <th rowspan="2">Дебет</th><th colspan="3">Кредит</th><th rowspan="2">Сумма, руб. коп.</th><th rowspan="2">Код целевого назначения</th>
+            </tr>
+            <tr><th>код структурного подразделения</th><th>корреспондирующий счёт, субсчёт</th><th>код аналитического учёта</th></tr>
+            <tr>
+                <td>@(d.Expense ? "" : "50")</td><td></td><td>@(d.Expense ? "50" : "")</td><td></td><td class="num">@d.Amount.ToString("N2", Ru)</td><td></td>
+            </tr>
+        </table>
+
+        <table class="plain fields">
+            <tr><td style="width: 150px">@(d.Expense ? "Выдать" : "Принято от")</td><td class="fill">@d.Party</td></tr>
+            <tr><td>Основание</td><td class="fill">@d.Basis</td></tr>
+            <tr><td>Сумма</td><td class="fill">@d.AmountInWords</td></tr>
+            @if (!d.Expense)
+            {
+                <tr><td>В том числе</td><td class="fill">@d.Vat</td></tr>
+            }
+            <tr><td>Приложение</td><td class="fill">@d.Comment</td></tr>
+        </table>
+
+        <div class="sign">
+            @if (d.Expense)
+            {
+                <div>Руководитель организации @(d.DirectorPosition ?? "") <span class="line"></span> @d.DirectorName</div>
+            }
+            <div>Главный бухгалтер <span class="line"></span> @(d.AccountantName ?? d.DirectorName)</div>
+            @if (d.Expense)
+            {
+                <div>Получил <span class="line wide"></span></div>
+                <div class="small" style="margin-left: 70px">(сумма прописью)</div>
+                <div>«___» ____________ 20__ г. &nbsp;&nbsp; Подпись <span class="line"></span></div>
+                <div>По <span class="line wide"></span></div>
+                <div class="small" style="margin-left: 30px">(наименование, номер, дата и место выдачи документа, удостоверяющего личность)</div>
+                <div>Выдал кассир <span class="line"></span> <span class="line"></span></div>
+            }
+            else
+            {
+                <div>Получил кассир <span class="line"></span> <span class="line"></span></div>
+            }
+        </div>
+
+        @if (!d.Expense)
+        {
+            <hr style="border: 0; border-top: 1px dashed #000; margin: 18px 0" />
+            <h2 style="text-align: center">КВИТАНЦИЯ</h2>
+            <p style="text-align: center">к приходному кассовому ордеру № @d.Number от @d.Date.ToString("dd.MM.yyyy")</p>
+            <table class="plain fields">
+                <tr><td style="width: 150px">Принято от</td><td class="fill">@d.Party</td></tr>
+                <tr><td>Основание</td><td class="fill">@d.Basis</td></tr>
+                <tr><td>Сумма</td><td class="fill">@d.Amount.ToString("N2", Ru) (@d.AmountInWords)</td></tr>
+                <tr><td>В том числе</td><td class="fill">@d.Vat</td></tr>
+            </table>
+            <div class="sign">
+                <div>М. П. (штампа)</div>
+                <div>Главный бухгалтер <span class="line"></span> @(d.AccountantName ?? d.DirectorName)</div>
+                <div>Кассир <span class="line"></span> <span class="line"></span></div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter]
+    public long Id { get; set; }
+
+    /// <summary>Откуда ордер (D85): customer-payment — оплата покупателя в кассу, supplier-payment — оплата поставщику из кассы, иначе — денежная операция.</summary>
+    [Parameter]
+    public string? Source { get; set; }
+
+    private string BackHref => Source switch
+    {
+        "customer-payment" => "customer-payments",
+        "supplier-payment" => "supplier-payments",
+        _ => "money",
+    };
+
+    private CashOrderPrintDto? _doc;
+    private string? _error;
+
+    private static readonly CultureInfo Ru = CultureInfo.GetCultureInfo("ru-RU");
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            _doc = Source switch
+            {
+                "customer-payment" => await Sales.PaymentCashOrderAsync(Id),
+                "supplier-payment" => await Purchases.PaymentCashOrderAsync(Id),
+                null => await Operations.CashOrderAsync(Id),
+                "transfer-in" => await Operations.CashOrderAsync(Id, true),
+                _ => throw new NotFoundException("Кассовый ордер"),
+            };
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+    }
+}

@@ -1,0 +1,563 @@
+@page "/users"
+@using KnitErp.Web.Components.Shared
+@using KnitErp.Application.Structure
+@using KnitErp.Application.Warehousing
+@inject UserAccessService Access
+@inject EmployeeService Employees
+@inject StructureService Structure
+@inject WarehouseService Warehouses
+@inject NavigationManager Navigation
+
+<PageTitle>@L("Пользователи") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_users is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <div class="page-head">
+        <h1>@L("Пользователи")</h1>
+        @if (CanManage && _mode == Mode.None)
+        {
+            <button type="button" @onclick="OpenAddAsync">@L("Добавить пользователя")</button>
+        }
+    </div>
+
+    @if (_flash is not null)
+    {
+        <div class="@(_flashIsError ? "flash error" : "flash")" role="@(_flashIsError ? "alert" : "status")">
+            <span>@_flash</span>
+            <button type="button" class="link" aria-label="@L("Закрыть сообщение")" @onclick="() => _flash = null">×</button>
+        </div>
+    }
+
+    @if (_invitation is not null)
+    {
+        <div class="panel" role="status">
+            @if (_invitation.PasswordReset)
+            {
+                <h2>@L("Ссылка смены пароля для {0}", _invitation.Name)</h2>
+                <p class="muted">
+                    @L("Передайте её пользователю лично (не в общий чат). Ссылка показывается один раз и действует до {0}. Прежний пароль работает, пока не задан новый; код 2FA при входе по-прежнему нужен.", _invitation.ExpiresAt)
+                </p>
+            }
+            else
+            {
+                <h2>@L("Ссылка приглашения для {0}", _invitation.Name)</h2>
+                <p class="muted">
+                    @L("Передайте её пользователю сами: письма система пока не отправляет. Ссылка показывается один раз и действует до {0}.", _invitation.ExpiresAt)
+                </p>
+            }
+            <label for="invite-link">@L("Ссылка")</label>
+            <input id="invite-link" readonly value="@_invitation.Link" style="width: 100%" onfocus="this.select()" />
+            <div class="actions"><button type="button" class="secondary" @onclick="() => _invitation = null">@L("Готово")</button></div>
+        </div>
+    }
+
+    @if (_mode is Mode.Add or Mode.ChangeRole)
+    {
+        <div class="panel">
+            <h2>@(_mode == Mode.Add ? L("Добавить пользователя") : L("Изменить роль: {0}", _target!.DisplayName))</h2>
+            <EditForm Model="_form" OnValidSubmit="SubmitRoleFormAsync" FormName="user-role">
+                <div class="grid">
+                    @if (_mode == Mode.Add)
+                    {
+                        <label>
+                            @L("Сотрудник")
+                            <InputSelect TValue="long" Value="_form.EmployeeId" ValueChanged="EmployeeChanged" ValueExpression="() => _form.EmployeeId">
+                                <option value="0">@L("— без карточки сотрудника —")</option>
+                                @foreach (var e in _freeEmployees)
+                                {
+                                    <option value="@e.Id">@e.Name</option>
+                                }
+                            </InputSelect>
+                        </label>
+                        <label>@L("Имя и фамилия") <InputText @bind-Value="_form.DisplayName" maxlength="200" required="@(_form.EmployeeId == 0)" disabled="@(_form.EmployeeId != 0)" /></label>
+                        <label>@L("Email для приглашения") <InputText @bind-Value="_form.Email" type="email" maxlength="254" placeholder="name@example.ru" required /></label>
+                    }
+                    <label>
+                        @L("Роль (шаблон)")
+                        <InputSelect TValue="string" Value="_form.RoleCode" ValueChanged="RoleChangedAsync" ValueExpression="() => _form.RoleCode">
+                            @foreach (var role in _roles)
+                            {
+                                <option value="@role.Code" disabled="@(!role.Allowed)">@L(role.Name)@(role.Allowed ? "" : " — " + L("недоступно"))</option>
+                            }
+                        </InputSelect>
+                    </label>
+                    @if (_departments.Count > 0)
+                    {
+                        <label>
+                            @L("Область данных")
+                            <InputSelect TValue="long" Value="_form.DepartmentId" ValueChanged="DepartmentChangedAsync" ValueExpression="() => _form.DepartmentId">
+                                <option value="0">@L("Вся организация")</option>
+                                @foreach (var d in _departments)
+                                {
+                                    <option value="@d.Id">@L("{0} и вложенные", d.Path)</option>
+                                }
+                            </InputSelect>
+                        </label>
+                    }
+                    @if (_warehouses.Count > 0)
+                    {
+                        <label>
+                            @L("Склад (для кладовщиков)")
+                            <InputSelect TValue="long" Value="_form.WarehouseId" ValueChanged="WarehouseChangedAsync" ValueExpression="() => _form.WarehouseId">
+                                <option value="0">@L("— не ограничено складом —")</option>
+                                @foreach (var w in _warehouses)
+                                {
+                                    <option value="@w.Id">@w.Name</option>
+                                }
+                            </InputSelect>
+                        </label>
+                    }
+                    <label>
+                        @L("Причина")@(_preview?.ReasonRequired == true ? " (" + L("обязательна для административной роли") + ")" : "")
+                        <InputText @bind-Value="_form.Reason" maxlength="500" placeholder="@L("Например: приём на должность")" />
+                    </label>
+                </div>
+
+                @if (_preview is not null)
+                {
+                    <div class="diff">
+                        <div>
+                            <div class="muted">@L("Было")</div>
+                            @if (_preview.Before.Count == 0)
+                            {
+                                <span class="chip">@L("Нет доступа")</span>
+                            }
+                            @foreach (var line in _preview.Before)
+                            {
+                                <span class="chip">@line.Text</span>
+                            }
+                        </div>
+                        <div>
+                            <div class="muted">@L("Станет · итоговые права")</div>
+                            @if (_preview.After.Count == 0)
+                            {
+                                <span class="chip">@L("Нет прав — только собственный профиль")</span>
+                            }
+                            @foreach (var line in _preview.After)
+                            {
+                                <span class="chip added">@line.Text</span>
+                            }
+                            <div class="muted">@L("Область данных:") @L(_preview.ScopeText)</div>
+                        </div>
+                    </div>
+                }
+
+                @if (_formError is not null)
+                {
+                    <div class="error" role="alert">@_formError</div>
+                }
+
+                <div class="actions">
+                    <button type="submit" disabled="@_busy">@(_mode == Mode.Add ? L("Пригласить") : L("Сохранить роль"))</button>
+                    <button type="button" class="secondary" @onclick="CloseForm" disabled="@_busy">@L("Отмена")</button>
+                </div>
+            </EditForm>
+        </div>
+    }
+
+    @if (_mode is Mode.Block or Mode.Unblock or Mode.ResetTwoFactor or Mode.ResetPassword)
+    {
+        <div class="panel">
+            <h2>@ConfirmTitle</h2>
+            <p class="muted">@ConfirmHint</p>
+            <EditForm Model="_form" OnValidSubmit="SubmitConfirmAsync" FormName="user-confirm">
+                <label>
+                    @L("Причина")@(_mode == Mode.Unblock ? "" : " (" + L("обязательна") + ")")
+                    <InputText @bind-Value="_form.Reason" maxlength="500" required="@(_mode != Mode.Unblock)" />
+                </label>
+                @if (_formError is not null)
+                {
+                    <div class="error" role="alert">@_formError</div>
+                }
+
+                <div class="actions">
+                    <button type="submit" disabled="@_busy">@ConfirmButton</button>
+                    <button type="button" class="secondary" @onclick="CloseForm" disabled="@_busy">@L("Отмена")</button>
+                </div>
+            </EditForm>
+        </div>
+    }
+
+    <div class="scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th>@L("Пользователь")</th><th>@L("Роль")</th><th class="opt">@L("Область данных")</th><th>@L("Статус")</th>
+                    @if (CanManage)
+                    {
+                        <th>@L("Действия")</th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var u in _users)
+                {
+                    <tr>
+                        <td>@u.DisplayName<div class="muted">@u.Email</div></td>
+                        <td>@(u.RoleNames.Count == 0 ? "—" : string.Join(", ", u.RoleNames.Select(n => L(n))))</td>
+                        <td>@L(u.ScopeText)</td>
+                        <td>
+                            <span class="tag @StatusClass(u)">@StatusText(u)</span>
+                            @if (u.TwoFactorEnabled)
+                            {
+                                <span class="tag">2FA</span>
+                            }
+                        </td>
+                        @if (CanManage)
+                        {
+                            <td>
+                                @if (u.IsCurrentUser)
+                                {
+                                    <span class="muted">@L("это вы")</span>
+                                }
+                                else
+                                {
+                                    <div class="row-actions">
+                                        <button type="button" class="secondary" @onclick="() => OpenChangeRoleAsync(u)" disabled="@(_mode != Mode.None)">@L("Изменить роль")</button>
+                                        @if (u.MembershipStatus == MembershipStatus.Active)
+                                        {
+                                            <button type="button" class="secondary" @onclick="() => Open(Mode.Block, u)" disabled="@(_mode != Mode.None)">@L("Заблокировать")</button>
+                                        }
+                                        else
+                                        {
+                                            <button type="button" class="secondary" @onclick="() => Open(Mode.Unblock, u)" disabled="@(_mode != Mode.None)">@L("Разблокировать")</button>
+                                        }
+                                        @if (!u.HasPassword)
+                                        {
+                                            <button type="button" class="secondary" @onclick="() => ReissueAsync(u)" disabled="@(_mode != Mode.None || _busy)">@L("Новая ссылка")</button>
+                                        }
+                                        else if (u.MembershipStatus == MembershipStatus.Active)
+                                        {
+                                            <button type="button" class="secondary" @onclick="() => Open(Mode.ResetPassword, u)" disabled="@(_mode != Mode.None)">@L("Сменить пароль")</button>
+                                        }
+                                        @if (u.TwoFactorEnabled)
+                                        {
+                                            <button type="button" class="secondary" @onclick="() => Open(Mode.ResetTwoFactor, u)" disabled="@(_mode != Mode.None)">@L("Сбросить 2FA")</button>
+                                        }
+                                    </div>
+                                }
+                            </td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <p class="muted">@L("Удаления пользователей нет — только блокировка. Блокировка закрывает сессии пользователя не позднее чем через 60 секунд.")</p>
+}
+
+@code {
+    private enum Mode { None, Add, ChangeRole, Block, Unblock, ResetTwoFactor, ResetPassword }
+
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private IReadOnlyList<UserRowDto>? _users;
+    private IReadOnlyList<RoleOptionDto> _roles = [];
+    private IReadOnlyList<LookupDto> _freeEmployees = [];
+    private IReadOnlyList<DepartmentDto> _departments = [];
+    private IReadOnlyList<WarehouseDto> _warehouses = [];
+    private AccessPreviewDto? _preview;
+    private UserForm _form = new();
+    private UserRowDto? _target;
+    private Mode _mode;
+    private bool _busy;
+    private bool _previewDirty;
+    private string? _denied;
+    private string? _formError;
+    private string? _flash;
+    private bool _flashIsError;
+    private IssuedInvitation? _invitation;
+
+    // Только для отображения кнопок: каждое действие сервер проверяет сам.
+    private bool CanManage => CurrentAccess.Has(Permissions.UserManage);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _users = await Access.ListUsersAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private async Task OpenAddAsync()
+    {
+        await RunAsync(async () =>
+        {
+            _roles = await Access.ListGrantableRolesAsync();
+            _freeEmployees = await Employees.ListWithoutAccountAsync();
+            await LoadDepartmentsAsync();
+            _target = null;
+            _form = new UserForm { RoleCode = _roles.FirstOrDefault(r => r.Allowed && r.Code == SystemRoles.Employee)?.Code ?? _roles.FirstOrDefault(r => r.Allowed)?.Code ?? string.Empty };
+            _mode = Mode.Add;
+            await LoadPreviewAsync();
+        });
+    }
+
+    private async Task OpenChangeRoleAsync(UserRowDto user)
+    {
+        await RunAsync(async () =>
+        {
+            _roles = await Access.ListGrantableRolesAsync();
+            await LoadDepartmentsAsync();
+            _target = user;
+            _form = new UserForm
+            {
+                RoleCode = user.RoleCodes.FirstOrDefault() ?? _roles.FirstOrDefault(r => r.Allowed)?.Code ?? string.Empty,
+                DepartmentId = user.DepartmentId ?? 0,
+                WarehouseId = user.WarehouseId ?? 0,
+            };
+            _mode = Mode.ChangeRole;
+            await LoadPreviewAsync();
+        });
+    }
+
+    private void Open(Mode mode, UserRowDto user)
+    {
+        _flash = null;
+        _flashIsError = false;
+        _target = user;
+        _form = new UserForm();
+        _formError = null;
+        _mode = mode;
+    }
+
+    private void CloseForm()
+    {
+        _mode = Mode.None;
+        _target = null;
+        _preview = null;
+        _formError = null;
+    }
+
+    private async Task RoleChangedAsync(string roleCode)
+    {
+        _form.RoleCode = roleCode;
+        await RefreshPreviewAsync();
+    }
+
+    /// <summary>
+    /// Пересчёт «Было → Станет». Если поле поменяли, пока шёл прошлый расчёт, считаем ещё раз —
+    /// иначе предпросмотр показал бы устаревшую роль или область.
+    /// </summary>
+    private async Task RefreshPreviewAsync()
+    {
+        _previewDirty = true;
+        if (_busy)
+        {
+            return;
+        }
+
+        while (_previewDirty)
+        {
+            _previewDirty = false;
+            await RunAsync(LoadPreviewAsync);
+        }
+    }
+
+    private async Task LoadPreviewAsync() =>
+        _preview = string.IsNullOrEmpty(_form.RoleCode) ? null : await Access.PreviewRoleAsync(_target?.UserId, _form.RoleCode, ScopeId, WarehouseScopeId);
+
+    // Список подразделений нужен только для выбора области; без права просмотра структуры роль действует на всю организацию.
+    private async Task LoadDepartmentsAsync()
+    {
+        _departments = CurrentAccess.Has(Permissions.DepartmentView) ? (await Structure.GetAsync()).Departments : [];
+        _warehouses = CurrentAccess.Has(Permissions.CatalogView) ? (await Warehouses.GetAsync()).Warehouses : [];
+    }
+
+    private long? WarehouseScopeId => _form.WarehouseId == 0 ? null : _form.WarehouseId;
+
+    private async Task WarehouseChangedAsync(long warehouseId)
+    {
+        _form.WarehouseId = warehouseId;
+        await RefreshPreviewAsync();
+    }
+
+    private long? ScopeId => _form.DepartmentId == 0 ? null : _form.DepartmentId;
+
+    private void EmployeeChanged(long employeeId)
+    {
+        _form.EmployeeId = employeeId;
+        _form.DisplayName = employeeId == 0 ? string.Empty : _freeEmployees.First(e => e.Id == employeeId).Name;
+    }
+
+    private async Task DepartmentChangedAsync(long departmentId)
+    {
+        _form.DepartmentId = departmentId;
+        await RefreshPreviewAsync();
+    }
+
+    private async Task SubmitRoleFormAsync()
+    {
+        var mode = _mode;
+        var ok = await RunAsync(async () =>
+        {
+            if (mode == Mode.Add)
+            {
+                var result = await Access.InviteAsync(new InviteUserCommand(_form.Email, _form.DisplayName, _form.RoleCode, _form.Reason,
+                    ScopeId, _form.EmployeeId == 0 ? null : _form.EmployeeId, WarehouseScopeId));
+                ShowInvitation(_form.DisplayName, result);
+                _flash = result.SetupToken is null
+                    ? L("Пользователь «{0}» добавлен в организацию. Пароль у него уже есть — вход под своей учётной записью.", _form.DisplayName)
+                    : L("Пользователь «{0}» приглашён.", _form.DisplayName);
+            }
+            else
+            {
+                await Access.ChangeRoleAsync(new ChangeRoleCommand(_target!.UserId, _form.RoleCode, _form.Reason, ScopeId, WarehouseScopeId));
+                _flash = L("Роль пользователя «{0}» изменена. Его сессии закрыты — новые права действуют с нового входа.", _target.DisplayName);
+            }
+        });
+
+        if (ok)
+        {
+            CloseForm();
+            await ReloadAsync();
+        }
+    }
+
+    private async Task SubmitConfirmAsync()
+    {
+        var target = _target!;
+        var mode = _mode;
+        var ok = await RunAsync(async () =>
+        {
+            switch (mode)
+            {
+                case Mode.Block:
+                    await Access.BlockAsync(target.UserId, _form.Reason);
+                    _flash = L("Пользователь «{0}» заблокирован. Открытые сессии закроются в течение минуты.", target.DisplayName);
+                    break;
+                case Mode.Unblock:
+                    await Access.UnblockAsync(target.UserId, _form.Reason);
+                    _flash = L("Пользователь «{0}» разблокирован.", target.DisplayName);
+                    break;
+                case Mode.ResetTwoFactor:
+                    await Access.ResetTwoFactorAsync(target.UserId, _form.Reason);
+                    _flash = L("2FA пользователя «{0}» сброшена. Приложение-аутентификатор подключается заново при следующем входе.", target.DisplayName);
+                    break;
+                case Mode.ResetPassword:
+                    var reset = await Access.IssuePasswordResetAsync(target.UserId, _form.Reason);
+                    _invitation = new IssuedInvitation(target.DisplayName, $"{Navigation.BaseUri}account/reset-password?token={reset.SetupToken}",
+                        reset.ExpiresAtUtc is { } exp ? $"{TimeZones.ToLocal(exp, CurrentAccess.TimeZoneId):dd.MM.yyyy HH:mm}" : "—", PasswordReset: true);
+                    _flash = L("Выдана ссылка смены пароля. Прежняя ссылка больше не действует.");
+                    break;
+            }
+        });
+
+        if (ok)
+        {
+            CloseForm();
+            await ReloadAsync();
+        }
+    }
+
+    private async Task ReissueAsync(UserRowDto user)
+    {
+        await RunAsync(async () =>
+        {
+            ShowInvitation(user.DisplayName, await Access.ReissueInvitationAsync(user.UserId));
+            _flash = L("Выдана новая ссылка. Прежняя больше не действует.");
+        });
+    }
+
+    private void ShowInvitation(string name, InvitationResult result)
+    {
+        _invitation = result.SetupToken is null
+            ? null
+            : new IssuedInvitation(name, $"{Navigation.BaseUri}account/invite?token={result.SetupToken}",
+                result.ExpiresAtUtc is { } exp ? $"{TimeZones.ToLocal(exp, CurrentAccess.TimeZoneId):dd.MM.yyyy HH:mm}" : "—");
+    }
+
+    private async Task ReloadAsync() => _users = await Access.ListUsersAsync();
+
+    /// <summary>Одна операция за раз: у вкладки один DbContext, кнопки блокируются до ответа сервера.</summary>
+    private async Task<bool> RunAsync(Func<Task> action)
+    {
+        if (_busy)
+        {
+            return false;
+        }
+
+        _busy = true;
+        _formError = null;
+        _flash = null;
+        _flashIsError = false;
+        try
+        {
+            await action();
+            return true;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _formError = UiErrors.Message(ex);
+            if (_mode == Mode.None)
+            {
+                _flash = _formError;
+                _flashIsError = true;
+            }
+
+            return false;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private string ConfirmTitle => _mode switch
+    {
+        Mode.Block => L("Заблокировать: {0}", _target!.DisplayName),
+        Mode.Unblock => L("Разблокировать: {0}", _target!.DisplayName),
+        Mode.ResetPassword => L("Сменить пароль: {0}", _target!.DisplayName),
+        _ => L("Сбросить 2FA: {0}", _target!.DisplayName),
+    };
+
+    private string ConfirmHint => _mode switch
+    {
+        Mode.Block => L("Пользователь потеряет доступ к этой организации, открытые сессии закроются в течение минуты. Данные и история сохраняются."),
+        Mode.Unblock => L("Доступ вернётся с прежней ролью."),
+        Mode.ResetPassword => L("Например, если пользователь забыл пароль, а почта на сервере не настроена. Будет выдана ссылка на 24 часа — передайте её лично."),
+        _ => L("Например, если потерян телефон. Пользователь подключит приложение-аутентификатор при следующем входе."),
+    };
+
+    private string ConfirmButton => _mode switch
+    {
+        Mode.Block => L("Заблокировать"),
+        Mode.Unblock => L("Разблокировать"),
+        Mode.ResetPassword => L("Выдать ссылку"),
+        _ => L("Сбросить 2FA"),
+    };
+
+    private static string StatusText(UserRowDto u) =>
+        u.MembershipStatus == MembershipStatus.Blocked ? L("Заблокирован")
+        : !u.HasPassword ? L("Приглашён")
+        : L("Активен");
+
+    private static string StatusClass(UserRowDto u) =>
+        u.MembershipStatus == MembershipStatus.Blocked ? "bad" : !u.HasPassword ? "warn" : "ok";
+
+    private sealed record IssuedInvitation(string Name, string Link, string ExpiresAt, bool PasswordReset = false);
+
+    private sealed class UserForm
+    {
+        public string Email { get; set; } = string.Empty;
+        public string DisplayName { get; set; } = string.Empty;
+        public string RoleCode { get; set; } = string.Empty;
+        public string? Reason { get; set; }
+        public long EmployeeId { get; set; }
+        public long DepartmentId { get; set; }
+        public long WarehouseId { get; set; }
+    }
+}

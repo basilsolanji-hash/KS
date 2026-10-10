@@ -1,0 +1,328 @@
+@page "/counterparties"
+@using KnitErp.Application.Catalog
+@using KnitErp.Web.Components.Shared
+@inject CounterpartyService Counterparties
+@inject CounterpartyExchangeService Exchange
+@inject KnitErp.Application.Common.RequisitesLookupService Requisites
+
+<PageTitle>@L("Контрагенты") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_list is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <div class="page-head">
+        <h1>@(RoleQuery switch { "customer" => L("Покупатели"), "supplier" => L("Поставщики"), _ => L("Контрагенты") })</h1>
+        @if (_list.CanEdit && _mode == Mode.None)
+        {
+            <button type="button" @onclick="OpenCreate" disabled="@_busy">@L("Добавить контрагента")</button>
+        }
+    </div>
+
+    @if (_flash is not null)
+    {
+        <div class="@(_flashIsError ? "flash error" : "flash")" role="@(_flashIsError ? "alert" : "status")"><span>@_flash</span><button type="button" class="link" aria-label="@L("Закрыть сообщение")" @onclick="() => _flash = null">×</button></div>
+    }
+
+    @if (_mode is Mode.Create or Mode.Edit)
+    {
+        <div class="panel">
+            <h2>@(_mode == Mode.Create ? L("Новый контрагент") : _target!.Name)</h2>
+            <EditForm Model="_form" OnValidSubmit="SaveAsync" FormName="counterparty">
+                <div class="grid">
+                    <label>@L("Наименование") <InputText @bind-Value="_form.Name" maxlength="300" required placeholder="@L("ООО «Пряжа»")" /></label>
+                    <label>
+                        @L("Страна")
+                        <InputSelect @bind-Value="_form.CountryCode">
+                            @foreach (var country in KnitErp.Domain.Organizations.Countries.All)
+                            {
+                                <option value="@country.Code">@country.Name</option>
+                            }
+                        </InputSelect>
+                    </label>
+                    <label>
+                        @FormCountry.TaxIdName
+                        <span class="inn-fill">
+                            <InputText @bind-Value="_form.Inn" maxlength="14" inputmode="numeric" placeholder="@KnitErp.Domain.Organizations.Countries.TaxIdRule(FormCountry.Code, organization: false)" />
+                            @if (Requisites.IsConfigured && FormCountry.Code == KnitErp.Domain.Organizations.Countries.Russia)
+                            {
+                                <button type="button" class="secondary" @onclick="FillByInnAsync" disabled="@_busy" title="@L("Подставить реквизиты из ЕГРЮЛ/ЕГРИП")">@L("Заполнить по ИНН")</button>
+                            }
+                        </span>
+                    </label>
+                    @if (FormCountry.HasKpp)
+                    {
+                        <label>@L("КПП") <InputText @bind-Value="_form.Kpp" maxlength="9" placeholder="@L("только у организации")" /></label>
+                    }
+                    <label>@L("Адрес") <InputText @bind-Value="_form.Address" maxlength="500" placeholder="@L("для счёта и УПД")" /></label>
+                    <label>@L("Комментарий") <InputText @bind-Value="_form.Comment" maxlength="1000" /></label>
+                    <label class="inline"><InputCheckbox @bind-Value="_form.IsSupplier" /> @L("Поставщик")</label>
+                    <label class="inline"><InputCheckbox @bind-Value="_form.IsCustomer" /> @L("Покупатель")</label>
+                </div>
+                @if (_formError is not null)
+                {
+                    <div class="error" role="alert">@_formError</div>
+                }
+                <div class="actions">
+                    <button type="submit" disabled="@_busy">@L("Сохранить")</button>
+                    <button type="button" class="secondary" @onclick="Close" disabled="@_busy">@L("Отмена")</button>
+                </div>
+            </EditForm>
+        </div>
+    }
+
+    <ImportPanel ExportHref="counterparties.xlsx" TemplateHref="counterparties-template.xlsx" CanImport="@CurrentAccess.Has(Permissions.CatalogImport)"
+                 Hint="@L("Загрузка создаёт новых контрагентов и обновляет существующих: по ИНН и КПП, а без ИНН — по наименованию.")"
+                 ShownColumns="@([0, 1, 2])" Preview="s => Exchange.PreviewAsync(s)" Apply="r => Exchange.ApplyAsync(r)" Applied="ReloadAsync" />
+
+    <form class="inline-form" @onsubmit="ReloadAsync">
+        <label>
+            @L("Показать")
+            <select @bind="_role">
+                <option value="">@L("Всех")</option>
+                <option value="s">@L("Поставщиков")</option>
+                <option value="c">@L("Покупателей")</option>
+            </select>
+        </label>
+        <label>@L("Поиск") <input @bind="_search" placeholder="@L("Наименование или ИНН")" /></label>
+        <label class="inline"><input type="checkbox" @bind="_includeArchived" /> @L("Показать архив")</label>
+        <button type="submit" class="secondary" disabled="@_busy">@L("Найти")</button>
+    </form>
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>@L("Наименование")</th><th>@L("Налоговый номер")</th><th>@L("Роль")</th>@if (_list.CanEdit || _list.CanArchive) { <th>@L("Действия")</th> }</tr></thead>
+            <tbody>
+                @if (_list.Counterparties.Count == 0)
+                {
+                    <tr><td colspan="4" class="muted">@L("Контрагентов не найдено.")</td></tr>
+                }
+                @foreach (var c in _list.Counterparties)
+                {
+                    <tr class="@(c.IsArchived ? "archived" : null)">
+                        <td>@c.Name @if (c.IsArchived) { <span class="tag">@L("архив")</span> }@if (c.Comment is not null) { <div class="muted">@c.Comment</div> }</td>
+                        <td>@if (c.Inn is not null) { <span class="muted">@c.Country.TaxIdName </span>@c.Inn } else { <span>—</span> }@if (c.Kpp is not null) { <span class="muted"> / @c.Kpp</span> }@if (c.CountryCode != _orgCountry) { <div class="muted">@c.Country.Name</div> }</td>
+                        <td>@L(c.RolesText)</td>
+                        @if (_list.CanEdit || _list.CanArchive)
+                        {
+                            <td>
+                                <div class="row-actions">
+                                    @if (!c.IsArchived && _list.CanEdit)
+                                    {
+                                        <button type="button" class="secondary" @onclick="() => OpenEdit(c)" disabled="@(_busy || _mode != Mode.None)">@L("Изменить")</button>
+                                    }
+                                    @if (_list.CanArchive)
+                                    {
+                                        @if (c.IsArchived)
+                                        {
+                                            <button type="button" class="secondary" @onclick="() => RestoreAsync(c)" disabled="@_busy">@L("Вернуть")</button>
+                                        }
+                                        else
+                                        {
+                                            <ConfirmButton Class="secondary" OnConfirm="() => ArchiveAsync(c)" Disabled="@(_busy || _mode != Mode.None)" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
+                                        }
+                                    }
+                                </div>
+                            </td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private enum Mode { None, Create, Edit }
+
+    private CounterpartyListDto? _list;
+    private CounterpartyForm _form = new();
+    private CounterpartyDto? _target;
+    private Mode _mode;
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private string _orgCountry => CurrentAccess.CountryCode;
+    private KnitErp.Domain.Organizations.CountryInfo FormCountry => KnitErp.Domain.Organizations.Countries.Get(_form.CountryCode);
+
+    private bool _busy;
+    private string? _denied;
+    private string? _formError;
+    private string? _flash;
+    private bool _flashIsError;
+    private string _role = string.Empty;
+    private string _search = string.Empty;
+    private bool _includeArchived;
+
+    /// <summary>Из меню: «Поставщики» — ?role=supplier, «Покупатели» — ?role=customer.</summary>
+    [SupplyParameterFromQuery(Name = "role")]
+    public string? RoleQuery { get; set; }
+
+    private string? _appliedRole;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_list is not null && _appliedRole == RoleQuery)
+        {
+            return;
+        }
+
+        _appliedRole = RoleQuery;
+        _role = RoleQuery switch { "supplier" => "s", "customer" => "c", _ => _role };
+        try
+        {
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private async Task LoadAsync() =>
+        _list = await Counterparties.ListAsync(new CounterpartyFilter(
+            _role == "s" ? true : null, _role == "c" ? true : null, _search, _includeArchived));
+
+    private Task ReloadAsync() => RunAsync(() => Task.CompletedTask, null);
+
+    private void OpenCreate()
+    {
+        _flash = null;
+        _formError = null;
+        _target = null;
+        _form = new CounterpartyForm { IsSupplier = true, CountryCode = _orgCountry };
+        _mode = Mode.Create;
+    }
+
+    private void OpenEdit(CounterpartyDto c)
+    {
+        _flash = null;
+        _formError = null;
+        _target = c;
+        _form = new CounterpartyForm
+        {
+            Name = c.Name, Inn = c.Inn, Kpp = c.Kpp, IsSupplier = c.IsSupplier, IsCustomer = c.IsCustomer, Comment = c.Comment, CountryCode = c.CountryCode,
+            Address = c.Address,
+        };
+        _mode = Mode.Edit;
+    }
+
+    private void Close()
+    {
+        _mode = Mode.None;
+        _target = null;
+        _formError = null;
+    }
+
+    private Task SaveAsync() => RunAsync(async () =>
+    {
+        var cmd = new CounterpartyCommand(_form.Name, _form.Inn, FormCountry.HasKpp ? _form.Kpp : null, _form.IsSupplier, _form.IsCustomer, _form.Comment,
+            _form.CountryCode, _form.Address ?? string.Empty);
+        if (_mode == Mode.Create)
+        {
+            await Counterparties.CreateAsync(cmd);
+        }
+        else
+        {
+            await Counterparties.UpdateAsync(_target!.Id, cmd, _target.RowVersion);
+        }
+
+        Close();
+    }, L("Контрагент сохранён."));
+
+    /// <summary>Наименование, КПП и адрес из ЕГРЮЛ/ЕГРИП по ИНН (D78) — пользователь проверяет и сохраняет сам.</summary>
+    private async Task FillByInnAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _formError = null;
+        try
+        {
+            var r = await Requisites.ForCounterpartyAsync(_form.Inn);
+            _form.Inn = r.Inn;
+            _form.Name = r.ShortName;
+            _form.Kpp = r.Kpp;
+            _form.Address = r.Address ?? _form.Address;
+            if (!r.Active)
+            {
+                _formError = L("Внимание: по реестру организация не действует ({0}). Проверьте, прежде чем сохранять.", r.Status ?? "—");
+            }
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _formError = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private Task ArchiveAsync(CounterpartyDto c) => RunAsync(() => Counterparties.ArchiveAsync(c.Id, c.RowVersion), L("Контрагент «{0}» в архиве.", c.Name));
+
+    private Task RestoreAsync(CounterpartyDto c) => RunAsync(() => Counterparties.RestoreAsync(c.Id, c.RowVersion), L("Контрагент «{0}» возвращён из архива.", c.Name));
+
+    /// <summary>Одна операция за раз, затем свежие данные: у вкладки один DbContext.</summary>
+    private async Task RunAsync(Func<Task> action, string? success)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _flash = null;
+        _flashIsError = false;
+        _formError = null;
+        try
+        {
+            await action();
+            _flash = success;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            if (_mode == Mode.None)
+            {
+                _flash = UiErrors.Message(ex);
+                _flashIsError = true;
+            }
+            else
+            {
+                _formError = UiErrors.Message(ex);
+            }
+        }
+        finally
+        {
+            try
+            {
+                await LoadAsync();
+            }
+            finally
+            {
+                _busy = false;
+            }
+        }
+    }
+
+    private sealed class CounterpartyForm
+    {
+        public string Name { get; set; } = string.Empty;
+        public string? Inn { get; set; }
+        public string? Kpp { get; set; }
+        public bool IsSupplier { get; set; }
+        public bool IsCustomer { get; set; }
+        public string? Comment { get; set; }
+        public string? Address { get; set; }
+        public string CountryCode { get; set; } = KnitErp.Domain.Organizations.Countries.Russia;
+    }
+}

@@ -1,0 +1,170 @@
+@page "/cash-flow-items"
+@using KnitErp.Application.Finance
+@using KnitErp.Domain.Finance
+@inject CashFlowItemService Items
+
+<PageTitle>@L("Статьи движения денег") — knitERP</PageTitle>
+
+@* D86: справочник статей ДДС. Системные статьи не меняются; свои — добавляются, переименовываются, убираются в архив. *@
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_rows is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <h1>@L("Статьи движения денег")</h1>
+    <p class="muted">@L("Статья показывает, откуда пришли и на что ушли деньги. Оплаты покупателей и поставщикам относятся к своим статьям сами; перемещения между своими счетами в отчёт не входят.")</p>
+
+    @if (_message is not null)
+    {
+        <div class="@(_isError ? "flash error" : "flash")" role="@(_isError ? "alert" : "status")">@_message</div>
+    }
+
+    @if (CanEdit)
+    {
+        <form class="inline-form" @onsubmit="CreateAsync">
+            <label>
+                @L("Направление")
+                <select @bind="_direction">
+                    <option value="@CashFlowDirection.In">@L("Поступление")</option>
+                    <option value="@CashFlowDirection.Out">@L("Выплата")</option>
+                </select>
+            </label>
+            <label>@L("Название") <input @bind="_name" maxlength="@CashFlowItem.NameMaxLength" required /></label>
+            <button type="submit" disabled="@_busy">@L("Добавить")</button>
+        </form>
+    }
+    <label class="check"><input type="checkbox" @bind="_archived" @bind:after="ReloadAsync" /> @L("Показать архив")</label>
+
+    @foreach (var group in _rows.GroupBy(r => r.Direction))
+    {
+        <h2 style="margin-top: 14px">@(group.Key == CashFlowDirection.In ? L("Поступления") : L("Выплаты"))</h2>
+        <table class="compact">
+            <tbody>
+                @foreach (var i in group)
+                {
+                    <tr class="@(i.IsArchived ? "archived" : null)">
+                        <td>
+                            @if (_editId == i.Id)
+                            {
+                                <form class="inline-form" style="margin: 0" @onsubmit="() => RenameAsync(i)">
+                                    <input @bind="_editName" maxlength="@CashFlowItem.NameMaxLength" aria-label="@L("Название")" />
+                                    <button type="submit" disabled="@_busy">@L("Сохранить")</button>
+                                    <button type="button" class="secondary" @onclick="() => _editId = null">@L("Отмена")</button>
+                                </form>
+                            }
+                            else
+                            {
+                                @i.Name
+                                @if (i.IsSystem) { <span class="tag">@L("системная")</span> }
+                                @if (i.IsArchived) { <span class="tag">@L("в архиве")</span> }
+                            }
+                        </td>
+                        <td>
+                            @if (CanEdit && !i.IsSystem && _editId != i.Id)
+                            {
+                                <div class="row-actions">
+                                    <button type="button" class="secondary" @onclick="() => { _editId = i.Id; _editName = i.Name; }" disabled="@_busy">@L("Переименовать")</button>
+                                    @if (i.IsArchived)
+                                    {
+                                        <button type="button" class="secondary" @onclick="() => ArchiveAsync(i, false)" disabled="@_busy">@L("Вернуть")</button>
+                                    }
+                                    else
+                                    {
+                                        <ConfirmButton Class="secondary" Disabled="_busy" OnConfirm="() => ArchiveAsync(i, true)">@L("В архив")</ConfirmButton>
+                                    }
+                                </div>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private IReadOnlyList<CashFlowItemDto>? _rows;
+    private CashFlowDirection _direction = CashFlowDirection.Out;
+    private string? _name;
+    private bool _archived;
+    private long? _editId;
+    private string? _editName;
+    private bool _busy;
+    private string? _denied;
+    private string? _message;
+    private bool _isError;
+
+    private bool CanEdit => CurrentAccess.Has(Permissions.OrganizationEdit);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private async Task LoadAsync() => _rows = await Items.ListAsync(_archived);
+
+    private Task ReloadAsync() => RunAsync(() => Task.CompletedTask, null);
+
+    private Task CreateAsync() => RunAsync(async () =>
+    {
+        await Items.CreateAsync(_direction, _name);
+        _name = null;
+    }, L("Статья добавлена."));
+
+    private Task RenameAsync(CashFlowItemDto i) => RunAsync(async () =>
+    {
+        await Items.RenameAsync(i.Id, _editName, i.RowVersion);
+        _editId = null;
+    }, L("Сохранено."));
+
+    private Task ArchiveAsync(CashFlowItemDto i, bool archived) => RunAsync(() => Items.SetArchivedAsync(i.Id, archived, i.RowVersion),
+        archived ? L("Статья в архиве.") : L("Статья снова действует."));
+
+    private async Task RunAsync(Func<Task> action, string? success)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _isError = false;
+        try
+        {
+            await action();
+            _message = success;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+            _isError = true;
+        }
+        finally
+        {
+            try
+            {
+                await LoadAsync();
+            }
+            finally
+            {
+                _busy = false;
+            }
+        }
+    }
+}

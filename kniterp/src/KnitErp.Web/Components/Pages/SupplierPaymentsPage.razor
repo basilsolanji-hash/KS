@@ -1,0 +1,240 @@
+@page "/supplier-payments"
+@using KnitErp.Application.Purchasing
+@using KnitErp.Domain.Purchasing
+@inject PurchaseService Purchases
+@inject KnitErp.Application.Finance.MoneyService Money
+
+<PageTitle>@L("Оплаты поставщикам") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_rows is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <h1>@L("Оплаты поставщикам")</h1>
+    <p class="muted">@L("Оплата сразу уменьшает долг поставщику. Ошибочную оплату не удаляют, а отменяют с причиной — в истории остаются обе записи.")</p>
+
+    @if (_message is not null)
+    {
+        <div class="@(_messageIsError ? "flash error" : "flash")" role="@(_messageIsError ? "alert" : "status")">@_message</div>
+    }
+
+    @if (CanEdit && _options is not null)
+    {
+        <div class="panel">
+            <h2>@L("Новая оплата")</h2>
+            <form class="inline-form" @onsubmit="CreateAsync">
+                <label>
+                    @L("Поставщик")
+                    <select @bind="_supplier">
+                        @foreach (var s in _options.Suppliers)
+                        {
+                            <option value="@s.Id">@s.Name</option>
+                        }
+                    </select>
+                </label>
+                <label>@L("Дата") <input type="date" @bind="_date" /></label>
+                <label>@L("Сумма") <input @bind="_amount" inputmode="decimal" size="12" /></label>
+<label>
+                    @L("Счёт или касса")
+                    <select @bind="_account">
+                        <option value="">@L("основной счёт")</option>
+                        @foreach (var a in _accounts)
+                        {
+                            <option value="@a.Id">@a.Label</option>
+                        }
+                    </select>
+                </label>
+                <label>@L("Комментарий") <input @bind="_comment" maxlength="@SupplierPayment.CommentMaxLength" placeholder="@L("п/п № 101")" /></label>
+                <button type="submit" disabled="@_busy">@L("Записать оплату")</button>
+            </form>
+            <p class="muted">@L("Оплату по конкретному заказу удобнее записывать в карточке заказа.")</p>
+        </div>
+    }
+
+    @if (_allocating is { } pid)
+    {
+        <PaymentAllocationPanel @key="pid" Load="() => Purchases.GetPaymentAllocationsAsync(pid)"
+                                Allocate="(order, amount) => Purchases.AllocatePaymentAsync(pid, order, amount)"
+                                Auto="() => Purchases.AutoAllocatePaymentAsync(pid)"
+                                Remove="(id, version) => Purchases.RemovePaymentAllocationAsync(id, version)"
+                                OrderHref="purchase-orders/" CanEdit="CanEdit" Changed="LoadAsync" Closed="() => _allocating = null" />
+    }
+
+    <form class="inline-form" @onsubmit="ReloadAsync">
+        <label>@L("С") <input type="date" @bind="_from" /></label>
+        <label>@L("По") <input type="date" @bind="_to" /></label>
+        <label>@L("Поиск") <input @bind="_search" placeholder="@L("Номер, поставщик, заказ")" /></label>
+        <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
+    </form>
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>@L("Номер")</th><th>@L("Дата")</th><th>@L("Поставщик")</th><th class="opt">@L("Заказы")</th><th class="num">@L("Сумма")</th><th class="num opt">@L("Аванс")</th><th class="opt">@L("Комментарий")</th><th>@L("Статус")</th><th></th></tr></thead>
+            <tbody>
+                @if (_rows.Count == 0)
+                {
+                    <tr><td colspan="9" class="muted">@L("Оплат нет.")</td></tr>
+                }
+                @foreach (var p in _rows)
+                {
+                    var cancelled = p.Status == SupplierPaymentStatus.Cancelled;
+                    <tr class="@(cancelled ? "archived" : null)">
+                        <td>@p.Number @if (p.CashOrderNumber is { } ko) { <div class="muted small">@ko</div> }</td>
+                        <td>@p.Date.ToString("dd.MM.yyyy")</td>
+                        <td>@p.Supplier</td>
+                        <td>@if (p.OrderId is { } oid && p.Orders == p.OrderNumber) { <a href="purchase-orders/@oid">@p.OrderNumber</a> } else { @p.Orders }</td>
+                        <td class="num">@Amounts.Format(p.Amount)</td>
+                        <td class="num">@(p.Unallocated > 0 ? Amounts.Format(p.Unallocated) : "")</td>
+                        <td>@p.Comment</td>
+                        <td>@(cancelled ? L("отменена: {0}", p.CancelReason ?? "") : L("проведена"))</td>
+                        <td>
+                            <div class="row-actions">
+                                @if (p.CashOrderNumber is not null)
+                                {
+                                    <a class="button secondary" href="print/cash-order/supplier-payment/@p.Id" target="_blank" rel="noopener" title="@L("Печать кассового ордера")">РКО</a>
+                                }
+                                @if (!cancelled)
+                                {
+                                    <button type="button" class="secondary" @onclick="() => _allocating = p.Id" disabled="@_busy">@L("Разноска")</button>
+                                }
+                            </div>
+                                @if (CanEdit && !cancelled)
+                                {
+                                    @if (_cancelId == p.Id)
+                                    {
+                                        <form class="inline-form" style="margin: 0" @onsubmit="() => CancelAsync(p)">
+                                            <input @bind="_reason" placeholder="@L("Причина отмены")" size="18" />
+                                            <button type="submit" class="secondary" disabled="@_busy">@L("Отменить")</button>
+                                        </form>
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="secondary" @onclick="() => { _cancelId = p.Id; _reason = string.Empty; }">@L("Отменить")</button>
+                                    }
+                                }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+            @if (_rows.Count > 0)
+            {
+                <tfoot><tr><td colspan="4"><b>@L("Итого")</b></td><td class="num"><b>@Amounts.Format(_rows.Where(r => r.Status == SupplierPaymentStatus.Posted).Sum(r => r.Amount))</b></td><td class="num"><b>@Amounts.Format(_rows.Sum(r => r.Unallocated))</b></td><td colspan="3"></td></tr></tfoot>
+            }
+        </table>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private IReadOnlyList<SupplierPaymentDto>? _rows;
+    private PurchaseOptionsDto? _options;
+    private bool _busy;
+    private string? _denied;
+    private string? _message;
+    private bool _messageIsError;
+    private DateTime? _from;
+    private DateTime? _to;
+    private string _search = string.Empty;
+    private string _supplier = string.Empty;
+    private DateTime _date = DateTime.Today;
+    private string _amount = string.Empty;
+    private string? _comment;
+    private string _account = string.Empty;
+    private IReadOnlyList<KnitErp.Application.Finance.MoneyAccountOptionDto> _accounts = [];
+    private static long? AccountId(string value) => long.TryParse(value, out var id) ? id : null;
+
+    private long? _allocating;
+    private long? _cancelId;
+    private string _reason = string.Empty;
+
+    private bool CanEdit => CurrentAccess.Has(Permissions.PurchaseEdit) && CurrentAccess.Has(Permissions.PriceView);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+            if (CanEdit)
+            {
+                _options = await Purchases.GetOptionsAsync();
+                _supplier = _options.Suppliers.FirstOrDefault()?.Id.ToString() ?? string.Empty;
+                _accounts = await Money.OptionsAsync();
+            }
+
+            _date = TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId).Date;
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private async Task LoadAsync() =>
+        _rows = await Purchases.ListPaymentsAsync(_from is { } f ? DateOnly.FromDateTime(f) : null, _to is { } t ? DateOnly.FromDateTime(t) : null, _search);
+
+    private Task ReloadAsync() => RunAsync(() => Task.CompletedTask, null);
+
+    private Task CreateAsync() => RunAsync(async () =>
+    {
+        if (!long.TryParse(_supplier, out var supplier))
+        {
+            throw new BusinessRuleException("purchase.supplier_required", L("Выберите поставщика."));
+        }
+
+        if (!Quantities.TryParse(_amount, out var amount))
+        {
+            throw new BusinessRuleException("purchase.number", L("Укажите число, например 1 220,50."));
+        }
+
+        await Purchases.CreatePaymentAsync(DateOnly.FromDateTime(_date), supplier, null, amount, _comment, AccountId(_account));
+        _amount = string.Empty;
+        _comment = null;
+    }, L("Оплата записана."));
+
+    private Task CancelAsync(SupplierPaymentDto p) => RunAsync(async () =>
+    {
+        await Purchases.CancelPaymentAsync(p.Id, _reason, p.RowVersion);
+        _cancelId = null;
+    }, L("Оплата отменена."));
+
+    private async Task RunAsync(Func<Task> action, string? success)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _messageIsError = false;
+        try
+        {
+            await action();
+            _message = success;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+            _messageIsError = true;
+        }
+        finally
+        {
+            try
+            {
+                await LoadAsync();
+            }
+            finally
+            {
+                _busy = false;
+            }
+        }
+    }
+}

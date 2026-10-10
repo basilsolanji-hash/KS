@@ -1,0 +1,607 @@
+@page "/catalog/settings"
+@using KnitErp.Application.Catalog
+@using KnitErp.Application.Common
+@using KnitErp.Domain.Catalog
+@using KnitErp.Domain.Common
+@inject NomenclatureService Nomenclature
+@inject ModificationService Modifications
+
+<PageTitle>@L("Настройки номенклатуры") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_groups is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <p><a href="catalog">@L("← Номенклатура")</a></p>
+    <h1>@L("Группы, виды цен, доп. поля, справочники и характеристики")</h1>
+
+    @if (_message is not null)
+    {
+        <div class="@(_isError ? "flash error" : "flash")" role="@(_isError ? "alert" : "status")">@_message</div>
+    }
+
+    <div class="tabs" role="tablist">
+        @foreach (var (tab, title) in Tabs)
+        {
+            var t = tab;
+            <button type="button" role="tab" class="@(_tab == t ? "tab active" : "tab")" aria-selected="@(_tab == t ? "true" : "false")" @onclick="() => _tab = t">@L(title)</button>
+        }
+    </div>
+
+    @switch (_tab)
+    {
+        case Tab.Groups:
+            <p class="muted">@L("Папки номенклатуры, как в МойСклад: до {0} уровней вложенности. В архив — только пустая группа.", ItemGroup.MaxDepth)</p>
+            @if (CanEdit)
+            {
+                <form class="inline-form" @onsubmit="CreateGroupAsync">
+                    <label>@L("Название") <input @bind="_name" maxlength="@ItemGroup.NameMaxLength" required placeholder="@L("Пряжа")" /></label>
+                    <label>
+                        @L("Внутри группы")
+                        <select @bind="_parent">
+                            <option value="">@L("в корне")</option>
+                            @foreach (var g in _groups.Where(g => !g.IsArchived))
+                            {
+                                <option value="@g.Id">@g.Path</option>
+                            }
+                        </select>
+                    </label>
+                    <button type="submit" disabled="@_busy">@L("Добавить группу")</button>
+                </form>
+            }
+            <div class="scroll">
+                <table class="compact">
+                    <thead><tr><th>@L("Группа")</th><th class="num">@L("Позиций")</th>@if (CanEdit) { <th></th> }</tr></thead>
+                    <tbody>
+                        @if (_groups.Count == 0)
+                        {
+                            <tr><td colspan="3" class="muted">@L("Групп пока нет.")</td></tr>
+                        }
+                        @foreach (var g in _groups)
+                        {
+                            <tr class="@(g.IsArchived ? "archived" : null)">
+                                @if (_editId == g.Id)
+                                {
+                                    <td style="padding-left: @(8 + g.Depth * 18)px">
+                                        <input @bind="_editName" maxlength="@ItemGroup.NameMaxLength" aria-label="@L("Название")" />
+                                        <select @bind="_editParent" aria-label="@L("Внутри группы")">
+                                            <option value="">@L("в корне")</option>
+                                            @foreach (var p in _groups.Where(p => !p.IsArchived && p.Id != g.Id && !p.Path.StartsWith(g.Path + " / ", StringComparison.Ordinal)))
+                                            {
+                                                <option value="@p.Id">@p.Path</option>
+                                            }
+                                        </select>
+                                    </td>
+                                    <td class="num">@g.Items</td>
+                                    <td>
+                                        <button type="button" @onclick="() => SaveGroupAsync(g)" disabled="@_busy">@L("Сохранить")</button>
+                                        <button type="button" class="secondary" @onclick="() => _editId = null">@L("Отмена")</button>
+                                    </td>
+                                }
+                                else
+                                {
+                                    <td style="padding-left: @(8 + g.Depth * 18)px">📁 @g.Name @if (g.IsArchived) { <span class="tag">@L("архив")</span> }</td>
+                                    <td class="num">@g.Items</td>
+                                    @if (CanEdit)
+                                    {
+                                        <td>
+                                            @if (!g.IsArchived)
+                                            {
+                                                <button type="button" class="secondary" @onclick="() => StartEdit(g.Id, g.Name, g.ParentId?.ToString())" disabled="@_busy">@L("Изменить")</button>
+                                                <ConfirmButton Class="secondary" OnConfirm='() => Run(() => Nomenclature.SetGroupArchivedAsync(g.Id, true, g.RowVersion), L("Группа в архиве."))' Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
+                                            }
+                                            else
+                                            {
+                                                <button type="button" class="secondary" @onclick='() => Run(() => Nomenclature.SetGroupArchivedAsync(g.Id, false, g.RowVersion), L("Группа снова действует."))' disabled="@_busy">@L("Вернуть")</button>
+                                            }
+                                        </td>
+                                    }
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            break;
+
+        case Tab.Prices:
+            @if (_priceTypes is null)
+            {
+                <p class="muted">@L("Виды цен видны только с правом «Цены и суммы».")</p>
+            }
+            else
+            {
+                <p class="muted">@L("Основной вид цены подставляется в заказ покупателя. Цены задаются в карточке позиции.")</p>
+                @if (CanEdit)
+                {
+                    <form class="inline-form" @onsubmit="CreatePriceTypeAsync">
+                        <label>@L("Название") <input @bind="_name" maxlength="@PriceType.NameMaxLength" required placeholder="@L("Оптовая")" /></label>
+                        <label class="inline"><input type="checkbox" @bind="_withVat" /> @L("Цены с НДС")</label>
+                        <button type="submit" disabled="@_busy">@L("Добавить вид цены")</button>
+                    </form>
+                }
+                <div class="scroll">
+                    <table class="compact">
+                        <thead><tr><th>@L("Вид цены")</th><th>@L("НДС")</th><th class="num">@L("Позиций с ценой")</th>@if (CanEdit) { <th></th> }</tr></thead>
+                        <tbody>
+                            @foreach (var t in _priceTypes)
+                            {
+                                <tr class="@(t.IsArchived ? "archived" : null)">
+                                    @if (_editId == t.Id)
+                                    {
+                                        <td><input @bind="_editName" maxlength="@PriceType.NameMaxLength" aria-label="@L("Название")" /></td>
+                                        <td><label class="inline"><input type="checkbox" @bind="_editVat" /> @L("с НДС")</label></td>
+                                        <td class="num">@t.Prices</td>
+                                        <td>
+                                            <button type="button" @onclick='() => Run(async () => { await Nomenclature.UpdatePriceTypeAsync(t.Id, _editName, _editVat, t.RowVersion); _editId = null; }, L("Сохранено."))' disabled="@_busy">@L("Сохранить")</button>
+                                            <button type="button" class="secondary" @onclick="() => _editId = null">@L("Отмена")</button>
+                                        </td>
+                                    }
+                                    else
+                                    {
+                                        <td>@t.Name @if (t.IsDefault) { <span class="tag ok">@L("основной")</span> } @if (t.IsArchived) { <span class="tag">@L("архив")</span> }</td>
+                                        <td>@(t.IncludesVat ? L("с НДС") : L("без НДС"))</td>
+                                        <td class="num">@t.Prices</td>
+                                        @if (CanEdit)
+                                        {
+                                            <td>
+                                                @if (!t.IsArchived)
+                                                {
+                                                    <button type="button" class="secondary" @onclick="() => { StartEdit(t.Id, t.Name, null); _editVat = t.IncludesVat; }" disabled="@_busy">@L("Изменить")</button>
+                                                    @if (!t.IsDefault)
+                                                    {
+                                                        <button type="button" class="secondary" @onclick='() => Run(() => Nomenclature.MakeDefaultPriceTypeAsync(t.Id, t.RowVersion), L("Основной вид цены изменён."))' disabled="@_busy">@L("Сделать основным")</button>
+                                                        <ConfirmButton Class="secondary" OnConfirm='() => Run(() => Nomenclature.SetPriceTypeArchivedAsync(t.Id, true, t.RowVersion), L("Вид цены в архиве."))' Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    <button type="button" class="secondary" @onclick='() => Run(() => Nomenclature.SetPriceTypeArchivedAsync(t.Id, false, t.RowVersion), L("Вид цены снова действует."))' disabled="@_busy">@L("Вернуть")</button>
+                                                }
+                                            </td>
+                                        }
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            break;
+
+        case Tab.Fields:
+            <p class="muted">@L("Свои поля карточки номенклатуры: текст, число, дата, флажок или значение из своего справочника. Например «Состав», «Тонина, Nm», «Цвет».")</p>
+            @if (CanEdit)
+            {
+                <form class="inline-form" @onsubmit="CreateFieldAsync">
+                    <label>@L("Название") <input @bind="_name" maxlength="@CustomFieldDefinition.NameMaxLength" required placeholder="@L("Цвет")" /></label>
+                    <label>
+                        @L("Тип")
+                        <select @bind="_fieldType">
+                            @foreach (var t in Enum.GetValues<CustomFieldType>())
+                            {
+                                <option value="@t">@TypeName(t)</option>
+                            }
+                        </select>
+                    </label>
+                    @if (_fieldType == CustomFieldType.Catalog)
+                    {
+                        <label>
+                            @L("Справочник")
+                            <select @bind="_fieldCatalog">
+                                <option value="">@L("— выберите —")</option>
+                                @foreach (var c in _catalogs!.Where(c => !c.IsArchived))
+                                {
+                                    <option value="@c.Id">@c.Name</option>
+                                }
+                            </select>
+                        </label>
+                    }
+                    <button type="submit" disabled="@_busy">@L("Добавить поле")</button>
+                </form>
+            }
+            <div class="scroll">
+                <table class="compact">
+                    <thead><tr><th>@L("Поле")</th><th>@L("Тип")</th><th class="num">@L("Заполнено")</th>@if (CanEdit) { <th></th> }</tr></thead>
+                    <tbody>
+                        @if (_fields!.Count == 0)
+                        {
+                            <tr><td colspan="4" class="muted">@L("Полей пока нет.")</td></tr>
+                        }
+                        @foreach (var f in _fields)
+                        {
+                            <tr class="@(f.IsArchived ? "archived" : null)">
+                                @if (_editId == f.Id)
+                                {
+                                    <td><input @bind="_editName" maxlength="@CustomFieldDefinition.NameMaxLength" aria-label="@L("Название")" /></td>
+                                    <td>@TypeName(f.Type)</td>
+                                    <td class="num">@f.Filled</td>
+                                    <td>
+                                        <button type="button" @onclick='() => Run(async () => { await Nomenclature.RenameItemFieldAsync(f.Id, _editName, f.RowVersion); _editId = null; }, L("Сохранено."))' disabled="@_busy">@L("Сохранить")</button>
+                                        <button type="button" class="secondary" @onclick="() => _editId = null">@L("Отмена")</button>
+                                    </td>
+                                }
+                                else
+                                {
+                                    <td>@f.Name @if (f.IsArchived) { <span class="tag">@L("архив")</span> }</td>
+                                    <td>@TypeName(f.Type)@(f.Catalog is null ? "" : $": {f.Catalog}")</td>
+                                    <td class="num">@f.Filled</td>
+                                    @if (CanEdit)
+                                    {
+                                        <td>
+                                            @if (!f.IsArchived)
+                                            {
+                                                <button type="button" class="secondary icon" @onclick="() => Run(() => Nomenclature.MoveItemFieldAsync(f.Id, -1), null)" disabled="@_busy" title="@L("Выше")" aria-label="@L("Выше: {0}", f.Name)">↑</button>
+                                                <button type="button" class="secondary icon" @onclick="() => Run(() => Nomenclature.MoveItemFieldAsync(f.Id, 1), null)" disabled="@_busy" title="@L("Ниже")" aria-label="@L("Ниже: {0}", f.Name)">↓</button>
+                                                <button type="button" class="secondary" @onclick="() => StartEdit(f.Id, f.Name, null)" disabled="@_busy">@L("Изменить")</button>
+                                                <ConfirmButton Class="secondary" OnConfirm='() => Run(() => Nomenclature.SetItemFieldArchivedAsync(f.Id, true, f.RowVersion), L("Поле в архиве."))' Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
+                                            }
+                                            else
+                                            {
+                                                <button type="button" class="secondary" @onclick='() => Run(() => Nomenclature.SetItemFieldArchivedAsync(f.Id, false, f.RowVersion), L("Поле снова действует."))' disabled="@_busy">@L("Вернуть")</button>
+                                            }
+                                        </td>
+                                    }
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            break;
+
+        case Tab.Catalogs:
+            <p class="muted">@L("Свои справочники: «Цвета», «Составы пряжи», «Классы машин». Подключите справочник к доп. полю типа «Справочник» — и выбирайте значение в карточке позиции.")</p>
+            @if (CanEdit)
+            {
+                <form class="inline-form" @onsubmit="CreateCatalogAsync">
+                    <label>@L("Название") <input @bind="_name" maxlength="@UserCatalog.NameMaxLength" required placeholder="@L("Цвета")" /></label>
+                    <button type="submit" disabled="@_busy">@L("Создать справочник")</button>
+                </form>
+            }
+            <div class="catalog-layout">
+                <nav class="group-tree" aria-label="@L("Свои справочники")">
+                    @if (_catalogs!.Count == 0)
+                    {
+                        <span class="muted">@L("Справочников пока нет.")</span>
+                    }
+                    @foreach (var c in _catalogs)
+                    {
+                        var cat = c;
+                        <button type="button" class="@(_catalogId == c.Id ? "link active" : "link")" @onclick="() => OpenCatalogAsync(cat.Id)">
+                            📚 @c.Name <span class="muted">@c.Entries</span> @if (c.IsArchived) { <span class="tag">@L("архив")</span> }
+                        </button>
+                    }
+                </nav>
+                <div>
+                    @if (_catalogs.FirstOrDefault(c => c.Id == _catalogId) is { } open)
+                    {
+                        <div class="page-head">
+                            <h2>@open.Name</h2>
+                            @if (CanEdit)
+                            {
+                                <div class="actions">
+                                    @if (!open.IsArchived)
+                                    {
+                                        <button type="button" class="secondary" @onclick="() => StartEdit(open.Id, open.Name, null)" disabled="@_busy">@L("Переименовать")</button>
+                                        <ConfirmButton Class="secondary" OnConfirm='() => Run(() => Nomenclature.SetCatalogArchivedAsync(open.Id, true, open.RowVersion), L("Справочник в архиве."))' Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="secondary" @onclick='() => Run(() => Nomenclature.SetCatalogArchivedAsync(open.Id, false, open.RowVersion), L("Справочник снова действует."))' disabled="@_busy">@L("Вернуть")</button>
+                                    }
+                                </div>
+                            }
+                        </div>
+                        @if (_editId == open.Id)
+                        {
+                            <form class="inline-form" @onsubmit='() => Run(async () => { await Nomenclature.RenameCatalogAsync(open.Id, _editName, open.RowVersion); _editId = null; }, L("Сохранено."))'>
+                                <label>@L("Название") <input @bind="_editName" maxlength="@UserCatalog.NameMaxLength" /></label>
+                                <button type="submit" disabled="@_busy">@L("Сохранить")</button>
+                                <button type="button" class="secondary" @onclick="() => _editId = null">@L("Отмена")</button>
+                            </form>
+                        }
+                        @if (CanEdit && !open.IsArchived)
+                        {
+                            <form class="inline-form" @onsubmit="AddEntryAsync">
+                                <label>@L("Код") <input @bind="_entryCode" maxlength="@UserCatalogEntry.CodeMaxLength" size="8" placeholder="0012" /></label>
+                                <label>@L("Значение") <input @bind="_entryName" maxlength="@UserCatalogEntry.NameMaxLength" required placeholder="@L("Синий меланж")" /></label>
+                                <button type="submit" disabled="@_busy">@L("Добавить")</button>
+                            </form>
+                        }
+                        <div class="scroll">
+                            <table class="compact">
+                                <thead><tr><th>@L("Код")</th><th>@L("Значение")</th>@if (CanEdit) { <th></th> }</tr></thead>
+                                <tbody>
+                                    @if (_entries.Count == 0)
+                                    {
+                                        <tr><td colspan="3" class="muted">@L("Записей пока нет.")</td></tr>
+                                    }
+                                    @foreach (var e in _entries)
+                                    {
+                                        <tr class="@(e.IsArchived ? "archived" : null)">
+                                            @if (_editEntryId == e.Id)
+                                            {
+                                                <td><input @bind="_editCode" maxlength="@UserCatalogEntry.CodeMaxLength" size="8" aria-label="@L("Код")" /></td>
+                                                <td><input @bind="_editName" maxlength="@UserCatalogEntry.NameMaxLength" aria-label="@L("Значение")" /></td>
+                                                <td>
+                                                    <button type="button" @onclick='() => Run(async () => { await Nomenclature.UpdateEntryAsync(e.Id, _editName, _editCode, e.RowVersion); _editEntryId = null; }, L("Сохранено."))' disabled="@_busy">@L("Сохранить")</button>
+                                                    <button type="button" class="secondary" @onclick="() => _editEntryId = null">@L("Отмена")</button>
+                                                </td>
+                                            }
+                                            else
+                                            {
+                                                <td>@(e.Code ?? "—")</td>
+                                                <td>@e.Name @if (e.IsArchived) { <span class="tag">@L("архив")</span> }</td>
+                                                @if (CanEdit)
+                                                {
+                                                    <td>
+                                                        @if (!e.IsArchived)
+                                                        {
+                                                            <button type="button" class="secondary" @onclick="() => { _editEntryId = e.Id; _editName = e.Name; _editCode = e.Code; }" disabled="@_busy">@L("Изменить")</button>
+                                                            <ConfirmButton Class="secondary" OnConfirm='() => Run(() => Nomenclature.SetEntryArchivedAsync(e.Id, true, e.RowVersion), L("Запись в архиве."))' Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
+                                                        }
+                                                        else
+                                                        {
+                                                            <button type="button" class="secondary" @onclick='() => Run(() => Nomenclature.SetEntryArchivedAsync(e.Id, false, e.RowVersion), L("Запись снова действует."))' disabled="@_busy">@L("Вернуть")</button>
+                                                        }
+                                                    </td>
+                                                }
+                                            }
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="muted">@L("Выберите справочник слева.")</p>
+                    }
+                </div>
+            </div>
+            break;
+
+        case Tab.Characteristics:
+            <p class="muted">@L("Характеристики модификаций: «Цвет», «Размер», «Рост». Значения вводятся у позиции при создании модификаций. Не больше {0}.", Characteristic.MaxCharacteristics)</p>
+            @if (CanEdit)
+            {
+                <form class="inline-form" @onsubmit='() => Run(async () => { await Modifications.CreateCharacteristicAsync(_name); _name = null; }, L("Характеристика добавлена."))'>
+                    <label>@L("Название") <input @bind="_name" maxlength="@Characteristic.NameMaxLength" required placeholder="@L("Размер")" /></label>
+                    <button type="submit" disabled="@_busy">@L("Добавить")</button>
+                </form>
+            }
+            <div class="scroll">
+                <table class="compact">
+                    <thead><tr><th>@L("Характеристика")</th><th class="num">@L("Модификаций")</th>@if (CanEdit) { <th></th> }</tr></thead>
+                    <tbody>
+                        @if (_characteristics.Count == 0)
+                        {
+                            <tr><td colspan="3" class="muted">@L("Характеристик пока нет.")</td></tr>
+                        }
+                        @foreach (var c in _characteristics)
+                        {
+                            <tr class="@(c.IsArchived ? "archived" : null)">
+                                @if (_editId == c.Id && _tab == Tab.Characteristics)
+                                {
+                                    <td><input @bind="_editName" maxlength="@Characteristic.NameMaxLength" aria-label="@L("Название")" /></td>
+                                    <td class="num">@c.Used</td>
+                                    <td>
+                                        <button type="button" @onclick='() => Run(async () => { await Modifications.RenameCharacteristicAsync(c.Id, _editName, c.RowVersion); _editId = null; }, L("Сохранено."))' disabled="@_busy">@L("Сохранить")</button>
+                                        <button type="button" class="secondary" @onclick="() => _editId = null">@L("Отмена")</button>
+                                    </td>
+                                }
+                                else
+                                {
+                                    <td>@c.Name @if (c.IsArchived) { <span class="tag">@L("архив")</span> }</td>
+                                    <td class="num">@c.Used</td>
+                                    @if (CanEdit)
+                                    {
+                                        <td>
+                                            @if (!c.IsArchived)
+                                            {
+                                                <button type="button" class="secondary" @onclick="() => { _editId = c.Id; _editName = c.Name; }" disabled="@_busy">@L("Изменить")</button>
+                                                <ConfirmButton Class="secondary" OnConfirm='() => Run(() => Modifications.SetCharacteristicArchivedAsync(c.Id, true, c.RowVersion), L("«{0}» в архиве.", c.Name))' Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
+                                            }
+                                            else
+                                            {
+                                                <button type="button" class="secondary" @onclick='() => Run(() => Modifications.SetCharacteristicArchivedAsync(c.Id, false, c.RowVersion), L("«{0}» снова действует.", c.Name))' disabled="@_busy">@L("Вернуть")</button>
+                                            }
+                                        </td>
+                                    }
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            break;
+    }
+}
+
+@code {
+    private enum Tab { Groups, Prices, Fields, Catalogs, Characteristics }
+
+    private static readonly (Tab Tab, string Title)[] Tabs =
+        [(Tab.Groups, "Группы"), (Tab.Prices, "Виды цен"), (Tab.Fields, "Доп. поля"), (Tab.Catalogs, "Свои справочники"),
+         (Tab.Characteristics, "Характеристики")];
+
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? TabQuery { get; set; }
+
+    private Tab _tab = Tab.Groups;
+    private IReadOnlyList<ItemGroupDto>? _groups;
+    private IReadOnlyList<PriceTypeDto>? _priceTypes;
+    private IReadOnlyList<CustomFieldDto>? _fields;
+    private IReadOnlyList<UserCatalogDto>? _catalogs;
+    private IReadOnlyList<UserCatalogEntryDto> _entries = [];
+    private IReadOnlyList<CharacteristicDto> _characteristics = [];
+    private long? _catalogId;
+    private bool _busy;
+    private string? _denied;
+    private string? _message;
+    private bool _isError;
+    private string? _name;
+    private string _parent = string.Empty;
+    private bool _withVat = true;
+    private CustomFieldType _fieldType = CustomFieldType.Text;
+    private string _fieldCatalog = string.Empty;
+    private long? _editId;
+    private string? _editName;
+    private string _editParent = string.Empty;
+    private bool _editVat;
+    private long? _editEntryId;
+    private string? _editCode;
+    private string? _entryName;
+    private string? _entryCode;
+
+    private bool CanEdit => CurrentAccess.Has(Permissions.CatalogEdit);
+
+    /// <summary>Каждый справочник — свой пункт меню (?tab=…): переход между ними не пересоздаёт страницу.</summary>
+    protected override void OnParametersSet()
+    {
+        if (Enum.TryParse<Tab>(TabQuery, ignoreCase: true, out var tab))
+        {
+            _tab = tab;
+            _editId = null;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+
+        try
+        {
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _groups = await Nomenclature.GroupsAsync(includeArchived: true);
+        _priceTypes = CurrentAccess.Has(Permissions.PriceView) ? await Nomenclature.PriceTypesAsync(includeArchived: true) : null;
+        _fields = await Nomenclature.ItemFieldsAsync(includeArchived: true);
+        _catalogs = await Nomenclature.CatalogsAsync(includeArchived: true);
+        _catalogId ??= _catalogs.FirstOrDefault()?.Id;
+        _entries = _catalogId is { } cid && _catalogs.Any(c => c.Id == cid) ? await Nomenclature.EntriesAsync(cid, includeArchived: true) : [];
+        _characteristics = await Modifications.CharacteristicsAsync(includeArchived: true);
+    }
+
+    private string TypeName(CustomFieldType type) => type switch
+    {
+        CustomFieldType.Number => L("Число"),
+        CustomFieldType.Date => L("Дата"),
+        CustomFieldType.Flag => L("Флажок"),
+        CustomFieldType.Catalog => L("Справочник"),
+        _ => L("Текст"),
+    };
+
+    private void StartEdit(long id, string name, string? parent)
+    {
+        _editId = id;
+        _editName = name;
+        _editParent = parent ?? string.Empty;
+    }
+
+    private Task CreateGroupAsync() => Run(async () =>
+    {
+        await Nomenclature.CreateGroupAsync(long.TryParse(_parent, out var p) ? p : null, _name);
+        _name = null;
+    }, L("Группа добавлена."));
+
+    private Task SaveGroupAsync(ItemGroupDto g) => Run(async () =>
+    {
+        long? parent = long.TryParse(_editParent, out var p) ? p : null;
+        if (_editName != g.Name)
+        {
+            await Nomenclature.RenameGroupAsync(g.Id, _editName, g.RowVersion);
+        }
+
+        if (parent != g.ParentId)
+        {
+            var fresh = (await Nomenclature.GroupsAsync(includeArchived: true)).Single(x => x.Id == g.Id);
+            await Nomenclature.MoveGroupAsync(g.Id, parent, fresh.RowVersion);
+        }
+
+        _editId = null;
+    }, L("Группа сохранена."));
+
+    private Task CreatePriceTypeAsync() => Run(async () =>
+    {
+        await Nomenclature.CreatePriceTypeAsync(_name, _withVat);
+        _name = null;
+    }, L("Вид цены добавлен."));
+
+    private Task CreateFieldAsync() => Run(async () =>
+    {
+        await Nomenclature.CreateItemFieldAsync(_name, _fieldType, long.TryParse(_fieldCatalog, out var c) ? c : null);
+        _name = null;
+    }, L("Поле добавлено."));
+
+    private Task CreateCatalogAsync() => Run(async () =>
+    {
+        _catalogId = await Nomenclature.CreateCatalogAsync(_name);
+        _name = null;
+    }, L("Справочник создан."));
+
+    private Task OpenCatalogAsync(long id) => Run(() =>
+    {
+        _catalogId = id;
+        _editId = null;
+        return Task.CompletedTask;
+    }, null);
+
+    private Task AddEntryAsync() => Run(async () =>
+    {
+        await Nomenclature.AddEntryAsync(_catalogId!.Value, _entryName, _entryCode);
+        _entryName = null;
+        _entryCode = null;
+    }, L("Запись добавлена."));
+
+    /// <summary>Одна операция за раз, затем свежие данные: у вкладки один DbContext.</summary>
+    private async Task Run(Func<Task> action, string? success)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _isError = false;
+        try
+        {
+            await action();
+            _message = success;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+            _isError = true;
+        }
+        finally
+        {
+            try
+            {
+                await LoadAsync();
+            }
+            finally
+            {
+                _busy = false;
+            }
+        }
+    }
+}

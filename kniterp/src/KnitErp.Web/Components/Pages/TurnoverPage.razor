@@ -1,0 +1,146 @@
+@page "/reports/turnover"
+@using KnitErp.Application.Warehousing
+@using KnitErp.Domain.Catalog
+@using KnitErp.Web.Components.Shared
+@inject StockReportService Reports
+@inject StockService Stock
+
+<PageTitle>@L("Обороты") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_rows is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <h1>@L("Обороты")</h1>
+    <p class="muted">@L("Остаток на начало периода, приход, расход и остаток на конец — по складам и позициям. Сторно уменьшает обороты своего документа.")</p>
+
+    @if (_error is not null)
+    {
+        <div class="error" role="alert">@_error</div>
+    }
+
+    <form class="inline-form" @onsubmit="ReloadAsync">
+        <label>
+            @L("Склад")
+            <select @bind="_warehouse">
+                <option value="">@L("Все доступные")</option>
+                @foreach (var w in _warehouses)
+                {
+                    <option value="@w.Id">@w.Name</option>
+                }
+            </select>
+        </label>
+        <label>@L("С") <input type="date" @bind="_from" /></label>
+        <label>@L("По") <input type="date" @bind="_to" /></label>
+        <label>
+            @L("Тип")
+            <select @bind="_type">
+                <option value="">@L("Все типы")</option>
+                @foreach (var t in ItemTypes.All)
+                {
+                    <option value="@((byte)t)">@L(ItemTypes.Name(t))</option>
+                }
+            </select>
+        </label>
+        <label>@L("Поиск") <input @bind="_search" placeholder="@L("Код или наименование")" /></label>
+        <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
+        <a class="button secondary" href="@ExportHref" download data-enhance-nav="false" title="@L("Выгрузить с текущими фильтрами")">Excel</a>
+    </form>
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th class="opt">@L("Склад")</th><th>@L("Код")</th><th>@L("Наименование")</th><th class="opt num">@L("На начало")</th><th class="opt num">@L("Приход")</th><th class="opt num">@L("Расход")</th><th class="num">@L("На конец")</th><th>@L("Ед.")</th></tr></thead>
+            <tbody>
+                @if (_rows.Count == 0)
+                {
+                    <tr><td colspan="8" class="muted">@L("За период движений и остатков нет.")</td></tr>
+                }
+                @foreach (var r in _rows)
+                {
+                    <tr>
+                        <td>@r.WarehouseName</td>
+                        <td>@r.Code</td>
+                        <td>@r.Name</td>
+                        <td class="num">@Quantities.Format(r.Opening)</td>
+                        <td class="num">@Quantities.Format(r.Incoming)</td>
+                        <td class="num">@Quantities.Format(r.Outgoing)</td>
+                        <td class="num"><b>@Quantities.Format(r.Closing)</b></td>
+                        <td>@r.UnitSymbol</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private IReadOnlyList<TurnoverRowDto>? _rows;
+    private IReadOnlyList<LookupWarehouseDto> _warehouses = [];
+    private bool _busy;
+    private string? _denied;
+    private string? _error;
+    private string _warehouse = string.Empty;
+    private string _type = string.Empty;
+    private string _search = string.Empty;
+    private DateTime _from;
+    private DateTime _to;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // По умолчанию — текущий месяц по времени организации.
+        var today = TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId).Date;
+        _from = new DateTime(today.Year, today.Month, 1);
+        _to = _from.AddMonths(1).AddDays(-1);
+        try
+        {
+            _warehouses = await Stock.ListWarehousesAsync();
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private string ExportHref => KnitErp.Web.Exports.ExportLink.Build("reports/turnover.xlsx", ("warehouse", _warehouse),
+        ("from", KnitErp.Web.Exports.ExportLink.Date(_from)), ("to", KnitErp.Web.Exports.ExportLink.Date(_to)), ("type", _type), ("search", _search));
+
+    private async Task LoadAsync() =>
+        _rows = await Reports.TurnoverAsync(new TurnoverFilter(
+            long.TryParse(_warehouse, out var w) ? w : null,
+            DateOnly.FromDateTime(_from), DateOnly.FromDateTime(_to),
+            byte.TryParse(_type, out var t) ? (ItemType)t : null,
+            _search));
+
+    private async Task ReloadAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await LoadAsync();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

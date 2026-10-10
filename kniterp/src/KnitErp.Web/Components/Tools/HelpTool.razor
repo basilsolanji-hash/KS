@@ -1,0 +1,81 @@
+@* Справочный центр: подсказка по текущему экрану, поиск, статьи по разделам («Первые шаги» — обучение). Статьи — на языке пользователя. *@
+@inject IUiText UiText
+
+<form class="tool-form" @onsubmit="() => { }" role="search">
+    <label>@L("Поиск по справке") <input @bind="_query" @bind:event="oninput" placeholder="@L("Например: сторно, инвентаризация")" /></label>
+</form>
+
+@if (_article is not null)
+{
+    <article class="help-article">
+        <button type="button" class="link" @onclick="() => _article = null">@L("← Все статьи")</button>
+        <h3>@L(_article.Title)</h3>
+        <p class="muted">@L(_article.Category)</p>
+        @foreach (var p in _article.Body)
+        {
+            <p>@L(p)</p>
+        }
+    </article>
+}
+else if (_query.Trim().Length >= 3)
+{
+    var found = HelpCenter.Search(_query, 8, UiText);
+    @if (found.Count == 0)
+    {
+        <p class="muted">@L("Ничего не найдено. Спросите") <button type="button" class="link" @onclick="() => Context.OpenTool(ToolCatalog.Assistant, null)">@L("ИИ-помощника")</button>
+            @L("или создайте обращение в") <button type="button" class="link" @onclick="() => Context.OpenTool(ToolCatalog.Support, null)">@L("поддержку")</button>.</p>
+    }
+    <ul class="plain link-list">
+        @foreach (var a in found)
+        {
+            <li><button type="button" class="link" @onclick="() => _article = a">@L(a.Title)</button> <span class="muted">@L(a.Category)</span></li>
+        }
+    </ul>
+}
+else
+{
+    var current = HelpCenter.ForRoute(Context.Route);
+    @if (current is not null)
+    {
+        <div class="panel help-current">
+            <h3>@L("По этому экрану:") @L(current.Title)</h3>
+            @foreach (var p in current.Body.Take(2))
+            {
+                <p>@L(p)</p>
+            }
+            <button type="button" class="link" @onclick="() => _article = current">@L("Читать полностью")</button>
+        </div>
+    }
+    @foreach (var group in HelpCenter.Articles.GroupBy(a => a.Category))
+    {
+        <h3>@(group.Key == "Первые шаги" ? L("Обучение: первые шаги") : L(group.Key))</h3>
+        <ul class="plain link-list">
+            @foreach (var a in group)
+            {
+                <li><button type="button" class="link" @onclick="() => _article = a">@L(a.Title)</button></li>
+            }
+        </ul>
+    }
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public ToolContext Context { get; set; } = default!;
+
+    /// <summary>Статья, которую попросили открыть (из поиска или помощника).</summary>
+    [Parameter]
+    public string? ArticleId { get; set; }
+
+    private string _query = string.Empty;
+    private HelpArticle? _article;
+    private string? _shownId;
+
+    protected override void OnParametersSet()
+    {
+        if (ArticleId is not null && ArticleId != _shownId)
+        {
+            _article = HelpCenter.Articles.FirstOrDefault(a => a.Id == ArticleId);
+            _shownId = ArticleId;
+        }
+    }
+}

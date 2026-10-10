@@ -1,0 +1,160 @@
+@inject SupportService Support
+
+@if (_flash is not null)
+{
+    <div class="@(_flashIsError ? "flash error" : "flash")" role="@(_flashIsError ? "alert" : "status")">@_flash</div>
+}
+
+<form class="tool-form" @onsubmit="CreateAsync">
+    <h3>@L("Новое обращение")</h3>
+    <label>@L("Тема") <input @bind="_subject" maxlength="200" required /></label>
+    <label>@L("Что случилось") <textarea @bind="_text" rows="4" maxlength="4000" required placeholder="@L("Что делали, что ожидали, что получилось")"></textarea></label>
+    <p class="muted">@L("Раздел подставится сам:") @L(Context.RouteTitle)</p>
+    <button type="submit" disabled="@_busy">@L("Отправить")</button>
+</form>
+
+@if (_list is not null)
+{
+    @if (_list.CanHandle)
+    {
+        <h3>@L("Очередь организации ({0})", _list.Queue.Count)</h3>
+        @foreach (var t in _list.Queue)
+        {
+            <div class="ticket">
+                <div><b>@t.Number</b> · @t.Subject <span class="tag">@L(t.StatusName)</span></div>
+                <div class="muted">@t.Author · @Local(t.CreatedAtUtc)@(t.Section is null ? "" : " · " + t.Section)</div>
+                <div class="ticket-text">@t.Text</div>
+                @if (t.Answer is not null)
+                {
+                    <div class="ticket-answer">@L("Ответ:") @t.Answer</div>
+                }
+                <div class="row-actions">
+                    @if (t.Status == KnitErp.Domain.Workspace.SupportTicketStatus.Open)
+                    {
+                        <button type="button" class="secondary" @onclick="() => RunAsync(() => Support.TakeAsync(t.Id, t.RowVersion), null)" disabled="@_busy">@L("В работу")</button>
+                    }
+                    <button type="button" class="secondary" @onclick="() => _replyTo = t.Id" disabled="@_busy">@L("Ответить")</button>
+                    <button type="button" class="secondary" @onclick="() => RunAsync(() => Support.CloseAsync(t.Id, t.RowVersion), null)" disabled="@_busy">@L("Закрыть")</button>
+                </div>
+                @if (_replyTo == t.Id)
+                {
+                    <form class="tool-form" @onsubmit="() => ReplyAsync(t)">
+                        <label>@L("Ответ") <textarea @bind="_answer" rows="3" maxlength="4000"></textarea></label>
+                        <button type="submit" disabled="@_busy">@L("Отправить ответ")</button>
+                    </form>
+                }
+            </div>
+        }
+    }
+
+    <h3>@L("Мои обращения")</h3>
+    @if (_list.Mine.Count == 0)
+    {
+        <p class="muted">@L("Обращений пока нет.")</p>
+    }
+    @foreach (var t in _list.Mine)
+    {
+        <div class="ticket">
+            <div><b>@t.Number</b> · @t.Subject <span class="tag @(t.Status == KnitErp.Domain.Workspace.SupportTicketStatus.Answered ? "ok" : "")">@L(t.StatusName)</span></div>
+            <div class="muted">@Local(t.CreatedAtUtc)</div>
+            @if (t.Answer is not null)
+            {
+                <div class="ticket-answer">@L("Ответ:") @t.Answer</div>
+            }
+            @if (t.Status != KnitErp.Domain.Workspace.SupportTicketStatus.Closed)
+            {
+                <button type="button" class="link" @onclick="() => RunAsync(() => Support.CloseAsync(t.Id, t.RowVersion), null)" disabled="@_busy">@L("Вопрос решён — закрыть")</button>
+            }
+        </div>
+    }
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public ToolContext Context { get; set; } = default!;
+
+    [Parameter]
+    public bool Active { get; set; }
+
+    private SupportListDto? _list;
+    private string _subject = string.Empty;
+    private string _text = string.Empty;
+    private string _answer = string.Empty;
+    private long? _replyTo;
+    private string? _flash;
+    private bool _flashIsError;
+    private bool _busy;
+    private bool _wasActive;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Active && !_wasActive)
+        {
+            await RunAsync(() => Task.CompletedTask, null);
+        }
+
+        _wasActive = Active;
+    }
+
+    private Task CreateAsync() => RunAsync(async () =>
+    {
+        var number = await Support.CreateAsync(_subject, _text, Context.RouteTitle);
+        _subject = string.Empty;
+        _text = string.Empty;
+        _flash = L("Обращение {0} отправлено. Об ответе придёт уведомление.", number);
+    }, "");
+
+    private Task ReplyAsync(SupportTicketDto t) => RunAsync(async () =>
+    {
+        await Support.ReplyAsync(t.Id, _answer, t.RowVersion);
+        _answer = string.Empty;
+        _replyTo = null;
+    }, L("Ответ отправлен."));
+
+    /// <summary>Действие, затем свежий список. success = "" — сообщение задаёт само действие.</summary>
+    private async Task RunAsync(Func<Task> action, string? success)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        if (success != "")
+        {
+            _flash = null;
+        }
+
+        try
+        {
+            await action();
+            if (!string.IsNullOrEmpty(success))
+            {
+                _flash = success;
+            }
+
+            _flashIsError = false;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _flash = UiErrors.Message(ex);
+            _flashIsError = true;
+        }
+
+        try
+        {
+            _list = await Support.ListAsync();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _flash = UiErrors.Message(ex);
+            _flashIsError = true;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private string Local(DateTime utc) => TimeZones.ToLocal(utc, Context.Access.TimeZoneId).ToString("dd.MM.yyyy HH:mm");
+}

@@ -1,0 +1,203 @@
+@page "/expense-reports/{Id:long}"
+@using KnitErp.Application.Finance
+@using KnitErp.Domain.Finance
+@using KnitErp.Domain.Catalog
+@inject AccountableService Accountables
+
+<PageTitle>@(_doc is null ? L("Авансовый отчёт") : L("Авансовый отчёт {0}", _doc.Number)) — knitERP</PageTitle>
+
+@* D86: авансовый отчёт — расходы по оправдательным документам; черновик → утверждён; ошибка — отмена с причиной. *@
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_notFound)
+{
+    <p>@L("Отчёт не найден.") <a href="accountables">@L("К подотчётным лицам")</a></p>
+}
+else if (_doc is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    var d = _doc;
+    <div class="page-head">
+        <h1>@L("Авансовый отчёт {0}", d.Number) <span class="tag">@L(d.StatusName)</span></h1>
+        <div class="row-actions">
+            <a class="button secondary" href="print/expense-report/@d.Id" target="_blank" rel="noopener">@L("Печать")</a>
+            <a class="button secondary" href="accountables">@L("← К подотчётным лицам")</a>
+        </div>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="@(_isError ? "flash error" : "flash")" role="@(_isError ? "alert" : "status")">@_message</div>
+    }
+
+    <dl class="facts">
+        <dt>@L("Подотчётное лицо")</dt><dd>@d.Employee (@d.PersonnelNumber)@(d.Position is null ? "" : ", " + d.Position)</dd>
+        <dt>@L("Юрлицо")</dt><dd>@d.LegalEntity</dd>
+        <dt>@L("Дата")</dt><dd>@d.Date.ToString("dd.MM.yyyy")</dd>
+        <dt>@L("Назначение аванса")</dt><dd>@(d.Purpose ?? "—")</dd>
+        <dt>@L("Долг до отчёта")</dt><dd>@Amounts.Format(d.DebtBefore)</dd>
+        <dt>@L("Израсходовано")</dt><dd><b>@Amounts.Format(d.Total)</b></dd>
+        <dt>@(d.DebtAfter >= 0 ? L("Остаток к возврату в кассу") : L("Перерасход — доплатить сотруднику"))</dt><dd><b>@Amounts.Format(Math.Abs(d.DebtAfter))</b></dd>
+        @if (d.CancelReason is not null)
+        {
+            <dt>@L("Причина отмены")</dt><dd>@d.CancelReason</dd>
+        }
+    </dl>
+
+    <h2>@L("Расходы")</h2>
+    <div class="scroll">
+        <table class="compact">
+            <thead><tr><th>@L("Дата")</th><th>@L("Документ")</th><th class="opt">@L("Описание")</th><th>@L("Статья")</th><th class="num">@L("Сумма")</th>@if (d.CanEdit) { <th></th> }</tr></thead>
+            <tbody>
+                @if (d.Lines.Count == 0)
+                {
+                    <tr><td colspan="6" class="muted">@L("Расходов пока нет — добавьте чеки и другие документы.")</td></tr>
+                }
+                @foreach (var l in d.Lines)
+                {
+                    <tr>
+                        <td>@l.DocumentDate.ToString("dd.MM.yyyy")</td><td>@l.Document</td><td>@l.Description</td><td>@l.CashFlowItem</td>
+                        <td class="num">@Amounts.Format(l.Amount)</td>
+                        @if (d.CanEdit)
+                        {
+                            <td><ConfirmButton Class="secondary" Disabled="_busy" OnConfirm="() => RemoveAsync(l)">@L("Удалить")</ConfirmButton></td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if (d.CanEdit && _options is not null)
+    {
+        <form class="inline-form" @onsubmit="AddAsync">
+            <label>@L("Дата документа") <input type="date" @bind="_lineDate" required /></label>
+            <label>@L("Документ") <input @bind="_lineDocument" maxlength="@ExpenseReportLine.DocumentMaxLength" placeholder="@L("Кассовый чек № 12")" required /></label>
+            <label>@L("Описание") <input @bind="_lineDescription" maxlength="@ExpenseReportLine.DescriptionMaxLength" /></label>
+            <label>
+                @L("Статья")
+                <select @bind="_lineItem">
+                    @foreach (var i in _options.ExpenseItems)
+                    {
+                        <option value="@i.Id">@i.Name</option>
+                    }
+                </select>
+            </label>
+            <label>@L("Сумма") <input @bind="_lineAmount" inputmode="decimal" size="12" required /></label>
+            <button type="submit" disabled="@_busy">@L("Добавить")</button>
+        </form>
+        <div class="actions" style="margin-top: 12px">
+            <ConfirmButton Class="" Disabled="_busy || d.Lines.Count == 0" Question="@L("Утвердить отчёт? Строки больше не изменить.")" OnConfirm="ApproveAsync">@L("Утвердить")</ConfirmButton>
+        </div>
+    }
+
+    @if (d.Status != ExpenseReportStatus.Cancelled && CanEdit)
+    {
+        <form class="inline-form" style="margin-top: 12px" @onsubmit="CancelAsync">
+            <label>@L("Причина отмены") <input @bind="_reason" maxlength="@ExpenseReport.ReasonMaxLength" required /></label>
+            <button type="submit" class="danger" disabled="@_busy">@L("Отменить отчёт")</button>
+        </form>
+    }
+}
+
+@code {
+    [Parameter]
+    public long Id { get; set; }
+
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private ExpenseReportDto? _doc;
+    private AccountableOptionsDto? _options;
+    private DateTime _lineDate;
+    private string? _lineDocument;
+    private string? _lineDescription;
+    private string _lineItem = string.Empty;
+    private string? _lineAmount;
+    private string? _reason;
+    private bool _busy;
+    private bool _notFound;
+    private string? _denied;
+    private string? _message;
+    private bool _isError;
+
+    private bool CanEdit => CurrentAccess.Has(Permissions.PriceView) && (CurrentAccess.Has(Permissions.SalesEdit) || CurrentAccess.Has(Permissions.PurchaseEdit));
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+            if (_doc!.CanEdit)
+            {
+                _options = await Accountables.OptionsAsync();
+                _lineItem = _options.ExpenseItems.FirstOrDefault()?.Id.ToString() ?? string.Empty;
+            }
+
+            _lineDate = _doc.Date.ToDateTime(TimeOnly.MinValue);
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+        catch (NotFoundException)
+        {
+            _notFound = true;
+        }
+    }
+
+    private async Task LoadAsync() => _doc = await Accountables.GetReportAsync(Id);
+
+    private Task AddAsync() => RunAsync(async () =>
+    {
+        var amount = Decimals.Parse(_lineAmount, L("Сумма")) ?? throw new BusinessRuleException("expense_report.amount", L("Укажите сумму."));
+        await Accountables.AddLineAsync(Id, DateOnly.FromDateTime(_lineDate), _lineDocument, _lineDescription, amount, long.Parse(_lineItem), _doc!.RowVersion);
+        _lineDocument = null;
+        _lineDescription = null;
+        _lineAmount = null;
+    }, L("Расход добавлен."));
+
+    private Task RemoveAsync(ExpenseReportLineDto l) => RunAsync(() => Accountables.RemoveLineAsync(Id, l.Id, _doc!.RowVersion), L("Строка удалена."));
+
+    private Task ApproveAsync() => RunAsync(() => Accountables.ApproveAsync(Id, _doc!.RowVersion), L("Отчёт утверждён."));
+
+    private Task CancelAsync() => RunAsync(() => Accountables.CancelAsync(Id, _reason, _doc!.RowVersion), L("Отчёт отменён."));
+
+    private async Task RunAsync(Func<Task> action, string success)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _isError = false;
+        try
+        {
+            await action();
+            _message = success;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+            _isError = true;
+        }
+        finally
+        {
+            try
+            {
+                await LoadAsync();
+            }
+            finally
+            {
+                _busy = false;
+            }
+        }
+    }
+}

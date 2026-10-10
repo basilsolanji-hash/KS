@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/KnitErp.Domain/KnitErp.Domain.csproj" />
+    <Project Path="src/KnitErp.Application/KnitErp.Application.csproj" />
+    <Project Path="src/KnitErp.Infrastructure/KnitErp.Infrastructure.csproj" />
+    <Project Path="src/KnitErp.Web/KnitErp.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/KnitErp.UnitTests/KnitErp.UnitTests.csproj" />
+    <Project Path="tests/KnitErp.IntegrationTests/KnitErp.IntegrationTests.csproj" />
+  </Folder>
+</Solution>

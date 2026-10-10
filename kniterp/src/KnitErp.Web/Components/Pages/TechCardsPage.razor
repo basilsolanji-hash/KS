@@ -1,0 +1,184 @@
+@page "/tech-cards"
+@using KnitErp.Application.Production
+@using KnitErp.Domain.Production
+@using KnitErp.Web.Components.Shared
+@inject TechCardService Cards
+@inject NavigationManager Navigation
+
+<PageTitle>@L("Техкарты") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_rows is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <div class="page-head">
+        <h1>@L("Техкарты")</h1>
+        @if (CurrentAccess.Has(Permissions.CatalogEdit) && _products is null)
+        {
+            <button type="button" @onclick="OpenCreateAsync" disabled="@_busy">@L("Новая техкарта")</button>
+        }
+    </div>
+    <p class="muted">
+        @L("Нормы расхода пряжи, фурнитуры и упаковки на изделие. У изделия одна действующая версия; чтобы изменить нормы, создайте новую версию — прежняя уйдёт в архив при вводе новой в действие.")
+    </p>
+
+    @if (_error is not null)
+    {
+        <div class="error" role="alert">@_error</div>
+    }
+
+    @if (_products is not null)
+    {
+        <div class="panel">
+            <h2>@L("Новая техкарта")</h2>
+            @if (_products.Count == 0)
+            {
+                <p class="muted">@L("Нет изделий: техкарта составляется на позицию типа «Готовая продукция» или «Полуфабрикаты». Заведите её в «Номенклатуре».")</p>
+                <button type="button" class="secondary" @onclick="() => _products = null">@L("Закрыть")</button>
+            }
+            else
+            {
+                <form @onsubmit="CreateAsync">
+                    <div class="grid">
+                        <label>
+                            @L("Изделие")
+                            <input list="products" @bind="_productText" placeholder="@L("Код или наименование")" />
+                            <datalist id="products">
+                                @foreach (var p in _products)
+                                {
+                                    <option value="@($"{p.Code} — {p.Name}")">@L(KnitErp.Domain.Catalog.ItemTypes.Name(p.Type))</option>
+                                }
+                            </datalist>
+                        </label>
+                        <label>@L("Нормы на партию, количество изделий") <input @bind="_outputText" inputmode="decimal" /></label>
+                        <label>@L("Комментарий") <input @bind="_comment" maxlength="@TechCard.CommentMaxLength" /></label>
+                    </div>
+                    <div class="actions">
+                        <button type="submit" disabled="@_busy">@L("Создать черновик")</button>
+                        <button type="button" class="secondary" @onclick="() => _products = null">@L("Отмена")</button>
+                    </div>
+                </form>
+            }
+        </div>
+    }
+
+    <form class="inline-form" @onsubmit="ReloadAsync">
+        <label>@L("Поиск") <input @bind="_search" placeholder="@L("Код или наименование изделия")" /></label>
+        <label class="inline"><input type="checkbox" @bind="_archived" /> @L("Показать архив")</label>
+        <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
+    </form>
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>@L("Код")</th><th>@L("Изделие")</th><th class="num">@L("Версия")</th><th class="opt">@L("Партия")</th><th class="opt num">@L("Материалов")</th><th>@L("Статус")</th><th class="opt">@L("Автор")</th></tr></thead>
+            <tbody>
+                @if (_rows.Count == 0)
+                {
+                    <tr><td colspan="7" class="muted">@L("Техкарт пока нет.")</td></tr>
+                }
+                @foreach (var c in _rows)
+                {
+                    <tr>
+                        <td>@c.ItemCode</td>
+                        <td><a href="tech-cards/@c.Id">@c.ItemName</a></td>
+                        <td class="num">@c.Version</td>
+                        <td>@Quantities.Format(c.OutputQuantity) @c.UnitSymbol</td>
+                        <td class="num">@c.LineCount</td>
+                        <td><span class="tag @StatusClass(c.Status)">@L(c.StatusName)</span></td>
+                        <td>@c.CreatedBy</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private IReadOnlyList<TechCardRowDto>? _rows;
+    private IReadOnlyList<ProductOptionDto>? _products;
+    private bool _busy;
+    private string? _denied;
+    private string? _error;
+    private string _search = string.Empty;
+    private bool _archived;
+    private string _productText = string.Empty;
+    private string _outputText = "1";
+    private string? _comment;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private async Task LoadAsync() => _rows = await Cards.ListAsync(_search, _archived);
+
+    private Task ReloadAsync() => RunAsync(LoadAsync);
+
+    private Task OpenCreateAsync() => RunAsync(async () =>
+    {
+        _products = await Cards.ProductsAsync();
+        _productText = string.Empty;
+        _outputText = "1";
+        _comment = null;
+    });
+
+    private Task CreateAsync() => RunAsync(async () =>
+    {
+        var code = _productText.Split(" — ", 2)[0].Trim();
+        var product = _products!.FirstOrDefault(p => string.Equals(p.Code, code, StringComparison.OrdinalIgnoreCase))
+                      ?? throw new BusinessRuleException("techcard.product_unknown", L("Изделие «{0}» не найдено. Выберите из списка.", _productText));
+        if (!Quantities.TryParse(_outputText, out var output))
+        {
+            throw new BusinessRuleException("techcard.output_invalid", L("Укажите количество числом, например 1 или 10."));
+        }
+
+        var id = await Cards.CreateAsync(product.Id, output, _comment);
+        Navigation.NavigateTo($"tech-cards/{id}");
+    });
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await action();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    public static string StatusClass(TechCardStatus status) => status switch
+    {
+        TechCardStatus.Active => "ok",
+        TechCardStatus.Archived => "warn",
+        _ => "",
+    };
+}

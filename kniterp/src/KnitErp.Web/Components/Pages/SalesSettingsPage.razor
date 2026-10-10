@@ -1,0 +1,302 @@
+@page "/sales-settings"
+@using KnitErp.Application.Sales
+@using KnitErp.Domain.Catalog
+@using KnitErp.Domain.Common
+@inject SalesSettingsService Settings
+
+<PageTitle>@L("Настройки заказов") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_fields is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <h1>@(Section switch { "projects" => L("Проекты"), "channels" => L("Каналы продаж"), "fields" => L("Доп. поля заказов"), _ => L("Проекты, каналы продаж и доп. поля заказа") })</h1>
+    <p class="muted">@L("Справочники для деталей заказа покупателя, как в МойСклад. На учёт не влияют. Записи не удаляются — уходят в архив, в старых заказах значения сохраняются.")</p>
+
+    @if (_message is not null)
+    {
+        <div class="@(_isError ? "flash error" : "flash")" role="@(_isError ? "alert" : "status")">@_message</div>
+    }
+
+    @if (Show("projects"))
+    {
+        @if (Section is null) { <h2>@L("Проекты")</h2> }
+        @LookupSection(LookupKind.Project, _projects!, L("Подвязы — поло воротники"))
+    }
+
+    @if (Show("channels"))
+    {
+        @if (Section is null) { <h2 style="margin-top: 20px">@L("Каналы продаж")</h2> }
+        @LookupSection(LookupKind.SalesChannel, _channels!, L("Маркетплейс"))
+    }
+
+    @if (Show("fields"))
+    {
+    @if (Section is null) { <h2 style="margin-top: 20px">@L("Дополнительные поля заказа")</h2> }
+    <p class="muted">@L("Например: «Количество, штук» (число), «Время вязания» (число), «Срок у клиента» (дата), «Срочный» (флажок). Не больше {0} полей.", CustomFieldDefinition.MaxFields)</p>
+    @if (CanEdit)
+    {
+        <form class="inline-form" @onsubmit="CreateFieldAsync">
+            <label>@L("Название") <input @bind="_fieldName" maxlength="@CustomFieldDefinition.NameMaxLength" required placeholder="@L("Время вязания")" /></label>
+            <label>
+                @L("Тип")
+                <select @bind="_fieldType">
+                    @foreach (var t in Enum.GetValues<CustomFieldType>())
+                    {
+                        <option value="@t">@TypeName(t)</option>
+                    }
+                </select>
+            </label>
+            <button type="submit" disabled="@_busy">@L("Добавить поле")</button>
+        </form>
+    }
+    <div class="scroll">
+        <table class="compact">
+            <thead><tr><th>@L("Поле")</th><th>@L("Тип")</th><th class="num">@L("Заполнено")</th>@if (CanEdit) { <th></th> }</tr></thead>
+            <tbody>
+                @if (_fields.Count == 0)
+                {
+                    <tr><td colspan="4" class="muted">@L("Полей пока нет.")</td></tr>
+                }
+                @foreach (var f in _fields)
+                {
+                    <tr class="@(f.IsArchived ? "archived" : null)">
+                        @if (_editFieldId == f.Id)
+                        {
+                            <td><input @bind="_editName" maxlength="@CustomFieldDefinition.NameMaxLength" aria-label="@L("Название")" /></td>
+                            <td>@TypeName(f.Type)</td>
+                            <td class="num">@f.Filled</td>
+                            <td>
+                                <button type="button" @onclick="() => RenameFieldAsync(f)" disabled="@_busy">@L("Сохранить")</button>
+                                <button type="button" class="secondary" @onclick="() => _editFieldId = null">@L("Отмена")</button>
+                            </td>
+                        }
+                        else
+                        {
+                            <td>@f.Name @if (f.IsArchived) { <span class="tag">@L("архив")</span> }</td>
+                            <td>@TypeName(f.Type)</td>
+                            <td class="num">@f.Filled</td>
+                            @if (CanEdit)
+                            {
+                                <td>
+                                    @if (!f.IsArchived)
+                                    {
+                                        <button type="button" class="secondary icon" @onclick="() => MoveFieldAsync(f, -1)" disabled="@_busy" title="@L("Выше")" aria-label="@L("Выше: {0}", f.Name)">↑</button>
+                                        <button type="button" class="secondary icon" @onclick="() => MoveFieldAsync(f, 1)" disabled="@_busy" title="@L("Ниже")" aria-label="@L("Ниже: {0}", f.Name)">↓</button>
+                                        <button type="button" class="secondary" @onclick="() => { _editFieldId = f.Id; _editName = f.Name; }" disabled="@_busy">@L("Изменить")</button>
+                                        <ConfirmButton Class="secondary" OnConfirm="() => ArchiveFieldAsync(f, true)" Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="secondary" @onclick="() => ArchiveFieldAsync(f, false)" disabled="@_busy">@L("Вернуть")</button>
+                                    }
+                                </td>
+                            }
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    }
+}
+
+@code {
+    /// <summary>Отдельный справочник из меню: projects, channels или fields; пусто — все три на одной странице.</summary>
+    [SupplyParameterFromQuery(Name = "section")]
+    public string? Section { get; set; }
+
+    private bool Show(string section) => Section is null || Section == section;
+
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private IReadOnlyList<SalesLookupDto>? _projects;
+    private IReadOnlyList<SalesLookupDto>? _channels;
+    private IReadOnlyList<CustomFieldDto>? _fields;
+    private bool _busy;
+    private string? _denied;
+    private string? _message;
+    private bool _isError;
+    private string? _projectName;
+    private string? _channelName;
+    private string? _fieldName;
+    private CustomFieldType _fieldType = CustomFieldType.Text;
+    private long? _editLookupId;
+    private long? _editFieldId;
+    private string? _editName;
+
+    private bool CanEdit => CurrentAccess.Has(Permissions.SalesEdit);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    /// <summary>Таблица одного справочника (проекты или каналы) с формой добавления.</summary>
+    private RenderFragment LookupSection(LookupKind kind, IReadOnlyList<SalesLookupDto> rows, string placeholder) => __builder =>
+    {
+        @if (CanEdit)
+        {
+            <form class="inline-form" @onsubmit="() => CreateLookupAsync(kind)">
+                <label>@L("Название")
+                    @if (kind == LookupKind.Project)
+                    {
+                        <input @bind="_projectName" maxlength="@Lookup.NameMaxLength" required placeholder="@placeholder" />
+                    }
+                    else
+                    {
+                        <input @bind="_channelName" maxlength="@Lookup.NameMaxLength" required placeholder="@placeholder" />
+                    }
+                </label>
+                <button type="submit" disabled="@_busy">@L("Добавить")</button>
+            </form>
+        }
+        <div class="scroll">
+            <table class="compact">
+                <thead><tr><th>@L("Название")</th><th class="num">@L("Заказов")</th>@if (CanEdit) { <th></th> }</tr></thead>
+                <tbody>
+                    @if (rows.Count == 0)
+                    {
+                        <tr><td colspan="3" class="muted">@L("Записей пока нет.")</td></tr>
+                    }
+                    @foreach (var r in rows)
+                    {
+                        <tr class="@(r.IsArchived ? "archived" : null)">
+                            @if (_editLookupId == r.Id)
+                            {
+                                <td><input @bind="_editName" maxlength="@Lookup.NameMaxLength" aria-label="@L("Название")" /></td>
+                                <td class="num">@r.Orders</td>
+                                <td>
+                                    <button type="button" @onclick="() => RenameLookupAsync(r)" disabled="@_busy">@L("Сохранить")</button>
+                                    <button type="button" class="secondary" @onclick="() => _editLookupId = null">@L("Отмена")</button>
+                                </td>
+                            }
+                            else
+                            {
+                                <td>@r.Name @if (r.IsArchived) { <span class="tag">@L("архив")</span> }</td>
+                                <td class="num">@r.Orders</td>
+                                @if (CanEdit)
+                                {
+                                    <td>
+                                        @if (!r.IsArchived)
+                                        {
+                                            <button type="button" class="secondary" @onclick="() => { _editLookupId = r.Id; _editName = r.Name; }" disabled="@_busy">@L("Изменить")</button>
+                                            <ConfirmButton Class="secondary" OnConfirm="() => ArchiveLookupAsync(r, true)" Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
+                                        }
+                                        else
+                                        {
+                                            <button type="button" class="secondary" @onclick="() => ArchiveLookupAsync(r, false)" disabled="@_busy">@L("Вернуть")</button>
+                                        }
+                                    </td>
+                                }
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    };
+
+    private string TypeName(CustomFieldType type) => type switch
+    {
+        CustomFieldType.Number => L("Число"),
+        CustomFieldType.Date => L("Дата"),
+        CustomFieldType.Flag => L("Флажок"),
+        _ => L("Текст"),
+    };
+
+    private async Task LoadAsync()
+    {
+        _projects = await Settings.LookupsAsync(LookupKind.Project, includeArchived: true);
+        _channels = await Settings.LookupsAsync(LookupKind.SalesChannel, includeArchived: true);
+        _fields = await Settings.FieldsAsync(includeArchived: true);
+    }
+
+    private Task CreateLookupAsync(LookupKind kind) => RunAsync(async () =>
+    {
+        if (kind == LookupKind.Project)
+        {
+            await Settings.CreateLookupAsync(kind, _projectName);
+            _projectName = null;
+        }
+        else
+        {
+            await Settings.CreateLookupAsync(kind, _channelName);
+            _channelName = null;
+        }
+    }, L("Добавлено."));
+
+    private Task RenameLookupAsync(SalesLookupDto r) => RunAsync(async () =>
+    {
+        await Settings.RenameLookupAsync(r.Id, _editName, r.RowVersion);
+        _editLookupId = null;
+    }, L("Сохранено."));
+
+    private Task ArchiveLookupAsync(SalesLookupDto r, bool archived) => RunAsync(() => Settings.SetLookupArchivedAsync(r.Id, archived, r.RowVersion),
+        archived ? L("«{0}» в архиве.", r.Name) : L("«{0}» снова действует.", r.Name));
+
+    private Task CreateFieldAsync() => RunAsync(async () =>
+    {
+        await Settings.CreateFieldAsync(_fieldName, _fieldType);
+        _fieldName = null;
+    }, L("Поле добавлено."));
+
+    private Task RenameFieldAsync(CustomFieldDto f) => RunAsync(async () =>
+    {
+        await Settings.RenameFieldAsync(f.Id, _editName, f.RowVersion);
+        _editFieldId = null;
+    }, L("Сохранено."));
+
+    private Task MoveFieldAsync(CustomFieldDto f, int delta) => RunAsync(() => Settings.MoveFieldAsync(f.Id, delta), null);
+
+    private Task ArchiveFieldAsync(CustomFieldDto f, bool archived) => RunAsync(() => Settings.SetFieldArchivedAsync(f.Id, archived, f.RowVersion),
+        archived ? L("«{0}» в архиве.", f.Name) : L("«{0}» снова действует.", f.Name));
+
+    /// <summary>Одна операция за раз, затем свежие списки: у вкладки один DbContext.</summary>
+    private async Task RunAsync(Func<Task> action, string? success)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _isError = false;
+        try
+        {
+            await action();
+            _message = success;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+            _isError = true;
+        }
+        finally
+        {
+            try
+            {
+                await LoadAsync();
+            }
+            finally
+            {
+                _busy = false;
+            }
+        }
+    }
+}

@@ -1,0 +1,128 @@
+@page "/print/expense-report/{Id:long}"
+@layout KnitErp.Web.Components.Layout.PrintLayout
+@using System.Globalization
+@using KnitErp.Application.Finance
+@using KnitErp.Domain.Finance
+@inject AccountableService Accountables
+
+@*
+    Авансовый отчёт, форма АО-1 (ОКУД 0302001, постановление Госкомстата России от 01.08.2001 № 55): лицевая сторона — расчёт
+    с подотчётным лицом, оборотная — перечень оправдательных документов. Корреспонденцию счетов заполняет бухгалтер.
+    Печатается по-русски (D68).
+*@
+<PageTitle>@(_doc is null ? "Авансовый отчёт" : $"Авансовый отчёт {_doc.Number}") — knitERP</PageTitle>
+<style>@@media print { @@page { size: A4 portrait; margin: 10mm; } .ao-front { page-break-after: always; } }</style>
+
+<div class="print-bar">
+    <button type="button" data-print>@L("Печать")</button>
+    <a href="expense-reports/@Id">@L("← Назад")</a>
+</div>
+
+@if (_error is not null)
+{
+    <div class="sheet portrait"><p>@_error</p></div>
+}
+else if (_doc is null)
+{
+    <div class="sheet portrait"><p>@L("Загрузка…")</p></div>
+}
+else
+{
+    var d = _doc;
+    <div class="sheet portrait ao-front">
+        @if (d.Status == ExpenseReportStatus.Cancelled)
+        {
+            <div class="stamp">ОТЧЁТ ОТМЕНЁН</div>
+        }
+        else if (d.Status == ExpenseReportStatus.Draft)
+        {
+            <div class="stamp">ЧЕРНОВИК</div>
+        }
+        <div class="small" style="text-align: right">
+            Унифицированная форма № АО-1<br />
+            Утверждена постановлением Госкомстата России от 01.08.2001 № 55
+        </div>
+        <table class="plain">
+            <tr><td><b>@d.LegalEntityFull</b>@(d.Inn is null ? "" : $", ИНН {d.Inn}")<div class="small">организация</div></td>
+                <td style="width: 120px; text-align: right">Форма по ОКУД</td><td class="code">0302001</td></tr>
+        </table>
+        <table style="width: auto; margin: 10px auto">
+            <tr><th>Номер документа</th><th>Дата составления</th></tr>
+            <tr><td class="c">@d.Number</td><td class="c">@d.Date.ToString("dd.MM.yyyy")</td></tr>
+        </table>
+        <h1 style="text-align: center; border: 0">АВАНСОВЫЙ ОТЧЁТ</h1>
+        <table class="plain">
+            <tr><td style="width: 180px">Подотчётное лицо</td><td class="fill">@d.Employee</td><td style="width: 120px; text-align: right">Табельный номер</td><td class="code">@d.PersonnelNumber</td></tr>
+            <tr><td>Профессия (должность)</td><td class="fill">@d.Position</td><td></td><td></td></tr>
+            <tr><td>Назначение аванса</td><td class="fill" colspan="3">@d.Purpose</td></tr>
+        </table>
+
+        <table style="margin-top: 10px">
+            <tr><th>Наименование показателя</th><th>Сумма, руб. коп.</th></tr>
+            <tr><td>Задолженность подотчётного лица до отчёта (выдано под отчёт за вычетом возвратов и прежних отчётов)</td><td class="n">@Money(Math.Max(d.DebtBefore, 0))</td></tr>
+            <tr><td>Перерасход по прежним отчётам (долг организации)</td><td class="n">@(d.DebtBefore < 0 ? Money(-d.DebtBefore) : "")</td></tr>
+            <tr><td><b>Израсходовано</b></td><td class="n"><b>@Money(d.Total)</b></td></tr>
+            <tr><td>Остаток (к возврату в кассу)</td><td class="n">@(d.DebtAfter > 0 ? Money(d.DebtAfter) : "")</td></tr>
+            <tr><td>Перерасход (к выдаче подотчётному лицу)</td><td class="n">@(d.DebtAfter < 0 ? Money(-d.DebtAfter) : "")</td></tr>
+        </table>
+
+        <p style="margin-top: 10px">Приложение: документов — <b>@d.Lines.Count</b> на ______ листах.</p>
+        <p>Отчёт проверен. К утверждению в сумме <b>@Money(d.Total)</b> (@AmountInWords.Format(d.Total, "RUB")).</p>
+        <div class="sign">
+            <div>Главный бухгалтер <span class="line"></span> @(d.AccountantName ?? d.DirectorName)</div>
+            <div>Бухгалтер <span class="line"></span> <span class="line"></span></div>
+        </div>
+        <p style="margin-top: 14px">Утвердить отчёт в сумме <b>@Money(d.Total)</b>.</p>
+        <div class="sign">
+            <div>Руководитель <span class="line"></span> @d.DirectorName</div>
+            <div>Подотчётное лицо <span class="line"></span> @d.Employee</div>
+        </div>
+    </div>
+
+    <div class="sheet portrait">
+        <p style="text-align: center"><b>Оборотная сторона формы № АО-1</b></p>
+        <table>
+            <tr>
+                <th rowspan="2">Номер по порядку</th><th colspan="2">Документ, подтверждающий производственные расходы</th>
+                <th rowspan="2">Наименование документа (расхода)</th><th colspan="2">Сумма расхода, руб. коп.</th><th rowspan="2">Дебет счёта, субсчёта</th>
+            </tr>
+            <tr><th>дата</th><th>номер</th><th>по отчёту</th><th>принятая к учёту</th></tr>
+            @for (var i = 0; i < d.Lines.Count; i++)
+            {
+                var l = d.Lines[i];
+                <tr>
+                    <td class="c">@(i + 1)</td><td>@l.DocumentDate.ToString("dd.MM.yyyy")</td><td>@l.Document</td>
+                    <td>@(l.Description ?? l.CashFlowItem)</td><td class="n">@Money(l.Amount)</td><td class="n">@(d.Status == ExpenseReportStatus.Approved ? Money(l.Amount) : "")</td><td></td>
+                </tr>
+            }
+            <tr><td colspan="4"><b>Итого</b></td><td class="n"><b>@Money(d.Total)</b></td><td class="n">@(d.Status == ExpenseReportStatus.Approved ? Money(d.Total) : "")</td><td></td></tr>
+        </table>
+        <div class="sign">
+            <div>Подотчётное лицо <span class="line"></span> @d.Employee</div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public long Id { get; set; }
+
+    private ExpenseReportDto? _doc;
+    private string? _error;
+
+    private static readonly CultureInfo Ru = CultureInfo.GetCultureInfo("ru-RU");
+
+    private static string Money(decimal value) => value.ToString("N2", Ru);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            _doc = await Accountables.GetReportAsync(Id);
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+    }
+}

@@ -1,0 +1,137 @@
+@page "/print/invoice/{Id:long}"
+@layout KnitErp.Web.Components.Layout.PrintLayout
+@using System.Globalization
+@using KnitErp.Application.Printing
+@inject PrintService Print
+
+@* Счёт на оплату — российская форма, печатается по-русски (D68). *@
+<PageTitle>@(_doc is null ? "Счёт" : $"Счёт {_doc.Number}") — knitERP</PageTitle>
+<style>@@media print { @@page { size: A4 portrait; margin: 12mm; } }</style>
+
+<div class="print-bar">
+    <button type="button" data-print>@L("Печать")</button>
+    <a href="@(_doc is null ? "customer-invoices" : $"customer-invoices/{Id}")">@L("← К счёту")</a>
+    @if (_doc is not null && (_doc.Requisites.BankAccount is null || _doc.Requisites.BankBic is null))
+    {
+        <span class="warn">@L("Не заполнены банковские реквизиты — раздел «Организация», «Реквизиты для печати».")</span>
+    }
+</div>
+
+@if (_error is not null)
+{
+    <div class="sheet portrait"><p>@_error</p></div>
+}
+else if (_doc is null)
+{
+    <div class="sheet portrait"><p>@L("Загрузка…")</p></div>
+}
+else
+{
+    var r = _doc.Requisites;
+    <div class="sheet portrait">
+        @if (_doc.Cancelled)
+        {
+            <div class="stamp">СЧЁТ ОТМЕНЁН</div>
+        }
+        <table>
+            <tr>
+                <td colspan="2" rowspan="2" style="width: 60%">@(r.BankName ?? "—")<div class="small">Банк получателя</div></td>
+                <td style="width: 10%">БИК</td>
+                <td style="border-bottom: 0">@r.BankBic</td>
+            </tr>
+            <tr>
+                <td>Сч. №</td>
+                <td style="border-top: 0">@r.BankCorrAccount</td>
+            </tr>
+            <tr>
+                <td>ИНН @_doc.Seller.Inn</td>
+                <td>КПП @_doc.Seller.Kpp</td>
+                <td rowspan="2">Сч. №</td>
+                <td rowspan="2">@r.BankAccount</td>
+            </tr>
+            <tr>
+                <td colspan="2">@_doc.Seller.Name<div class="small">Получатель</div></td>
+            </tr>
+        </table>
+
+        <h1>Счёт на оплату № @_doc.Number от @Date(_doc.Date)</h1>
+
+        <table class="plain">
+            <tr><td style="width: 140px">Поставщик<br />(Исполнитель):</td><td><b>@Party(_doc.Seller)</b></td></tr>
+            <tr><td>Покупатель<br />(Заказчик):</td><td><b>@Party(_doc.Buyer)</b></td></tr>
+            <tr><td>Основание:</td><td><b>@_doc.Basis</b></td></tr>
+        </table>
+
+        <table style="margin-top: 8px">
+            <thead>
+                <tr><th>№</th><th>Товары (работы, услуги)</th><th>Кол-во</th><th>Ед.</th><th>Цена</th><th>НДС</th><th>Сумма</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var l in _doc.Lines)
+                {
+                    <tr>
+                        <td class="c">@l.No</td>
+                        <td>@l.Name</td>
+                        <td class="n">@Quantities.Format(l.Quantity)</td>
+                        <td>@l.UnitSymbol</td>
+                        <td class="n">@Amounts.Format(l.Price)</td>
+                        <td class="c">@Amounts.Vat(l.VatPercent)</td>
+                        <td class="n">@Amounts.Format(_doc.PricesIncludeVat ? l.Amount : l.AmountWithoutVat)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <table class="totals-print">
+            <tr><td>Итого:</td><td class="n">@Amounts.Format(_doc.PricesIncludeVat ? _doc.Total : _doc.Total - _doc.VatTotal)</td></tr>
+            <tr><td>@(_doc.PricesIncludeVat ? "В том числе НДС:" : "НДС:")</td><td class="n">@(_doc.VatTotal == 0 ? (r.VatExempt ? "Без налога (НДС)" : "Без НДС") : Amounts.Format(_doc.VatTotal))</td></tr>
+            <tr><td>Всего к оплате:</td><td class="n">@Amounts.Format(_doc.Total)</td></tr>
+        </table>
+
+        <p>Всего наименований @_doc.Lines.Count, на сумму @Amounts.Format(_doc.Total) @_doc.CurrencyCode</p>
+        <p class="words">@_doc.TotalInWords</p>
+        @if (_doc.DueDate is { } due)
+        {
+            <p>Оплатить не позднее @due.ToString("dd.MM.yyyy").</p>
+        }
+
+        <div class="sign">
+            @if (r.SoleProprietor)
+            {
+                <div>Индивидуальный предприниматель <span class="line"></span> @r.DirectorName</div>
+            }
+            else
+            {
+                <div>Руководитель <span class="line"></span> @r.DirectorName</div>
+                <div>Бухгалтер <span class="line"></span> @(r.AccountantName ?? r.DirectorName)</div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public long Id { get; set; }
+
+    private InvoicePrintDto? _doc;
+    private string? _error;
+
+    private static readonly CultureInfo Ru = CultureInfo.GetCultureInfo("ru-RU");
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            _doc = await Print.InvoiceAsync(Id);
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+    }
+
+    public static string Date(DateOnly d) => d.ToString("d MMMM yyyy", Ru) + " г.";
+
+    public static string Party(PrintPartyDto p) =>
+        string.Join(", ", new[] { p.Name, p.Inn is null ? null : $"ИНН {p.Inn}", p.Kpp is null ? null : $"КПП {p.Kpp}", p.Address }.Where(x => x is not null));
+}

@@ -1,0 +1,472 @@
+@page "/catalog"
+@using KnitErp.Application.Catalog
+@using KnitErp.Domain.Catalog
+@using KnitErp.Web.Components.Shared
+@inject CatalogService Catalog
+@inject ItemExchangeService Exchange
+@inject VatRateService VatRates
+@inject NomenclatureService Nomenclature
+
+<PageTitle>@L("Номенклатура") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_list is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <div class="page-head">
+        <h1>@L("Номенклатура")</h1>
+        <div class="actions">
+            <a class="button secondary" href="catalog/settings">@L("Группы, цены, доп. поля, справочники")</a>
+            @if (_list.CanEdit && _mode == Mode.None)
+            {
+                <button type="button" @onclick="OpenCreate" disabled="@_busy">@L("Добавить позицию")</button>
+            }
+        </div>
+    </div>
+
+    @if (_flash is not null)
+    {
+        <div class="@(_flashIsError ? "flash error" : "flash")" role="@(_flashIsError ? "alert" : "status")"><span>@_flash</span><button type="button" class="link" aria-label="@L("Закрыть сообщение")" @onclick="() => _flash = null">×</button></div>
+    }
+
+    @if (_mode is Mode.Create or Mode.Edit)
+    {
+        <div class="panel">
+            <h2>@(_mode == Mode.Create ? L("Новая позиция") : L("Позиция {0}", _target!.Code))</h2>
+            <EditForm Model="_form" OnValidSubmit="SaveItemAsync" FormName="item">
+                <div class="grid">
+                    <label>@L("Код (артикул)") <InputText @bind-Value="_form.Code" maxlength="40" required /></label>
+                    <label>@L("Наименование") <InputText @bind-Value="_form.Name" maxlength="300" required /></label>
+                    <label>
+                        @L("Тип")
+                        <InputSelect @bind-Value="_form.Type">
+                            @foreach (var t in ItemTypes.All)
+                            {
+                                <option value="@t">@L(ItemTypes.Name(t))</option>
+                            }
+                        </InputSelect>
+                    </label>
+                    <label>
+                        @L("Единица")
+                        <InputSelect @bind-Value="_form.UnitId">
+                            <option value="0">@L("— выберите —")</option>
+                            @foreach (var u in _units.Where(u => !u.IsArchived))
+                            {
+                                <option value="@u.Id">@u.Name (@u.Symbol)</option>
+                            }
+                        </InputSelect>
+                    </label>
+                    <label>
+                        @L("Ставка НДС")
+                        <InputSelect @bind-Value="_form.VatRateId">
+                            <option value="">@L("не указана")</option>
+                            @foreach (var r in _vatRates)
+                            {
+                                <option value="@r.Id">@L(r.Name) — @L(r.CurrentText)</option>
+                            }
+                        </InputSelect>
+                    </label>
+                    <label>@L("Описание") <InputText @bind-Value="_form.Description" maxlength="1000" placeholder="@L("Состав, цвет, размер…")" /></label>
+                    @if (_mode == Mode.Create && _groups.Count > 0)
+                    {
+                        <label>
+                            @L("Группа")
+                            <InputSelect @bind-Value="_form.GroupId">
+                                <option value="">@L("без группы")</option>
+                                @foreach (var g in _groups)
+                                {
+                                    <option value="@g.Id">@g.Path</option>
+                                }
+                            </InputSelect>
+                        </label>
+                    }
+                </div>
+                @if (_formError is not null)
+                {
+                    <div class="error" role="alert">@_formError</div>
+                }
+                <div class="actions">
+                    <button type="submit" disabled="@_busy">@L("Сохранить")</button>
+                    <button type="button" class="secondary" @onclick="Close" disabled="@_busy">@L("Отмена")</button>
+                </div>
+            </EditForm>
+        </div>
+    }
+
+    <div class="actions" style="margin-bottom: 12px">
+        <button type="button" class="secondary" @onclick="() => _showExchange = !_showExchange" aria-expanded="@(_showExchange ? "true" : "false")">
+            @L("Excel: выгрузка и загрузка") @(_showExchange ? "▲" : "▼")
+        </button>
+    </div>
+    @if (_showExchange)
+    {
+    <div class="panel exchange">
+        <div class="actions">
+            <a class="button secondary" href="catalog/items.xlsx" download data-enhance-nav="false">@L("Выгрузить номенклатуру")</a>
+            @if (CurrentAccess.Has(Permissions.CatalogImport))
+            {
+                <a class="button secondary" href="catalog/items-template.xlsx" download data-enhance-nav="false">@L("Скачать шаблон")</a>
+            }
+        </div>
+        @if (CurrentAccess.Has(Permissions.CatalogImport))
+        {
+            <p class="muted">
+                @L("Загрузка создаёт новые позиции и обновляет существующие по коду.")
+                @L("Сначала файл проверяется целиком; если в нём есть ошибки, не загружается ничего.")
+                @L("До {0} строк, файл до 5 МБ.", ItemExchangeService.MaxRows)
+            </p>
+            <label>@L("Файл .xlsx") <InputFile OnChange="PreviewImportAsync" accept=".xlsx" disabled="@_busy" /></label>
+        }
+
+        @if (_plan is not null)
+        {
+            <div class="totals" role="status">
+                <span>@L("Строк:") <b>@_plan.Total</b></span>
+                <span>@L("Создать:") <b>@_plan.ToCreate</b></span>
+                <span>@L("Обновить:") <b>@_plan.ToUpdate</b></span>
+                <span>@L("Без изменений:") <b>@_plan.Unchanged</b></span>
+                <span class="@(_plan.ErrorRows > 0 ? "bad" : null)">@L("С ошибками:") <b>@_plan.ErrorRows</b></span>
+            </div>
+            @if (_plan.ErrorRows > 0)
+            {
+                <div class="error" role="alert">@L("В файле есть ошибки — ничего не будет загружено. Исправьте строки ниже и загрузите файл снова.")</div>
+            }
+            <div class="scroll" style="max-height: 360px; overflow-y: auto">
+                <table>
+                    <thead><tr><th>@L("Строка")</th><th>@L("Код")</th><th>@L("Наименование")</th><th>@L("Действие")</th><th>@L("Ошибки")</th></tr></thead>
+                    <tbody>
+                        @foreach (var r in _plan.Rows.OrderBy(r => r.Action == ImportAction.Error ? 0 : 1).ThenBy(r => r.RowNumber).Take(500))
+                        {
+                            <tr>
+                                <td>@r.RowNumber</td>
+                                <td>@r.Code</td>
+                                <td>@r.Name</td>
+                                <td><span class="tag @ActionClass(r.Action)">@ActionText(r.Action)</span></td>
+                                <td>@string.Join(" ", r.Errors)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div class="actions">
+                @if (_plan.CanApply)
+                {
+                    <button type="button" @onclick="ApplyImportAsync" disabled="@_busy">@L("Загрузить: создать {0}, обновить {1}", _plan.ToCreate, _plan.ToUpdate)</button>
+                }
+                <button type="button" class="secondary" @onclick="() => _plan = null" disabled="@_busy">@L("Закрыть протокол")</button>
+            </div>
+        }
+    </div>
+    }
+
+    <div class="catalog-layout">
+    <nav class="group-tree" aria-label="@L("Группы номенклатуры")">
+        <button type="button" class="@(_groupId is null ? "link active" : "link")" @onclick="() => SelectGroupAsync(null)">@L("Все позиции")</button>
+        @foreach (var g in _groups)
+        {
+            var group = g;
+            <button type="button" class="@(_groupId == g.Id ? "link active" : "link")" style="padding-left: @(8 + g.Depth * 14)px"
+                    @onclick="() => SelectGroupAsync(group.Id)">📁 @g.Name <span class="muted">@(g.Items > 0 ? g.Items.ToString() : "")</span></button>
+        }
+        @if (_groups.Count > 0)
+        {
+            <button type="button" class="@(_groupId == 0 ? "link active" : "link")" @onclick="() => SelectGroupAsync(0)">@L("Без группы")</button>
+        }
+    </nav>
+    <div>
+    <form class="inline-form" @onsubmit="ReloadAsync">
+        <label>
+            @L("Тип")
+            <select @bind="_typeFilter">
+                <option value="">@L("Все типы")</option>
+                @foreach (var t in ItemTypes.All)
+                {
+                    <option value="@((byte)t)">@L(ItemTypes.Name(t))</option>
+                }
+            </select>
+        </label>
+        <label>@L("Поиск") <input @bind="_search" placeholder="@L("Код, наименование, артикул или штрихкод")" /></label>
+        <label class="inline"><input type="checkbox" @bind="_includeArchived" /> @L("Показать архив")</label>
+        <button type="submit" class="secondary" disabled="@_busy">@L("Найти")</button>
+    </form>
+
+    <div class="scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th>@L("Код")</th><th>@L("Наименование")</th><th class="opt">@L("Артикул")</th><th class="opt">@L("Тип")</th><th>@L("Ед.")</th><th class="opt">@L("НДС")</th>
+                    @if (CurrentAccess.Has(Permissions.PriceView))
+                    {
+                        <th class="num">@L("Цена продажи")</th>
+                    }
+                    @if (_list.CanEdit || _list.CanArchive)
+                    {
+                        <th>@L("Действия")</th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @if (_list.Items.Count == 0)
+                {
+                    <tr><td colspan="9" class="muted">@L("Позиций не найдено.")</td></tr>
+                }
+                @foreach (var i in _list.Items)
+                {
+                    <tr class="@(i.IsArchived ? "archived" : null)">
+                        <td>@i.Code</td>
+                        <td>@if (i.PhotoId is { } photo) { <img class="item-thumb" src="catalog/photos/@photo" alt="" loading="lazy" /> }@if (i.ParentItemId is not null) { <span class="variant-of" title="@L("Модификация")">↳ </span> }<a href="catalog/items/@i.Id">@i.Name</a> @if (i.Modifications > 0) { <span class="tag">@L("модификаций: {0}", i.Modifications)</span> } @if (i.IsArchived) { <span class="tag">@L("архив")</span> }@if (i.Description is not null) { <div class="muted">@i.Description</div> }</td>
+                        <td>@(i.Article ?? "—")</td>
+                        <td>@L(i.TypeName)</td>
+                        <td>@i.UnitSymbol</td>
+                        <td>@(i.VatRateName is { } vat ? L(vat) : "—")</td>
+                        @if (CurrentAccess.Has(Permissions.PriceView))
+                        {
+                            <td class="num">@(i.SalePrice is { } sp ? Amounts.Format(sp) : "—")</td>
+                        }
+                        @if (_list.CanEdit || _list.CanArchive)
+                        {
+                            <td>
+                                <div class="row-actions">
+                                    @if (!i.IsArchived && _list.CanEdit)
+                                    {
+                                        <button type="button" class="secondary" @onclick="() => OpenEdit(i)" disabled="@(_busy || _mode != Mode.None)">@L("Изменить")</button>
+                                    }
+                                    @if (_list.CanArchive)
+                                    {
+                                        @if (i.IsArchived)
+                                        {
+                                            <button type="button" class="secondary" @onclick="() => RestoreItemAsync(i)" disabled="@_busy">@L("Вернуть")</button>
+                                        }
+                                        else
+                                        {
+                                            <ConfirmButton Class="secondary" OnConfirm="() => ArchiveItemAsync(i)" Disabled="@(_busy || _mode != Mode.None)" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
+                                        }
+                                    }
+                                </div>
+                            </td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    @if (_list.Total > _list.Items.Count)
+    {
+        <p class="muted">@L("Показано {0} из {1}. Уточните поиск или тип.", _list.Items.Count, _list.Total)</p>
+    }
+    </div>
+    </div>
+
+}
+
+@code {
+    private enum Mode { None, Create, Edit }
+
+    private ItemListDto? _list;
+    private IReadOnlyList<UnitDto> _units = [];
+    private IReadOnlyList<VatRateDto> _vatRates = [];
+    private ItemForm _form = new();
+    private ItemDto? _target;
+    private Mode _mode;
+    private bool _busy;
+    private string? _denied;
+    private string? _formError;
+    private string? _flash;
+    private ItemImportPlan? _plan;
+    private bool _showExchange;
+
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+    private bool _flashIsError;
+    private string _typeFilter = string.Empty;
+    private string _search = string.Empty;
+    private bool _includeArchived;
+    private long? _groupId;
+    private IReadOnlyList<ItemGroupDto> _groups = [];
+
+    /// <summary>Поиск из ссылки (быстрый поиск панели): /stock?search=ПР-1.</summary>
+    [SupplyParameterFromQuery(Name = "search")]
+    public string? SearchQuery { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _search = SearchQuery ?? _search;
+        try
+        {
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        ItemType? type = byte.TryParse(_typeFilter, out var t) ? (ItemType)t : null;
+        _list = await Catalog.ListItemsAsync(new ItemFilter(type, _search, _includeArchived, GroupId: _groupId));
+        _groups = await Nomenclature.GroupsAsync();
+        _units = await Catalog.ListUnitsAsync(_includeArchived);
+        _vatRates = await VatRates.ActiveAsync();
+    }
+
+    private Task ReloadAsync() => RunAsync(() => Task.CompletedTask, null);
+
+    /// <summary>Группа слева — фильтр списка (с подгруппами); null — все, 0 — без группы.</summary>
+    private Task SelectGroupAsync(long? groupId)
+    {
+        _groupId = groupId;
+        return ReloadAsync();
+    }
+
+    private void OpenCreate()
+    {
+        _flash = null;
+        _flashIsError = false;
+        _formError = null;
+        _target = null;
+        _form = new ItemForm
+        {
+            UnitId = _units.FirstOrDefault(u => u.Code == "796")?.Id ?? 0,
+            VatRateId = _vatRates.FirstOrDefault(r => r.Kind == KnitErp.Domain.Catalog.VatRateKind.Standard)?.Id,
+            GroupId = _groupId is > 0 ? _groupId : null,
+        };
+        _mode = Mode.Create;
+    }
+
+    private void OpenEdit(ItemDto i)
+    {
+        _flash = null;
+        _flashIsError = false;
+        _formError = null;
+        _target = i;
+        _form = new ItemForm { Code = i.Code, Name = i.Name, Type = i.Type, UnitId = i.UnitId, Description = i.Description, VatRateId = i.VatRateId };
+        _mode = Mode.Edit;
+    }
+
+    private void Close()
+    {
+        _mode = Mode.None;
+        _target = null;
+        _formError = null;
+    }
+
+    private Task SaveItemAsync() => RunAsync(async () =>
+    {
+        var cmd = new ItemCommand(_form.Code, _form.Name, _form.Type, _form.UnitId, _form.Description, _form.VatRateId, _form.GroupId);
+        if (_mode == Mode.Create)
+        {
+            await Catalog.CreateItemAsync(cmd);
+        }
+        else
+        {
+            await Catalog.UpdateItemAsync(_target!.Id, cmd, _target.RowVersion);
+        }
+
+        Close();
+    }, L("Позиция сохранена."));
+
+    private Task ArchiveItemAsync(ItemDto i) => RunAsync(() => Catalog.ArchiveItemAsync(i.Id, i.RowVersion), L("Позиция «{0}» в архиве.", i.Name));
+
+    private Task RestoreItemAsync(ItemDto i) =>
+        RunAsync(() => Catalog.RestoreItemAsync(i.Id, i.RowVersion), L("Позиция «{0}» возвращена из архива.", i.Name));
+
+
+    /// <summary>Файл читается в память целиком (до 5 МБ) и проверяется; в базе ничего не меняется.</summary>
+    private Task PreviewImportAsync(InputFileChangeEventArgs e) => RunAsync(async () =>
+    {
+        _plan = null;
+        const long maxSize = 5 * 1024 * 1024;
+        if (e.File.Size > maxSize)
+        {
+            throw new BusinessRuleException("import.file_too_large", L("Файл больше 5 МБ. Разбейте его на части."));
+        }
+
+        await using var upload = e.File.OpenReadStream(maxAllowedSize: maxSize);
+        using var buffer = new MemoryStream();
+        await upload.CopyToAsync(buffer);
+        buffer.Position = 0;
+        _plan = await Exchange.PreviewAsync(buffer);
+    }, null);
+
+    private Task ApplyImportAsync() => RunAsync(async () =>
+    {
+        var result = await Exchange.ApplyAsync(_plan!.Rows);
+        _plan = null;
+        _flash = L("Загружено: создано {0}, обновлено {1}.", result.Created, result.Updated);
+    }, null);
+
+    private static string ActionText(ImportAction a) => a switch
+    {
+        ImportAction.Create => L("создать"),
+        ImportAction.Update => L("обновить"),
+        ImportAction.Unchanged => L("без изменений"),
+        _ => L("ошибка"),
+    };
+
+    private static string? ActionClass(ImportAction a) => a switch
+    {
+        ImportAction.Create or ImportAction.Update => "ok",
+        ImportAction.Error => "bad",
+        _ => null,
+    };
+
+    /// <summary>Одна операция за раз, затем свежие данные: у вкладки один DbContext.</summary>
+    private async Task RunAsync(Func<Task> action, string? success)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _flash = null;
+        _flashIsError = false;
+        _formError = null;
+        try
+        {
+            await action();
+            _flash = success ?? _flash;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            if (_mode == Mode.None)
+            {
+                _flash = UiErrors.Message(ex);
+                _flashIsError = true;
+            }
+            else
+            {
+                _formError = UiErrors.Message(ex);
+            }
+        }
+        finally
+        {
+            try
+            {
+                await LoadAsync();
+            }
+            finally
+            {
+                _busy = false;
+            }
+        }
+    }
+
+    private sealed class ItemForm
+    {
+        public string Code { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public ItemType Type { get; set; } = ItemType.RawMaterial;
+        public long UnitId { get; set; }
+        public string? Description { get; set; }
+        public long? VatRateId { get; set; }
+        public long? GroupId { get; set; }
+    }
+}

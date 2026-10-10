@@ -1,0 +1,96 @@
+@inject NotificationService Notifications
+
+@if (_error is not null)
+{
+    <div class="error" role="alert">@_error</div>
+}
+
+@if (_items is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else if (_items.Count == 0)
+{
+    <p class="muted">@L("Новых уведомлений нет.")</p>
+}
+else
+{
+    <ul class="plain notice-list">
+        @foreach (var n in _items)
+        {
+            <li class="notice @n.Level.ToString().ToLowerInvariant()" @key="n.Key">
+                <button type="button" class="link" @onclick="() => OpenAsync(n)">@n.Text</button>
+                <button type="button" class="icon dismiss" @onclick="() => RunAsync(() => Notifications.DismissAsync(n.Key))" disabled="@_busy"
+                        title="@L("Убрать")" aria-label="@L("Убрать уведомление: {0}", n.Text)">✕</button>
+            </li>
+        }
+    </ul>
+}
+<div class="actions">
+    <button type="button" class="secondary" @onclick="() => RunAsync(() => Task.CompletedTask)" disabled="@_busy">@L("Обновить")</button>
+    @if (_items is { Count: > 0 })
+    {
+        <button type="button" class="secondary" @onclick="() => RunAsync(() => Notifications.DismissAllAsync())" disabled="@_busy">@L("Очистить все")</button>
+    }
+    @if (_hidden > 0)
+    {
+        <button type="button" class="secondary" @onclick="() => RunAsync(() => Notifications.RestoreAsync())" disabled="@_busy">@L("Показать скрытые ({0})", _hidden)</button>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public ToolContext Context { get; set; } = default!;
+
+    [Parameter]
+    public bool Active { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnCount { get; set; }
+
+    private IReadOnlyList<NotificationDto>? _items;
+    private int _hidden;
+    private string? _error;
+    private bool _busy;
+    private bool _wasActive;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Active && !_wasActive)
+        {
+            await RunAsync(() => Task.CompletedTask);
+        }
+
+        _wasActive = Active;
+    }
+
+    /// <summary>Действие, затем свежий список; одна операция за раз.</summary>
+    private async Task RunAsync(Func<Task> action)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await action();
+            var list = await Notifications.ListWithHiddenAsync();
+            (_items, _hidden) = (list.Items, list.Hidden);
+            await OnCount.InvokeAsync(_items.Count);
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private Task OpenAsync(NotificationDto n) =>
+        n.ToolId is { } tool ? Context.OpenTool(tool, null) : Context.Navigate(n.Href ?? "");
+}

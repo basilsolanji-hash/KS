@@ -1,0 +1,97 @@
+@page "/integrity"
+@using KnitErp.Application.Security
+@inject IntegrityService Integrity
+
+<PageTitle>@L("Проверка целостности") — knitERP</PageTitle>
+
+<h1>@L("Проверка целостности")</h1>
+<p class="muted">
+    @L("Каждая запись журнала аудита и движений склада подписана с учётом предыдущей. Ключ подписи хранится вне базы, поэтому изменение, удаление или добавление записи в обход программы — даже администратором базы — обнаруживается здесь.")
+</p>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else
+{
+    <button type="button" @onclick="RunAsync" disabled="@_busy">@(_busy ? L("Проверяю…") : L("Проверить сейчас"))</button>
+
+    @if (_error is not null)
+    {
+        <div class="error" role="alert" style="margin-top: 12px">@_error</div>
+    }
+
+    @if (_result is not null)
+    {
+        var ok = _result.All(r => r.Ok);
+        <div class="@(ok ? "flash" : "flash error")" role="status" style="margin-top: 16px">
+            @(ok ? L("Нарушений не найдено: записи не изменялись и не удалялись.") : L("Найдены нарушения — сообщите Владельцу и не исправляйте данные до разбора."))
+        </div>
+        @foreach (var j in _result)
+        {
+            <div class="panel">
+                <h2>@j.Journal <span class="tag @(j.Ok ? "ok" : "bad")">@(j.Ok ? L("в порядке") : L("нарушений: {0}", j.Problems.Count))</span></h2>
+                <dl class="facts">
+                    <dt>@L("Проверено записей")</dt><dd>@j.Checked</dd>
+                    @if (j.Legacy > 0)
+                    {
+                        <dt>@L("До включения подписи")</dt><dd>@j.Legacy @L("(их проверить нельзя)")</dd>
+                    }
+                    <dt>@L("Отпечаток")</dt><dd><code>@(j.Fingerprint ?? "—")</code></dd>
+                </dl>
+                @if (j.Problems.Count > 0)
+                {
+                    <div class="scroll">
+                        <table>
+                            <thead><tr><th>@L("Запись")</th><th>@L("Что не так")</th></tr></thead>
+                            <tbody>
+                                @foreach (var p in j.Problems)
+                                {
+                                    <tr><td>№ @p.RecordId</td><td>@p.Description</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        }
+        <p class="muted">
+            @L("Отпечаток — номер и подпись последней записи. Запишите его после сверки периода: если позже хвост журнала удалят, номер или отпечаток не совпадут с записанным.")
+        </p>
+    }
+}
+
+@code {
+    private IReadOnlyList<JournalCheck>? _result;
+    private string? _denied;
+    private string? _error;
+    private bool _busy;
+
+    private async Task RunAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            _result = await Integrity.VerifyAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

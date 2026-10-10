@@ -1,0 +1,32 @@
+@* Метка этапа заказа (D75): цветная точка и название на подложке цвета этапа — читается в обеих темах. *@
+@if (Stage is not null)
+{
+    <span class="stage stage-@Stage.Color" title="@L("Этап заказа")">@Stage.Name</span>
+}
+else if (ShowEmpty)
+{
+    <span class="stage stage-none">@L("без этапа")</span>
+}
+
+@code {
+    [Parameter]
+    public KnitErp.Application.Sales.SalesStageRefDto? Stage { get; set; }
+
+    [Parameter]
+    public bool ShowEmpty { get; set; }
+
+    /// <summary>Названия цветов для выбора в настройке этапов.</summary>
+    public static string ColorName(string color) => color switch
+    {
+        "gray" => L("серый"),
+        "blue" => L("синий"),
+        "teal" => L("бирюзовый"),
+        "green" => L("зелёный"),
+        "yellow" => L("жёлтый"),
+        "orange" => L("оранжевый"),
+        "red" => L("красный"),
+        "magenta" => L("розовый"),
+        "violet" => L("фиолетовый"),
+        _ => color,
+    };
+}

@@ -1,0 +1,126 @@
+@page "/reports/cash-flow"
+@using KnitErp.Application.Finance
+@using KnitErp.Domain.Finance
+@inject CashReportsService Reports
+@inject SettlementStatementService Settlements
+
+<PageTitle>@L("Движение денег (ДДС)") — knitERP</PageTitle>
+
+@*
+    D86: отчёт о движении денежных средств по статьям за период — остаток на начало, поступления и выплаты по статьям,
+    остаток на конец. Сходится с остатками на счетах и в кассах.
+*@
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else
+{
+    <h1>@L("Движение денег (ДДС)")</h1>
+    <p class="muted">@L("Деньги на счетах и в кассах: откуда пришли и на что ушли. Перемещения между своими счетами не входят. Это не прибыль: прибыль — в отчёте «Прибыльность».")</p>
+
+    <form class="inline-form" @onsubmit="BuildAsync">
+        <label>@L("С") <input type="date" @bind="_from" required /></label>
+        <label>@L("По") <input type="date" @bind="_to" required /></label>
+        @if (_entities.Count > 1)
+        {
+            <label>
+                @L("Юрлицо")
+                <select @bind="_entity">
+                    <option value="">@L("все")</option>
+                    @foreach (var e in _entities)
+                    {
+                        <option value="@e.Id">@e.Name</option>
+                    }
+                </select>
+            </label>
+        }
+        <button type="submit" disabled="@_busy">@L("Показать")</button>
+    </form>
+
+    @if (_message is not null)
+    {
+        <div class="flash error" role="alert">@_message</div>
+    }
+
+    @if (_report is { } r)
+    {
+        <div class="scroll">
+            <table class="compact money">
+                <tbody>
+                    <tr class="group"><td>@L("Остаток на начало")</td><td class="num">@Amounts.Format(r.Opening)</td></tr>
+                    @if (r.OpeningEntered != 0)
+                    {
+                        <tr><td>@L("Введены начальные остатки счетов")</td><td class="num">@Amounts.Format(r.OpeningEntered)</td></tr>
+                    }
+                    <tr class="group"><td>@L("Поступления")</td><td class="num">@Amounts.Format(r.In)</td></tr>
+                    @foreach (var l in r.Lines.Where(l => l.Direction == CashFlowDirection.In))
+                    {
+                        <tr><td style="padding-left: 18px">@l.Item</td><td class="num">@Amounts.Format(l.Amount)</td></tr>
+                    }
+                    <tr class="group"><td>@L("Выплаты")</td><td class="num">@Amounts.Format(r.Out)</td></tr>
+                    @foreach (var l in r.Lines.Where(l => l.Direction == CashFlowDirection.Out))
+                    {
+                        <tr><td style="padding-left: 18px">@l.Item</td><td class="num">@Amounts.Format(l.Amount)</td></tr>
+                    }
+                    <tr class="group"><td>@L("Чистый денежный поток")</td><td class="num @(r.Net < 0 ? "neg" : null)">@Amounts.Format(r.Net)</td></tr>
+                    <tr class="group"><td>@L("Остаток на конец")</td><td class="num"><b>@Amounts.Format(r.Closing)</b></td></tr>
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private CashFlowReportDto? _report;
+    private IReadOnlyList<KnitErp.Application.Structure.LookupDto> _entities = [];
+    private DateTime _from;
+    private DateTime _to;
+    private string _entity = string.Empty;
+    private bool _busy;
+    private string? _denied;
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var today = TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId).Date;
+        _from = new DateTime(today.Year, today.Month, 1);
+        _to = today;
+        try
+        {
+            _entities = (await Settlements.OptionsAsync()).LegalEntities;
+            await BuildAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private async Task BuildAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        try
+        {
+            _report = await Reports.CashFlowAsync(DateOnly.FromDateTime(_from), DateOnly.FromDateTime(_to), long.TryParse(_entity, out var e) ? e : null);
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex) && ex is not AccessDeniedException)
+        {
+            _message = UiErrors.Message(ex);
+            _report = null;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

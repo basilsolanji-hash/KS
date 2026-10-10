@@ -1,0 +1,45 @@
+@*
+    Кнопка необратимого или неприятного действия (архив, отмена документа, удаление): первое нажатие спрашивает «Точно?»,
+    действие — только после «Да». Без JavaScript и окон браузера: работает на телефоне и с правилами CSP.
+*@
+@if (!_asking)
+{
+    <button type="button" class="@Class" disabled="@Disabled" aria-label="@AriaLabel" @onclick="() => _asking = true">@ChildContent</button>
+}
+else
+{
+    <span class="confirm" role="group" aria-label="@(Question ?? L("Точно?"))">
+        <span class="confirm-q">@(Question ?? L("Точно?"))</span>
+        <button type="button" class="danger" disabled="@Disabled" @onclick="ConfirmAsync">@L("Да")</button>
+        <button type="button" class="secondary" @onclick="() => _asking = false">@L("Нет")</button>
+    </span>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public RenderFragment ChildContent { get; set; } = default!;
+
+    [Parameter, EditorRequired]
+    public EventCallback OnConfirm { get; set; }
+
+    [Parameter]
+    public string Class { get; set; } = "secondary";
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>Вопрос подтверждения; по умолчанию «Точно?».</summary>
+    [Parameter]
+    public string? Question { get; set; }
+
+    [Parameter]
+    public string? AriaLabel { get; set; }
+
+    private bool _asking;
+
+    private async Task ConfirmAsync()
+    {
+        _asking = false;
+        await OnConfirm.InvokeAsync();
+    }
+}

@@ -1,0 +1,295 @@
+@page "/sales-orders"
+@using KnitErp.Application.Sales
+@using KnitErp.Domain.Sales
+@inject SalesService Sales
+@inject SalesStageService StageList
+@inject NavigationManager Navigation
+
+<PageTitle>@L("Заказы покупателей") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_rows is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <div class="page-head">
+        <h1>@L("Заказы покупателей")</h1>
+        @if (CanEdit && _options is null)
+        {
+            <button type="button" @onclick="OpenCreateAsync" disabled="@_busy">@L("Новый заказ")</button>
+        }
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="error" role="alert">@_error</div>
+    }
+
+    @if (_options is not null)
+    {
+        <div class="panel">
+            <h2>@L("Новый заказ покупателя")</h2>
+            @if (_options.Customers.Count == 0 || _options.Warehouses.Count == 0)
+            {
+                <p class="muted">@L("Нужны покупатель (контрагент с отметкой «Покупатель») и склад. Покупателя заведите в CRM, склад — в «Справочниках».")</p>
+                <button type="button" class="secondary" @onclick="() => _options = null">@L("Закрыть")</button>
+            }
+            else
+            {
+                <form @onsubmit="CreateAsync">
+                    <div class="grid">
+                        <label>
+                            @L("Покупатель")
+                            <select @bind="_customer">
+                                @foreach (var s in _options.Customers)
+                                {
+                                    <option value="@s.Id">@s.Name</option>
+                                }
+                            </select>
+                        </label>
+                        <label>
+                            @L("Склад отгрузки")
+                            <select @bind="_warehouse">
+                                @foreach (var w in _options.Warehouses)
+                                {
+                                    <option value="@w.Id">@w.Name</option>
+                                }
+                            </select>
+                        </label>
+                        @if (_options.LegalEntities is { Count: > 1 } entities)
+                        {
+                            <label>
+                                @L("Юрлицо (продавец)")
+                                <select @bind="_entity">
+                                    @foreach (var le in entities)
+                                    {
+                                        <option value="@le.Id">@le.ShortName</option>
+                                    }
+                                </select>
+                            </label>
+                        }
+                        <label>@L("Дата заказа") <input type="date" @bind="_date" /></label>
+                        <label>@L("Дата отгрузки") <input type="date" @bind="_expected" /></label>
+                        <label>@L("Договор покупателя") <input @bind="_invoice" maxlength="@SalesOrder.InvoiceMaxLength" placeholder="@L("Договор № 7 от 01.10.2026")" /></label>
+                        <label class="inline"><input type="checkbox" @bind="_withVat" /> @L("Цены включают НДС")</label>
+                    </div>
+                    <div class="actions">
+                        <button type="submit" disabled="@_busy">@L("Создать черновик")</button>
+                        <button type="button" class="secondary" @onclick="() => _options = null">@L("Отмена")</button>
+                    </div>
+                </form>
+            }
+        </div>
+    }
+
+    <form class="inline-form" @onsubmit="ReloadAsync">
+        <label>
+            @L("Статус")
+            <select @bind="_status">
+                <option value="">@L("Все")</option>
+                @foreach (var st in Statuses)
+                {
+                    <option value="@((byte)st)">@L(SalesOrder.StatusName(st))</option>
+                }
+            </select>
+        </label>
+        <label>
+            @L("Этап")
+            <select @bind="_stage">
+                <option value="">@L("Все")</option>
+                <option value="0">@L("без этапа")</option>
+                @foreach (var st in _stages)
+                {
+                    <option value="@st.Id">@st.Name</option>
+                }
+            </select>
+        </label>
+        <label>@L("С") <input type="date" @bind="_from" /></label>
+        <label>@L("По") <input type="date" @bind="_to" /></label>
+        <label>@L("Поиск") <input @bind="_search" placeholder="@L("Номер, покупатель, договор")" /></label>
+        <label class="inline"><input type="checkbox" @bind="_overdue" /> @L("Только просроченные")</label>
+        <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
+    </form>
+
+    var showSums = _rows.Any(r => r.Total is not null);
+    var active = _rows.Where(r => r.Status != SalesOrderStatus.Cancelled).ToList();
+    <div class="scroll">
+        <table class="orders">
+            <thead>
+                <tr>
+                    <th>@L("Номер")</th><th>@L("Дата")</th><th>@L("Покупатель")</th>
+                    @if (showSums)
+                    {
+                        <th class="num">@L("Сумма")</th><th class="num opt">@L("Выставлено счетов")</th><th class="num">@L("Оплачено")</th>
+                        <th class="num">@L("Не оплачено")</th><th class="num opt">@L("Отгружено")</th>
+                    }
+                    <th class="opt">@L("План. отгрузка")</th><th>@L("Этап")</th><th class="opt">@L("Учёт")</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (_rows.Count == 0)
+                {
+                    <tr><td colspan="11" class="muted">@L("Заказов нет.")</td></tr>
+                }
+                @foreach (var o in _rows)
+                {
+                    var paidFull = o.Total is > 0 && o.Paid >= o.Total;
+                    var shippedFull = o.Shipped == ShipmentState.Full;
+                    <tr class="@(o.Status == SalesOrderStatus.Cancelled ? "archived" : null)">
+                        <td><a href="sales-orders/@o.Id">@o.Number</a></td>
+                        <td>@o.OrderDate.ToString("dd.MM.yyyy")</td>
+                        <td>@o.Customer</td>
+                        @if (showSums)
+                        {
+                            <td class="num">@Amounts.Format(o.Total)</td>
+                            <td class="num">@Amounts.Format(o.Invoiced)</td>
+                            <td class="num @(paidFull ? "cell-good" : o.Paid > 0 ? "cell-part" : null)">@Amounts.Format(o.Paid)</td>
+                            <td class="num @(o.Unpaid > 0 ? "warn-text" : null)">@Amounts.Format(o.Unpaid)</td>
+                            <td class="num @(shippedFull ? "cell-good" : o.ShippedValue > 0 ? "cell-part" : null)">@Amounts.Format(o.ShippedValue)</td>
+                        }
+                        <td class="@(IsLate(o) ? "late" : null)">@(o.ShipDate?.ToString("dd.MM.yyyy") ?? "—")</td>
+                        <td><StageChip Stage="o.Stage" /></td>
+                        <td><span class="tag @StatusClass(o.Status)">@L(o.StatusName)</span> <span class="muted">@ShippedName(o.Shipped)</span></td>
+                    </tr>
+                }
+            </tbody>
+            @if (showSums && _rows.Count > 0)
+            {
+                <tfoot>
+                    <tr>
+                        <td colspan="3"><b>@L("Итого")</b> <span class="muted">@L("без отменённых")</span></td>
+                        <td class="num"><b>@Amounts.Format(active.Sum(r => r.Total ?? 0))</b></td>
+                        <td class="num">@Amounts.Format(active.Sum(r => r.Invoiced ?? 0))</td>
+                        <td class="num">@Amounts.Format(active.Sum(r => r.Paid ?? 0))</td>
+                        <td class="num"><b>@Amounts.Format(active.Sum(r => r.Unpaid ?? 0))</b></td>
+                        <td class="num">@Amounts.Format(active.Sum(r => r.ShippedValue ?? 0))</td>
+                        <td colspan="3"></td>
+                    </tr>
+                </tfoot>
+            }
+        </table>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private static readonly SalesOrderStatus[] Statuses =
+        [SalesOrderStatus.Draft, SalesOrderStatus.Confirmed, SalesOrderStatus.Closed, SalesOrderStatus.Cancelled];
+
+    private IReadOnlyList<SalesOrderRowDto>? _rows;
+    private SalesOptionsDto? _options;
+    private bool _busy;
+    private string? _denied;
+    private string? _error;
+    [SupplyParameterFromQuery(Name = "overdue")]
+    public int? OverdueQuery { get; set; }
+
+    private string _status = string.Empty;
+    private bool _overdue;
+    private string _stage = string.Empty;
+    private IReadOnlyList<SalesStageDto> _stages = [];
+    private string _search = string.Empty;
+    private DateTime? _from;
+    private DateTime? _to;
+    private string _customer = string.Empty;
+    private string _warehouse = string.Empty;
+    private string _entity = string.Empty;
+    private DateTime _date = DateTime.Today;
+    private DateTime? _expected;
+    private string? _invoice;
+    private bool _withVat = true;
+
+    private bool CanEdit => CurrentAccess.Has(Permissions.SalesEdit) && CurrentAccess.Has(Permissions.PriceView);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _overdue = OverdueQuery == 1;
+            _stages = await StageList.ListAsync();
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private async Task LoadAsync() =>
+        _rows = await Sales.ListOrdersAsync(new SalesOrderFilter(
+            byte.TryParse(_status, out var st) ? (SalesOrderStatus)st : null, _search,
+            _from is { } f ? DateOnly.FromDateTime(f) : null, _to is { } t ? DateOnly.FromDateTime(t) : null,
+            long.TryParse(_stage, out var stage) ? stage : null, _overdue ? Today : null));
+
+    private DateOnly Today => DateOnly.FromDateTime(TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId));
+
+    /// <summary>Дата отгрузки прошла, а отгружено не всё (D80) — дата красным.</summary>
+    private bool IsLate(SalesOrderRowDto o) =>
+        o.Status == SalesOrderStatus.Confirmed && o.ShipDate < Today && o.Shipped != ShipmentState.Full;
+
+    private Task ReloadAsync() => RunAsync(LoadAsync);
+
+    private Task OpenCreateAsync() => RunAsync(async () =>
+    {
+        _options = await Sales.GetOptionsAsync();
+        _customer = _options.Customers.FirstOrDefault()?.Id.ToString() ?? string.Empty;
+        _warehouse = _options.Warehouses.FirstOrDefault()?.Id.ToString() ?? string.Empty;
+        _entity = _options.LegalEntities?.FirstOrDefault()?.Id.ToString() ?? string.Empty;
+        _date = TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId).Date;
+        _expected = null;
+        _invoice = null;
+        _withVat = true;
+    });
+
+    private Task CreateAsync() => RunAsync(async () =>
+    {
+        var id = await Sales.CreateOrderAsync(new SalesOrderHeader(DateOnly.FromDateTime(_date), long.Parse(_customer), long.Parse(_warehouse),
+            _expected is { } e ? DateOnly.FromDateTime(e) : null, _invoice, _withVat, null, long.TryParse(_entity, out var le) ? le : null));
+        Navigation.NavigateTo($"sales-orders/{id}");
+    });
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await action();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    public static string StatusClass(SalesOrderStatus status) => status switch
+    {
+        SalesOrderStatus.Confirmed => "ok",
+        SalesOrderStatus.Closed => "",
+        SalesOrderStatus.Cancelled => "bad",
+        _ => "warn",
+    };
+
+    public static string ShippedName(ShipmentState state) => state switch
+    {
+        ShipmentState.Full => L("отгружен полностью"),
+        ShipmentState.Partial => L("отгружен частично"),
+        _ => L("не отгружался"),
+    };
+}

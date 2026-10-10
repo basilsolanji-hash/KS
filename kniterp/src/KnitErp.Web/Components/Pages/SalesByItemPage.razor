@@ -1,0 +1,123 @@
+@page "/reports/sales-by-item"
+@using KnitErp.Application.Sales
+@inject SalesAnalyticsService Analytics
+
+<PageTitle>@L("Товары и реализации") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_rows is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <h1>@L("Товары и реализации")</h1>
+    <p class="muted">@L("Что продано за период: отгрузки минус возвраты по заказам покупателей, выручка по ценам заказов. Отгрузки без заказа сюда не входят: у них нет цены.")</p>
+
+    @if (_error is not null)
+    {
+        <div class="error" role="alert">@_error</div>
+    }
+
+    <form class="inline-form" @onsubmit="ReloadAsync">
+        <label>@L("С") <input type="date" @bind="_from" /></label>
+        <label>@L("По") <input type="date" @bind="_to" /></label>
+        <label>@L("Покупатель") <input @bind="_customer" placeholder="@L("наименование или ИНН")" /></label>
+        <label>@L("Поиск") <input @bind="_search" placeholder="@L("Код или наименование")" /></label>
+        <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
+        <a class="button secondary" href="@ExportHref" download data-enhance-nav="false" title="@L("Выгрузить с текущими фильтрами")">Excel</a>
+    </form>
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>@L("Код")</th><th>@L("Наименование")</th><th class="num">@L("Количество")</th><th>@L("Ед.")</th><th class="num opt">@L("Средняя цена")</th><th class="num">@L("Выручка без НДС")</th><th class="num opt">@L("НДС")</th><th class="num opt">@L("С НДС")</th><th class="num opt">@L("Покупателей")</th></tr></thead>
+            <tbody>
+                @if (_rows.Count == 0)
+                {
+                    <tr><td colspan="9" class="muted">@L("За период продаж нет.")</td></tr>
+                }
+                @foreach (var r in _rows)
+                {
+                    <tr>
+                        <td>@r.Code</td>
+                        <td>@r.Name</td>
+                        <td class="num">@Quantities.Format(r.Quantity)</td>
+                        <td>@r.UnitSymbol</td>
+                        <td class="num">@Amounts.Format(r.AveragePrice)</td>
+                        <td class="num"><b>@Amounts.Format(r.Revenue)</b></td>
+                        <td class="num">@Amounts.Format(r.Vat)</td>
+                        <td class="num">@Amounts.Format(r.RevenueWithVat)</td>
+                        <td class="num">@r.Customers</td>
+                    </tr>
+                }
+            </tbody>
+            @if (_rows.Count > 0)
+            {
+                <tfoot><tr><td colspan="5"><b>@L("Итого")</b></td><td class="num"><b>@Amounts.Format(_rows.Sum(r => r.Revenue))</b></td><td class="num">@Amounts.Format(_rows.Sum(r => r.Vat))</td><td class="num">@Amounts.Format(_rows.Sum(r => r.RevenueWithVat))</td><td></td></tr></tfoot>
+            }
+        </table>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private IReadOnlyList<SalesByItemRowDto>? _rows;
+    private bool _busy;
+    private string? _denied;
+    private string? _error;
+    private DateTime _from;
+    private DateTime _to;
+    private string? _customer;
+    private string? _search;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // По умолчанию — текущий месяц по времени организации.
+        var today = TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId).Date;
+        _from = new DateTime(today.Year, today.Month, 1);
+        _to = _from.AddMonths(1).AddDays(-1);
+        try
+        {
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private SalesAnalyticsFilter Filter => new(DateOnly.FromDateTime(_from), DateOnly.FromDateTime(_to), _customer, _search);
+
+    private string ExportHref => KnitErp.Web.Exports.ExportLink.Build("reports/sales-by-item.xlsx",
+        ("from", KnitErp.Web.Exports.ExportLink.Date(_from)), ("to", KnitErp.Web.Exports.ExportLink.Date(_to)), ("customer", _customer), ("search", _search));
+
+    private async Task LoadAsync() => _rows = await Analytics.SalesByItemAsync(Filter);
+
+    private async Task ReloadAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await LoadAsync();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

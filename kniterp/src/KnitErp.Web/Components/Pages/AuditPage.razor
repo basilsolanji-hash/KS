@@ -1,0 +1,73 @@
+@page "/audit"
+@using KnitErp.Application.Audit
+@using KnitErp.Web.Components.Shared
+@inject AuditQueryService Audit
+
+<PageTitle>@L("Журнал аудита") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_rows is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <div class="page-head">
+        <h1>@L("Журнал аудита")</h1>
+        <div class="actions">
+            <a class="button secondary" href="signins">@L("Журнал входов")</a>
+            <a class="button secondary" href="audit.xlsx" download data-enhance-nav="false" title="@L("Последние 1000 записей")">Excel</a>
+        </div>
+    </div>
+    <p class="muted">
+        @(CurrentAccess.Has(Permissions.AuditLogView) ? L("Все события организации") : L("Только ваши действия и входы")),
+        @L("последние {0}. Время — {1}.", _rows.Count, TimeZones.Label(CurrentAccess.TimeZoneId))
+    </p>
+    <div class="scroll">
+        <table>
+            <thead><tr><th>@L("Время")</th><th>@L("Кто")</th><th>@L("Действие")</th><th class="opt">@L("Объект")</th><th>@L("Было → стало")</th><th class="opt">@L("Причина")</th></tr></thead>
+            <tbody>
+                @foreach (var a in _rows)
+                {
+                    <tr>
+                        <td style="white-space: nowrap">@TimeZones.ToLocal(a.OccurredAtUtc, CurrentAccess.TimeZoneId).ToString("dd.MM.yyyy HH:mm:ss")</td>
+                        <td>@(a.ActorName ?? L("система"))</td>
+                        <td><span class="tag">@L(AuditLabels.Action(a.Action))</span></td>
+                        <td>@a.ObjectName</td>
+                        <td>
+                            @if (a.Before is not null || a.After is not null)
+                            {
+                                <span class="muted">@(a.Before ?? "—")</span> <span>→ @(a.After ?? "—")</span>
+                            }
+                        </td>
+                        <td>@a.Reason</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <p class="muted">@L("Записи неизменяемы: изменить или удалить их не может никто, включая Владельца.")</p>
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private IReadOnlyList<AuditRowDto>? _rows;
+    private string? _denied;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _rows = await Audit.ListAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+}

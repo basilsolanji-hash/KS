@@ -1,0 +1,369 @@
+@page "/tech-cards/{Id:long}"
+@using KnitErp.Application.Production
+@using KnitErp.Application.Warehousing
+@using KnitErp.Domain.Production
+@using KnitErp.Web.Components.Shared
+@inject TechCardService Cards
+@inject StockService Stock
+@inject NavigationManager Navigation
+
+<PageTitle>@(_card is null ? L("Техкарта") : $"{_card.ItemName} · {L("версия {0}", _card.Version)}") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_notFound)
+{
+    <h1>@L("Техкарта не найдена")</h1>
+    <p><a href="tech-cards">@L("К списку техкарт")</a></p>
+}
+else if (_card is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <p><a href="tech-cards">@L("← Техкарты")</a></p>
+    <div class="page-head">
+        <h1>@_card.ItemCode @_card.ItemName · @L("версия {0}", _card.Version) <span class="tag @TechCardsPage.StatusClass(_card.Status)">@L(_card.StatusName)</span></h1>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="@(_messageIsError ? "flash error" : "flash")" role="@(_messageIsError ? "alert" : "status")">@_message</div>
+    }
+
+    @if (_card.Status != TechCardStatus.Active && _card.ActiveVersionId is { } activeId && activeId != _card.Id)
+    {
+        <p class="muted">@L("Сейчас действует другая версия:") <a href="tech-cards/@activeId">@L("открыть")</a>.</p>
+    }
+
+    @if (_editHeader)
+    {
+        <div class="panel">
+            <form @onsubmit="SaveHeaderAsync">
+                <div class="grid">
+                    <label>@L("Нормы на партию, количество изделий") <input @bind="_outputText" inputmode="decimal" /></label>
+                    <label>@L("Комментарий") <input @bind="_comment" maxlength="@TechCard.CommentMaxLength" /></label>
+                </div>
+                <div class="actions">
+                    <button type="submit" disabled="@_busy">@L("Сохранить")</button>
+                    <button type="button" class="secondary" @onclick="() => _editHeader = false">@L("Отмена")</button>
+                </div>
+            </form>
+        </div>
+    }
+    else
+    {
+        <dl class="facts">
+            <dt>@L("Нормы на партию")</dt><dd>@Quantities.Format(_card.OutputQuantity) @_card.UnitSymbol</dd>
+            @if (_card.Comment is not null)
+            {
+                <dt>@L("Комментарий")</dt><dd>@_card.Comment</dd>
+            }
+            <dt>@L("Автор")</dt><dd>@_card.CreatedBy, @Local(_card.CreatedAtUtc)</dd>
+            @if (_card.ActivatedBy is not null)
+            {
+                <dt>@L("Ввёл в действие")</dt><dd>@_card.ActivatedBy, @Local(_card.ActivatedAtUtc!.Value)</dd>
+            }
+        </dl>
+        @if (_card.CanEdit)
+        {
+            <button type="button" class="secondary" @onclick="EditHeader" disabled="@_busy">@L("Изменить партию")</button>
+        }
+    }
+
+    <h2 style="margin-top: 24px">@L("Материалы ({0})", _card.Lines.Count)</h2>
+
+    @if (_card.CanEdit)
+    {
+        <form class="inline-form" @onsubmit="SetLineAsync">
+            <label>
+                @L("Материал")
+                <input list="materials" @bind="_materialText" size="40" placeholder="@L("Код или наименование")" />
+                <datalist id="materials">
+                    @foreach (var m in _materials.Where(m => m.Id != _card.ItemId))
+                    {
+                        <option value="@($"{m.Code} — {m.Name}")">@m.UnitSymbol</option>
+                    }
+                </datalist>
+            </label>
+            <label>@L("Норма на партию") <input @bind="_qtyText" inputmode="decimal" size="10" /></label>
+            <label>@L("Отход, %") <input @bind="_wasteText" inputmode="decimal" size="6" /></label>
+            <button type="submit" disabled="@_busy">@L("Добавить или изменить")</button>
+        </form>
+        <p class="muted">@L("Норма — сколько материала уходит на всю партию без отхода. Отход — обрезки, распуск и брак вязки сверх нормы. Повторный ввод того же материала меняет его норму.")</p>
+    }
+
+    <div class="scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th>@L("Код")</th><th>@L("Материал")</th><th class="num">@L("Норма")</th><th class="num">@L("Отход, %")</th><th class="num">@L("С отходом")</th><th>@L("Ед.")</th>
+                    @if (_card.CanEdit) { <th></th> }
+                </tr>
+            </thead>
+            <tbody>
+                @if (_card.Lines.Count == 0)
+                {
+                    <tr><td colspan="7" class="muted">@L("Материалов пока нет.")</td></tr>
+                }
+                @foreach (var l in _card.Lines)
+                {
+                    <tr>
+                        <td>@l.Code</td>
+                        <td>@l.Name</td>
+                        <td class="num">@Quantities.Format(l.Quantity)</td>
+                        <td class="num">@l.WastePercent.ToString("0.##")</td>
+                        <td class="num">@Quantities.Format(decimal.Round(l.Gross, TechCard.NormPrecision))</td>
+                        <td>@l.UnitSymbol</td>
+                        @if (_card.CanEdit)
+                        {
+                            <td>
+                                <button type="button" class="secondary" @onclick="() => EditLine(l)" disabled="@_busy" aria-label="@L("Изменить: {0}", l.Code)">@L("Изменить")</button>
+                                <ConfirmButton Class="secondary" OnConfirm="() => RemoveLineAsync(l)" Disabled="@_busy" AriaLabel="@L("Удалить строку {0}", l.Code)" Question='@L("Удалить?")'>@L("Удалить")</ConfirmButton>
+                            </td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if (CurrentAccess.Has(Permissions.CatalogEdit))
+    {
+        <div class="actions" style="margin-top: 16px">
+            @if (_card.Status == TechCardStatus.Draft)
+            {
+                <button type="button" @onclick="ActivateAsync" disabled="@(_busy || _card.Lines.Count == 0)">@L("Ввести в действие")</button>
+            }
+            <button type="button" class="secondary" @onclick="CopyAsync" disabled="@_busy">@L("Новая версия")</button>
+            @if (_card.Status != TechCardStatus.Archived)
+            {
+                <button type="button" class="secondary" @onclick="ArchiveAsync" disabled="@_busy">@(_card.Status == TechCardStatus.Draft ? L("Отказаться от черновика") : L("В архив"))</button>
+            }
+        </div>
+        @if (_card.Status == TechCardStatus.Draft && _card.ActiveVersionId is not null)
+        {
+            <p class="muted">@L("При вводе в действие эта версия заменит действующую, прежняя уйдёт в архив.")</p>
+        }
+    }
+
+    @if (_card.Lines.Count > 0)
+    {
+        <div class="panel" style="margin-top: 24px">
+            <h2>@L("Потребность на выпуск")</h2>
+            <form class="inline-form" @onsubmit="CalculateAsync">
+                <label>@L("Изделий, {0}", _card.UnitSymbol) <input @bind="_planText" inputmode="decimal" size="10" /></label>
+                @if (_warehouses is not null)
+                {
+                    <label>
+                        @L("Склад")
+                        <select @bind="_warehouse">
+                            <option value="">@L("Все доступные")</option>
+                            @foreach (var w in _warehouses)
+                            {
+                                <option value="@w.Id">@w.Name</option>
+                            }
+                        </select>
+                    </label>
+                }
+                <button type="submit" class="secondary" disabled="@_busy">@L("Рассчитать")</button>
+            </form>
+            @if (_need is not null)
+            {
+                var showStock = _need.Any(n => n.Available is not null);
+                <div class="scroll">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>@L("Код")</th><th>@L("Материал")</th><th class="opt num">@L("По норме")</th><th class="num">@L("С отходом")</th><th>@L("Ед.")</th>
+                                @if (showStock) { <th class="num">@L("Есть на складе")</th><th class="num">@L("Не хватает")</th> }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var n in _need)
+                            {
+                                <tr class="@(n.Shortage is not null ? "short" : "")">
+                                    <td>@n.Code</td>
+                                    <td>@n.Name</td>
+                                    <td class="num">@Quantities.Format(n.Net)</td>
+                                    <td class="num"><b>@Quantities.Format(n.Gross)</b></td>
+                                    <td>@n.UnitSymbol</td>
+                                    @if (showStock)
+                                    {
+                                        <td class="num">@Quantities.Format(n.Available ?? 0)</td>
+                                        <td class="num">@(n.Shortage is { } s ? Quantities.Format(s) : "—")</td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    [Parameter]
+    public long Id { get; set; }
+
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private TechCardDto? _card;
+    private IReadOnlyList<ProductOptionDto> _materials = [];
+    private IReadOnlyList<LookupWarehouseDto>? _warehouses;
+    private IReadOnlyList<RequirementRowDto>? _need;
+    private bool _busy;
+    private bool _notFound;
+    private bool _editHeader;
+    private string? _denied;
+    private string? _message;
+    private bool _messageIsError;
+    private string _outputText = string.Empty;
+    private string? _comment;
+    private string _materialText = string.Empty;
+    private string _qtyText = string.Empty;
+    private string _wasteText = "0";
+    private string _planText = string.Empty;
+    private string _warehouse = string.Empty;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _card = null;
+        _need = null;
+        _notFound = false;
+        try
+        {
+            await LoadAsync();
+            if (_card!.CanEdit)
+            {
+                _materials = await Cards.MaterialsAsync();
+            }
+
+            if (CurrentAccess.Has(Permissions.WarehouseReportView))
+            {
+                _warehouses = await Stock.ListWarehousesAsync();
+            }
+
+            _planText = Quantities.Format(_card.OutputQuantity);
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+        catch (NotFoundException)
+        {
+            _notFound = true;
+        }
+    }
+
+    private async Task LoadAsync() => _card = await Cards.GetAsync(Id);
+
+    private void EditHeader()
+    {
+        _outputText = Quantities.Format(_card!.OutputQuantity);
+        _comment = _card.Comment;
+        _editHeader = true;
+    }
+
+    private Task SaveHeaderAsync() => RunAsync(async () =>
+    {
+        await Cards.UpdateHeaderAsync(Id, ParseQuantity(_outputText), _comment, _card!.RowVersion);
+        _editHeader = false;
+    }, L("Сохранено."));
+
+    private void EditLine(TechCardLineDto line)
+    {
+        _materialText = $"{line.Code} — {line.Name}";
+        _qtyText = Quantities.Format(line.Quantity);
+        _wasteText = line.WastePercent.ToString("0.##");
+    }
+
+    private Task SetLineAsync() => RunAsync(async () =>
+    {
+        var code = _materialText.Split(" — ", 2)[0].Trim();
+        var material = _materials.FirstOrDefault(m => string.Equals(m.Code, code, StringComparison.OrdinalIgnoreCase))
+                       ?? throw new BusinessRuleException("techcard.material_unknown", L("Материал «{0}» не найден. Выберите из списка.", _materialText));
+        var waste = string.IsNullOrWhiteSpace(_wasteText) ? 0 : ParseQuantity(_wasteText);
+        await Cards.SetLineAsync(Id, material.Id, ParseQuantity(_qtyText), waste, _card!.RowVersion);
+        _materialText = string.Empty;
+        _qtyText = string.Empty;
+        _wasteText = "0";
+    }, null);
+
+    private Task RemoveLineAsync(TechCardLineDto line) => RunAsync(() => Cards.RemoveLineAsync(Id, line.ItemId, _card!.RowVersion), null);
+
+    private Task ActivateAsync() => RunAsync(() => Cards.ActivateAsync(Id, _card!.RowVersion), L("Техкарта введена в действие."));
+
+    private Task ArchiveAsync() => RunAsync(() => Cards.ArchiveAsync(Id, _card!.RowVersion), L("Техкарта в архиве."));
+
+    private async Task CopyAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var id = await Cards.CopyAsync(Id);
+            Navigation.NavigateTo($"tech-cards/{id}");
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+            _messageIsError = true;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private Task CalculateAsync() => RunAsync(async () =>
+        _need = await Cards.RequirementAsync(Id, ParseQuantity(_planText), long.TryParse(_warehouse, out var w) ? w : null), null);
+
+    private static decimal ParseQuantity(string text) =>
+        Quantities.TryParse(text, out var value) ? value : throw new BusinessRuleException("techcard.number", L("Укажите число, например 0,35."));
+
+    /// <summary>Одна операция за раз, затем свежая карта: у вкладки один DbContext.</summary>
+    private async Task RunAsync(Func<Task> action, string? success)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _messageIsError = false;
+        try
+        {
+            await action();
+            _message = success ?? _message;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+            _messageIsError = true;
+        }
+        finally
+        {
+            try
+            {
+                await LoadAsync();
+            }
+            finally
+            {
+                _busy = false;
+            }
+        }
+    }
+
+    private string Local(DateTime utc) => TimeZones.ToLocal(utc, CurrentAccess.TimeZoneId).ToString("dd.MM.yyyy HH:mm");
+}

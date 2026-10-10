@@ -1,0 +1,137 @@
+@page "/reports/inventory-variances"
+@using KnitErp.Application.Warehousing
+@using KnitErp.Web.Components.Shared
+@inject StockReportService Reports
+@inject StockService Stock
+
+<PageTitle>@L("Отклонения инвентаризации") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_report is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <h1>@L("Отклонения инвентаризации")</h1>
+    <p class="muted">@L("Излишки и недостачи проведённых инвентаризаций за период: учёт на момент проведения, факт и разница. Совпавшие строки не показываются.")</p>
+
+    @if (_error is not null)
+    {
+        <div class="error" role="alert">@_error</div>
+    }
+
+    <form class="inline-form" @onsubmit="ReloadAsync">
+        <label>
+            @L("Склад")
+            <select @bind="_warehouse">
+                <option value="">@L("Все доступные")</option>
+                @foreach (var w in _warehouses)
+                {
+                    <option value="@w.Id">@w.Name</option>
+                }
+            </select>
+        </label>
+        <label>@L("С") <input type="date" @bind="_from" /></label>
+        <label>@L("По") <input type="date" @bind="_to" /></label>
+        <label>@L("Поиск") <input @bind="_search" placeholder="@L("Код или наименование")" /></label>
+        <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
+        <a class="button secondary" href="@ExportHref" download data-enhance-nav="false" title="@L("Выгрузить с текущими фильтрами")">Excel</a>
+    </form>
+
+    <p>
+        @L("Проведено инвентаризаций: {0}. Строк с излишком: {1}, с недостачей: {2}.", _report.Documents, _report.SurplusLines, _report.ShortageLines)
+    </p>
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>@L("Дата")</th><th>@L("Инвентаризация")</th><th class="opt">@L("Склад")</th><th class="opt">@L("Код")</th><th>@L("Наименование")</th><th class="opt num">@L("Учёт")</th><th class="opt num">@L("Факт")</th><th class="num">@L("Разница")</th><th>@L("Ед.")</th><th class="opt">@L("Комментарий")</th></tr></thead>
+            <tbody>
+                @if (_report.Rows.Count == 0)
+                {
+                    <tr><td colspan="10" class="muted">@L("За период отклонений нет.")</td></tr>
+                }
+                @foreach (var r in _report.Rows)
+                {
+                    <tr class="@(r.Difference < 0 ? "short" : "")">
+                        <td>@r.Date.ToString("dd.MM.yyyy")</td>
+                        <td><a href="inventory/@r.InventoryId">@r.Number</a></td>
+                        <td>@r.WarehouseName</td>
+                        <td>@r.Code</td>
+                        <td>@r.Name</td>
+                        <td class="num">@Quantities.Format(r.Book)</td>
+                        <td class="num">@Quantities.Format(r.Counted)</td>
+                        <td class="num"><b>@(r.Difference > 0 ? "+" : "")@Quantities.Format(r.Difference)</b></td>
+                        <td>@r.UnitSymbol</td>
+                        <td>@r.Comment</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private InventoryVarianceReport? _report;
+    private IReadOnlyList<LookupWarehouseDto> _warehouses = [];
+    private bool _busy;
+    private string? _denied;
+    private string? _error;
+    private string _warehouse = string.Empty;
+    private string _search = string.Empty;
+    private DateTime _from;
+    private DateTime _to;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // По умолчанию — текущий месяц по времени организации.
+        var today = TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId).Date;
+        _from = new DateTime(today.Year, today.Month, 1);
+        _to = _from.AddMonths(1).AddDays(-1);
+        try
+        {
+            _warehouses = await Stock.ListWarehousesAsync();
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private string ExportHref => KnitErp.Web.Exports.ExportLink.Build("reports/inventory-variances.xlsx", ("warehouse", _warehouse),
+        ("from", KnitErp.Web.Exports.ExportLink.Date(_from)), ("to", KnitErp.Web.Exports.ExportLink.Date(_to)), ("search", _search));
+
+    private async Task LoadAsync() =>
+        _report = await Reports.InventoryVariancesAsync(new InventoryVarianceFilter(
+            long.TryParse(_warehouse, out var w) ? w : null, DateOnly.FromDateTime(_from), DateOnly.FromDateTime(_to), _search));
+
+    private async Task ReloadAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await LoadAsync();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

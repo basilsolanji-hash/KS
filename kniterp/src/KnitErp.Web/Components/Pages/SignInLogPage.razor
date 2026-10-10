@@ -1,0 +1,106 @@
+@page "/signins"
+@using KnitErp.Application.Audit
+@using KnitErp.Web.Exports
+@inject AuditQueryService Audit
+
+<PageTitle>@L("Журнал входов") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_rows is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <div class="page-head">
+        <h1>@L("Журнал входов")</h1>
+        <a class="button secondary" href="@ExportHref" download data-enhance-nav="false" title="@L("Выгрузить с текущими фильтрами")">Excel</a>
+    </div>
+    <p class="muted">
+        @(CurrentAccess.Has(Permissions.AuditLogView) ? L("Входы, неудачные попытки и блокировки всех пользователей организации") : L("Ваши входы и попытки входа"))
+        @L("с адресом, откуда пришёл запрос. Время — {0}. Много неудачных попыток с одного адреса — повод проверить, не подбирают ли пароль.", TimeZones.Label(CurrentAccess.TimeZoneId))
+    </p>
+
+    <form class="inline-form" @onsubmit="ReloadAsync">
+        <label>@L("С") <input type="date" @bind="_from" /></label>
+        <label>@L("По") <input type="date" @bind="_to" /></label>
+        <label class="inline"><input type="checkbox" @bind="_failures" /> @L("Только неудачные и блокировки")</label>
+        <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
+    </form>
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>@L("Время")</th><th>@L("Пользователь")</th><th>@L("Событие")</th><th class="opt">@L("Способ / подробности")</th><th>@L("Адрес")</th></tr></thead>
+            <tbody>
+                @if (_rows.Count == 0)
+                {
+                    <tr><td colspan="5" class="muted">@L("Записей нет.")</td></tr>
+                }
+                @foreach (var r in _rows)
+                {
+                    <tr class="@(r.Failed ? "short" : "")">
+                        <td>@TimeZones.ToLocal(r.OccurredAtUtc, CurrentAccess.TimeZoneId).ToString("dd.MM.yyyy HH:mm:ss")</td>
+                        <td>@(r.UserName ?? "—")</td>
+                        <td><span class="tag @(r.Failed ? "bad" : "")">@L(AuditLabels.Action(r.Action))</span></td>
+                        <td>@string.Join(" · ", new[] { r.Method, r.Detail }.Where(x => !string.IsNullOrEmpty(x)))</td>
+                        <td>@(r.Address ?? "—")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private IReadOnlyList<SignInRowDto>? _rows;
+    private string? _denied;
+    private bool _busy;
+    private DateTime? _from;
+    private DateTime? _to;
+    private bool _failures;
+
+    private string ExportHref => ExportLink.Build("signins.xlsx", ("from", ExportLink.Date(_from)), ("to", ExportLink.Date(_to)),
+        ("failures", _failures ? "true" : null));
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private async Task LoadAsync() =>
+        _rows = await Audit.ListSignInsAsync(
+            ReportExports.ToUtc(_from is { } f ? DateOnly.FromDateTime(f) : null, CurrentAccess.TimeZoneId),
+            ReportExports.ToUtc(_to is { } t ? DateOnly.FromDateTime(t).AddDays(1) : null, CurrentAccess.TimeZoneId),
+            _failures);
+
+    private async Task ReloadAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

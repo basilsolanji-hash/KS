@@ -1,0 +1,415 @@
+@page "/money"
+@using KnitErp.Domain.Catalog
+@using KnitErp.Application.Finance
+@using KnitErp.Domain.Finance
+@using KnitErp.Domain.Organizations
+@inject MoneyService Money
+@inject MoneyOperationService Operations
+@inject CashFlowItemService Items
+@inject AccountableService Accountables
+
+<PageTitle>@L("Касса и счета") — knitERP</PageTitle>
+
+@*
+    D84: остатки денег по счетам и кассам всех юрлиц, прочие поступления и выдачи (кассовые ордера ПКО и РКО),
+    перемещение денег между своими счетами и кассами одного юрлица. Оплаты покупателей и поставщикам — в своих разделах.
+*@
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_balances is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <div class="page-head">
+        <h1>@L("Касса и счета")</h1>
+        @if (CanEdit && _form is null)
+        {
+            <button type="button" @onclick="OpenFormAsync" disabled="@_busy">@L("Новая операция")</button>
+        }
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="@(_isError ? "flash error" : "flash")" role="@(_isError ? "alert" : "status")">@_message</div>
+    }
+
+    <div class="dash-blocks">
+        <section class="dash-box">
+            <h2>@L("Остатки") <span class="muted">@Amounts.Format(_balances.Sum(b => b.Balance))</span></h2>
+            <table class="compact money">
+                <tbody>
+                    @foreach (var g in _balances.GroupBy(b => b.LegalEntity))
+                    {
+                        @if (g.Key.Length > 0 && _balances.Select(b => b.LegalEntity).Where(x => x.Length > 0).Distinct().Count() > 1)
+                        {
+                            <tr class="group"><td>@g.Key</td><td class="num">@Amounts.Format(g.Sum(a => a.Balance))</td></tr>
+                        }
+                        @foreach (var b in g)
+                        {
+                            <tr>
+                                <td>@(b.AccountId is null ? L("Оплаты без счёта") : b.Name)</td>
+                                <td class="num @(b.Balance < 0 ? "neg" : null)"><b>@Amounts.Format(b.Balance)</b></td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+            <p class="muted small">@L("Остаток = начальный + поступления − выдачи: оплаты покупателей и поставщикам и операции на этой странице.") <a href="legal-entities">@L("Счета, кассы и начальные остатки")</a></p>
+        </section>
+
+        @if (_form is not null)
+        {
+            <section class="dash-box">
+                <h2>@L("Новая операция")</h2>
+                @if (_accounts.Count == 0)
+                {
+                    <p class="muted">@L("Счетов и касс пока нет.") <a href="legal-entities">@L("Добавьте кассу или расчётный счёт юрлица")</a></p>
+                }
+                <form @onsubmit="CreateAsync">
+                    <div class="grid">
+                        <label>
+                            @L("Вид")
+                            <select @bind="_form.Kind" @bind:after="() => _form.Item = string.Empty">
+                                <option value="@MoneyOperationKind.Income">@L("Поступление")</option>
+                                <option value="@MoneyOperationKind.Expense">@L("Выдача")</option>
+                                <option value="@MoneyOperationKind.Transfer">@L("Перемещение между своими счетами и кассами")</option>
+                            </select>
+                        </label>
+                        <label>
+                            @(_form.Kind == MoneyOperationKind.Income ? L("Куда (счёт или касса)") : L("Откуда (счёт или касса)"))
+                            <select @bind="_form.Account" required>
+                                <option value="">—</option>
+                                @foreach (var a in _accounts)
+                                {
+                                    <option value="@a.Id">@a.Label</option>
+                                }
+                            </select>
+                        </label>
+                        @if (_form.Kind == MoneyOperationKind.Transfer)
+                        {
+                            <label>
+                                @L("Куда")
+                                <select @bind="_form.Target" required>
+                                    <option value="">—</option>
+                                    @foreach (var a in TargetOptions())
+                                    {
+                                        <option value="@a.Id">@a.Label</option>
+                                    }
+                                </select>
+                            </label>
+                        }
+                        @if (_form.Kind != MoneyOperationKind.Transfer)
+                        {
+                            <label>
+                                @L("Статья")
+                                <select @bind="_form.Item">
+                                    <option value="">@(_form.Kind == MoneyOperationKind.Income ? L("Прочие поступления") : L("Прочие выплаты"))</option>
+                                    @foreach (var i in ItemOptions())
+                                    {
+                                        <option value="@i.Id">@i.Name</option>
+                                    }
+                                </select>
+                            </label>
+                            @if (Accountable())
+                            {
+                                <label>
+                                    @L("Подотчётное лицо")
+                                    <select @bind="_form.Employee" required>
+                                        <option value="">—</option>
+                                        @foreach (var e in _employees)
+                                        {
+                                            <option value="@e.Id">@e.Name</option>
+                                        }
+                                    </select>
+                                </label>
+                            }
+                        }
+                        <label>@L("Дата") <input type="date" @bind="_form.Date" required /></label>
+                        <label>@L("Сумма") <input @bind="_form.Amount" inputmode="decimal" required /></label>
+                        @if (_form.Kind != MoneyOperationKind.Transfer && !Accountable())
+                        {
+                            <label>@(_form.Kind == MoneyOperationKind.Income ? L("Принято от") : L("Выдать")) <input @bind="_form.Party" maxlength="@MoneyOperation.PartyMaxLength" placeholder="@L("Фамилия Имя Отчество")" /></label>
+                        }
+                        <label class="wide">@L("Основание") <input @bind="_form.Basis" maxlength="@MoneyOperation.BasisMaxLength" list="money-basis" required /></label>
+                        <datalist id="money-basis">
+                            @foreach (var b in Bases(_form.Kind))
+                            {
+                                <option value="@b"></option>
+                            }
+                        </datalist>
+                        <label class="wide">@L("Приложение, комментарий") <input @bind="_form.Comment" maxlength="@MoneyOperation.CommentMaxLength" /></label>
+                    </div>
+                    <p class="muted small">@L("Выдача и перемещение из кассы — только в пределах остатка: касса не уходит в минус. Перемещение — только между счетами и кассами одного юрлица.")</p>
+                    <div class="actions">
+                        <button type="submit" disabled="@_busy">@L("Провести")</button>
+                        <button type="button" class="secondary" @onclick="() => _form = null" disabled="@_busy">@L("Отмена")</button>
+                    </div>
+                </form>
+            </section>
+        }
+    </div>
+
+    <h2 style="margin-top: 18px">@L("Операции")</h2>
+    <form class="inline-form" @onsubmit="ReloadAsync">
+        <label>@L("С") <input type="date" @bind="_from" /></label>
+        <label>@L("По") <input type="date" @bind="_to" /></label>
+        <label>
+            @L("Счёт или касса")
+            <select @bind="_filterAccount">
+                <option value="">@L("все")</option>
+                @foreach (var a in _accounts)
+                {
+                    <option value="@a.Id">@a.Label</option>
+                }
+            </select>
+        </label>
+        <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
+    </form>
+
+    @if (_cancel is not null)
+    {
+        <div class="panel">
+            <h2>@L("Отменить операцию {0}", _cancel.Number)</h2>
+            <form class="inline-form" @onsubmit="CancelAsync">
+                <label>@L("Причина (обязательна)") <input @bind="_reason" maxlength="@MoneyOperation.ReasonMaxLength" required /></label>
+                <button type="submit" class="danger" disabled="@_busy">@L("Отменить операцию")</button>
+                <button type="button" class="secondary" @onclick="() => _cancel = null">@L("Не отменять")</button>
+            </form>
+        </div>
+    }
+
+    <div class="scroll">
+        <table class="compact">
+            <thead>
+                <tr>
+                    <th>@L("Номер")</th><th>@L("Дата")</th><th>@L("Вид")</th><th>@L("Счёт или касса")</th><th class="num">@L("Сумма")</th>
+                    <th class="opt">@L("Принято от / выдать")</th><th class="opt">@L("Основание")</th><th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (_rows!.Count == 0)
+                {
+                    <tr><td colspan="8" class="muted">@L("Операций за период нет.")</td></tr>
+                }
+                @foreach (var r in _rows)
+                {
+                    var cancelled = r.Status == MoneyOperationStatus.Cancelled;
+                    <tr class="@(cancelled ? "archived" : null)">
+                        <td>@r.Number @if (cancelled) { <span class="tag" title="@r.CancelReason">@L("отменена")</span> }</td>
+                        <td>@r.Date.ToString("dd.MM.yyyy")</td>
+                        <td>@KindName(r)@if (r.CashFlowItem is { } item) { <div class="muted small">@item</div> }</td>
+                        <td>@r.Account@(r.TargetAccount is null ? "" : " → " + r.TargetAccount)<div class="muted small">@r.LegalEntity</div></td>
+                        <td class="num @(r.Kind == MoneyOperationKind.Expense ? "neg" : null)">@(r.Kind == MoneyOperationKind.Expense ? "−" : "")@Amounts.Format(r.Amount)</td>
+                        <td>@(r.Party ?? "—")</td>
+                        <td>@r.Basis</td>
+                        <td>
+                            <div class="row-actions">
+                                @if (r.Cash && r.Kind != MoneyOperationKind.Transfer)
+                                {
+                                    <a class="button secondary" href="print/cash-order/@r.Id" target="_blank" rel="noopener">@L("Печать")</a>
+                                }
+                                @if (r.CashOrderNumber is not null)
+                                {
+                                    <a class="button secondary" href="print/cash-order/@r.Id" target="_blank" rel="noopener" title="@r.CashOrderNumber">РКО</a>
+                                }
+                                @if (r.TargetCashOrderNumber is not null)
+                                {
+                                    <a class="button secondary" href="print/cash-order/transfer-in/@r.Id" target="_blank" rel="noopener" title="@r.TargetCashOrderNumber">ПКО</a>
+                                }
+                                @if (CanEdit && !cancelled)
+                                {
+                                    <button type="button" class="secondary" @onclick="() => { _cancel = r; _reason = null; }" disabled="@_busy">@L("Отменить")</button>
+                                }
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private IReadOnlyList<MoneyAccountBalanceDto>? _balances;
+    private IReadOnlyList<MoneyAccountOptionDto> _accounts = [];
+    private IReadOnlyList<MoneyOperationDto>? _rows;
+    private OperationForm? _form;
+    private MoneyOperationDto? _cancel;
+    private string? _reason;
+    private DateTime? _from;
+    private DateTime? _to;
+    private string _filterAccount = string.Empty;
+    private bool _busy;
+    private string? _denied;
+    private string? _message;
+    private bool _isError;
+
+    /// <summary>Проводить операции — тот, кто записывает оплаты (D84).</summary>
+    private bool CanEdit => CurrentAccess.Has(Permissions.PriceView) && (CurrentAccess.Has(Permissions.SalesEdit) || CurrentAccess.Has(Permissions.PurchaseEdit));
+
+    private sealed class OperationForm
+    {
+        public MoneyOperationKind Kind { get; set; } = MoneyOperationKind.Income;
+        public string Account { get; set; } = string.Empty;
+        public string Target { get; set; } = string.Empty;
+        public DateTime Date { get; set; }
+        public string? Amount { get; set; }
+        public string? Party { get; set; }
+        public string? Basis { get; set; }
+        public string? Comment { get; set; }
+        public string Item { get; set; } = string.Empty;
+        public string Employee { get; set; } = string.Empty;
+    }
+
+    private IReadOnlyList<CashFlowItemDto> _items = [];
+    private IReadOnlyList<KnitErp.Application.Structure.LookupDto> _employees = [];
+
+    /// <summary>Статьи по направлению операции; статьи оплат покупателей и поставщикам — в своих разделах, здесь их нет.</summary>
+    private IEnumerable<CashFlowItemDto> ItemOptions() => _items.Where(i =>
+        i.Direction == (_form!.Kind == MoneyOperationKind.Income ? CashFlowDirection.In : CashFlowDirection.Out)
+        && i.SystemCode is not (CashFlowItem.CustomerPayments or CashFlowItem.SupplierPayments or CashFlowItem.OtherIncome or CashFlowItem.OtherExpense));
+
+    private bool Accountable() => _items.FirstOrDefault(i => i.Id.ToString() == _form?.Item)?.SystemCode
+        is CashFlowItem.AccountableIssue or CashFlowItem.AccountableReturn;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var today = TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId).Date;
+        _from = new DateTime(today.Year, today.Month, 1);
+        _to = today;
+        try
+        {
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _balances = await Money.BalancesAsync();
+        _accounts = await Money.OptionsAsync();
+        _rows = await Operations.ListAsync(new MoneyOperationFilter(
+            _from is { } f ? DateOnly.FromDateTime(f) : null, _to is { } t ? DateOnly.FromDateTime(t) : null,
+            long.TryParse(_filterAccount, out var a) ? a : null));
+    }
+
+    /// <summary>Куда перемещать: счета и кассы того же юрлица, кроме источника.</summary>
+    private IEnumerable<MoneyAccountOptionDto> TargetOptions()
+    {
+        var source = _accounts.FirstOrDefault(a => a.Id.ToString() == _form?.Account);
+        return source is null ? [] : _accounts.Where(a => a.LegalEntityId == source.LegalEntityId && a.Id != source.Id);
+    }
+
+    private static IEnumerable<string> Bases(MoneyOperationKind kind) => kind switch
+    {
+        MoneyOperationKind.Income => [L("Возврат неиспользованной подотчётной суммы"), L("Получение наличных с расчётного счёта"), L("Внесение учредителем"), L("Проценты банка на остаток")],
+        MoneyOperationKind.Expense => [L("Выдача под отчёт на хозяйственные нужды"), L("Выплата заработной платы"), L("Комиссия банка"), L("Сдача наличной выручки в банк")],
+        _ => [L("Сдача наличной выручки в банк"), L("Получение наличных с расчётного счёта"), L("Перевод между расчётными счетами")],
+    };
+
+    private async Task OpenFormAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            if (_items.Count == 0)
+            {
+                _items = await Items.ListAsync();
+                _employees = (await Accountables.OptionsAsync()).Employees;
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+
+        _message = null;
+        _form = new OperationForm { Date = TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId).Date, Account = _accounts.FirstOrDefault()?.Id.ToString() ?? string.Empty };
+    }
+
+    private Task ReloadAsync() => RunAsync(() => Task.CompletedTask, null);
+
+    private Task CreateAsync() => RunAsync(async () =>
+    {
+        var f = _form!;
+        var amount = Decimals.Parse(f.Amount, L("Сумма")) ?? throw new BusinessRuleException("money.amount", L("Укажите сумму."));
+        var transfer = f.Kind == MoneyOperationKind.Transfer;
+        long? employee = !transfer && Accountable() && long.TryParse(f.Employee, out var e) ? e : null;
+        if (!transfer && Accountable() && employee is null)
+        {
+            throw new BusinessRuleException("money.accountable.employee", L("Выберите подотчётное лицо."));
+        }
+
+        var id = await Operations.CreateAsync(new MoneyOperationCommand(DateOnly.FromDateTime(f.Date), f.Kind, long.Parse(f.Account),
+            transfer && long.TryParse(f.Target, out var t) ? t : null, amount, Accountable() ? null : f.Party, f.Basis, f.Comment,
+            !transfer && long.TryParse(f.Item, out var item) ? item : null, employee));
+        _form = null;
+        var op = await Operations.GetAsync(id);
+        _message = L("Проведено: {0} {1}.", L(op.KindName), op.Number);
+    }, null);
+
+    private Task CancelAsync() => RunAsync(async () =>
+    {
+        await Operations.CancelAsync(_cancel!.Id, _reason, _cancel.RowVersion);
+        _message = L("Операция {0} отменена.", _cancel.Number);
+        _cancel = null;
+    }, null);
+
+    /// <summary>Одна операция за раз, затем свежие остатки и список: у вкладки один DbContext.</summary>
+    private async Task RunAsync(Func<Task> action, string? success)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _isError = false;
+        try
+        {
+            _message = success;
+            await action();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+            _isError = true;
+        }
+        finally
+        {
+            try
+            {
+                await LoadAsync();
+            }
+            finally
+            {
+                _busy = false;
+            }
+        }
+    }
+
+    /// <summary>Вид операции на языке интерфейса: явные строки, чтобы проверка переводов их видела.</summary>
+    private string KindName(MoneyOperationDto r) => (r.Kind, r.Cash) switch
+    {
+        (MoneyOperationKind.Income, true) => L("Приходный кассовый ордер"),
+        (MoneyOperationKind.Income, false) => L("Поступление на счёт"),
+        (MoneyOperationKind.Expense, true) => L("Расходный кассовый ордер"),
+        (MoneyOperationKind.Expense, false) => L("Списание со счёта"),
+        _ => L("Перемещение денег"),
+    };
+}

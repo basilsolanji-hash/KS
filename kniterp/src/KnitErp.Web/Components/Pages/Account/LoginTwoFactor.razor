@@ -1,0 +1,80 @@
+@page "/account/login-2fa"
+@attribute [AllowAnonymous]
+@attribute [ExcludeFromInteractiveRouting]
+@layout AccountLayout
+@inject SignInService SignIn
+@inject NavigationManager Navigation
+
+<PageTitle>@L("Код подтверждения") — knitERP</PageTitle>
+<h1>@L("Код подтверждения")</h1>
+<p class="muted">@L("Введите 6 цифр из приложения-аутентификатора. Телефона нет под рукой — введите один из резервных кодов (вида ABCD-EFGH-JKLM).")</p>
+
+@if (_message is not null)
+{
+    <div class="error" role="alert">@_message</div>
+}
+
+<EditForm Model="Input" method="post" FormName="login-2fa" OnValidSubmit="SubmitAsync">
+    <label>@L("Код") <InputText @bind-Value="Input.Code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="20" required /></label>
+    <label class="inline"><InputCheckbox @bind-Value="Input.Trust" /> @L("Доверять этому устройству 30 дней")</label>
+    <p class="muted small">@L("На своём компьютере или телефоне код не будет спрашиваться 30 дней — только пароль. Не отмечайте на чужом или общем устройстве. Отозвать доверие можно в «Безопасности».")</p>
+    <button type="submit">@L("Подтвердить")</button>
+</EditForm>
+
+<p style="margin-top: 24px"><a href="account/login">@L("Войти другим пользователем")</a></p>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private CodeInput Input { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    private PendingSignIn? _pending;
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+        _pending = await PendingSignInCookie.ReadAsync(HttpContext);
+        if (_pending is null)
+        {
+            Navigation.NavigateTo("account/login", forceLoad: true);
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (_pending is null)
+        {
+            return;
+        }
+
+        var result = await SignIn.TwoFactorSignInAsync(_pending, Input.Code, Input.Trust ? TrustedDeviceCookie.Label(HttpContext) : null,
+            HttpContext.RequestAborted);
+        if (result.Status == SignInStatus.Succeeded)
+        {
+            if (result.DeviceToken is { } device)
+            {
+                TrustedDeviceCookie.Write(HttpContext, device);
+            }
+
+            await PendingSignInCookie.CompleteAsync(HttpContext, result.Session!);
+            // Вход по резервному коду: показать, сколько кодов осталось, и предложить перевыпуск.
+            Navigation.NavigateTo(result.RecoveryCodesLeft is { } left ? $"security?left={left}" : ReturnUrls.Safe(ReturnUrl), forceLoad: true);
+            return;
+        }
+
+        _message = result.Status == SignInStatus.Failed ? L("Неверный код. Проверьте время на телефоне и введите новый код.") : SignInMessages.For(result.Status);
+        Input.Code = string.Empty;
+    }
+
+    private sealed class CodeInput
+    {
+        public string Code { get; set; } = string.Empty;
+        public bool Trust { get; set; }
+    }
+}

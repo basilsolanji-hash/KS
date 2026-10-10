@@ -1,0 +1,152 @@
+@page "/reports/profitability"
+@using KnitErp.Application.Sales
+@using KnitErp.Domain.Sales
+@inject SalesAnalyticsService Analytics
+
+<PageTitle>@L("Прибыльность") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_data is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    var byItem = _grouping == ProfitGrouping.Item;
+    <h1>@L("Прибыльность")</h1>
+    <p class="muted">@L("Выручка без НДС минус себестоимость проданного. Себестоимость: для покупного — средняя цена закупки без НДС по приёмкам по заказам поставщикам; для своих изделий — по действующей техкарте из цен материалов. Где цены нет — прибыль не считается.")</p>
+
+    @if (_error is not null)
+    {
+        <div class="error" role="alert">@_error</div>
+    }
+
+    <form class="inline-form" @onsubmit="ReloadAsync">
+        <label>@L("С") <input type="date" @bind="_from" /></label>
+        <label>@L("По") <input type="date" @bind="_to" /></label>
+        <label>
+            @L("Группировка")
+            <select @bind="_grouping">
+                <option value="@ProfitGrouping.Item">@L("по товарам")</option>
+                <option value="@ProfitGrouping.Customer">@L("по покупателям")</option>
+            </select>
+        </label>
+        <label>@L("Покупатель") <input @bind="_customer" placeholder="@L("наименование или ИНН")" /></label>
+        <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
+        <a class="button secondary" href="@ExportHref" download data-enhance-nav="false" title="@L("Выгрузить с текущими фильтрами")">Excel</a>
+    </form>
+
+    <div class="tiles">
+        <div class="tile"><span class="tile-title">@L("Выручка без НДС")</span><span class="tile-value">@Amounts.Format(_data.Revenue)</span></div>
+        <div class="tile"><span class="tile-title">@L("Себестоимость")</span><span class="tile-value">@Amounts.Format(_data.Cost)</span></div>
+        <div class="tile"><span class="tile-title">@L("Валовая прибыль")</span><span class="tile-value">@Amounts.Format(_data.Profit)</span>
+            <span class="tile-hint">@(_data.MarginPercent is { } total ? L("маржа {0}%", total.ToString("0.0")) : "")</span></div>
+        @if (_data.UncostedRevenue != 0)
+        {
+            <div class="tile warn"><span class="tile-title">@L("Выручка без себестоимости")</span><span class="tile-value">@Amounts.Format(_data.UncostedRevenue)</span>
+                <span class="tile-hint">@L("в прибыль не вошла")</span></div>
+        }
+    </div>
+
+    <div class="scroll">
+        <table>
+            <thead>
+                <tr>
+                    @if (byItem) { <th>@L("Код")</th> }
+                    <th>@(byItem ? L("Наименование") : L("Покупатель"))</th>
+                    @if (byItem) { <th class="num opt">@L("Количество")</th> }
+                    <th class="num">@L("Выручка без НДС")</th><th class="num">@L("Себестоимость")</th><th class="num">@L("Прибыль")</th><th class="num">@L("Маржа")</th>
+                    @if (byItem) { <th class="opt">@L("Себестоимость по")</th> }
+                </tr>
+            </thead>
+            <tbody>
+                @if (_data.Rows.Count == 0)
+                {
+                    <tr><td colspan="8" class="muted">@L("За период продаж нет.")</td></tr>
+                }
+                @foreach (var r in _data.Rows)
+                {
+                    <tr>
+                        @if (byItem) { <td>@r.Code</td> }
+                        <td>@r.Name</td>
+                        @if (byItem) { <td class="num">@Quantities.Format(r.Quantity ?? 0) @r.UnitSymbol</td> }
+                        <td class="num">@Amounts.Format(r.Revenue)</td>
+                        <td class="num">@(r.CostComplete ? Amounts.Format(r.Cost) : byItem ? L("нет цены") : L("частично: {0}", Amounts.Format(r.Cost)))</td>
+                        <td class="num"><b class="@(r.Profit < 0 ? "warn-text" : "")">@Amounts.Format(r.Profit)</b></td>
+                        <td class="num">@(r.MarginPercent is { } m ? m.ToString("0.0") + "%" : "—")</td>
+                        @if (byItem) { <td>@SourceName(r.Source)</td> }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private ProfitabilityDto? _data;
+    private bool _busy;
+    private string? _denied;
+    private string? _error;
+    private DateTime _from;
+    private DateTime _to;
+    private ProfitGrouping _grouping = ProfitGrouping.Item;
+    private string? _customer;
+
+    public static string SourceName(CostSource source) => source switch
+    {
+        CostSource.Purchases => L("закупкам"),
+        CostSource.TechCard => L("техкарте"),
+        _ => "—",
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        var today = TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId).Date;
+        _from = new DateTime(today.Year, today.Month, 1);
+        _to = _from.AddMonths(1).AddDays(-1);
+        try
+        {
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private string ExportHref => KnitErp.Web.Exports.ExportLink.Build("reports/profitability.xlsx",
+        ("from", KnitErp.Web.Exports.ExportLink.Date(_from)), ("to", KnitErp.Web.Exports.ExportLink.Date(_to)),
+        ("group", ((byte)_grouping).ToString()), ("customer", _customer));
+
+    private async Task LoadAsync() =>
+        _data = await Analytics.ProfitabilityAsync(new SalesAnalyticsFilter(DateOnly.FromDateTime(_from), DateOnly.FromDateTime(_to), _customer), _grouping);
+
+    private async Task ReloadAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await LoadAsync();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

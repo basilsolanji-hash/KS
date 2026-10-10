@@ -1,0 +1,101 @@
+@inject PersonalToolsService Personal
+
+<form class="tool-form" @onsubmit="SaveAsync">
+    <label>
+        @(_editId is null ? L("Новая заметка") : L("Правка заметки"))
+        <textarea @bind="_text" rows="4" maxlength="5000" placeholder="@L("Видна только вам")"></textarea>
+    </label>
+    <div class="actions">
+        <button type="submit" disabled="@_busy">@L("Сохранить")</button>
+        @if (_editId is not null)
+        {
+            <button type="button" class="secondary" @onclick="Cancel">@L("Отмена")</button>
+        }
+    </div>
+</form>
+
+@if (_error is not null)
+{
+    <div class="error" role="alert">@_error</div>
+}
+
+@if (_notes is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else if (_notes.Count == 0)
+{
+    <p class="muted">@L("Заметок пока нет.")</p>
+}
+else
+{
+    <ul class="note-list">
+        @foreach (var n in _notes)
+        {
+            <li>
+                <div class="note-text">@n.Text</div>
+                <div class="row-actions">
+                    <span class="muted">@TimeZones.ToLocal(n.UpdatedAtUtc, Context.Access.TimeZoneId).ToString("dd.MM HH:mm")</span>
+                    <button type="button" class="link" @onclick="() => Edit(n)">@L("Изменить")</button>
+                    <ConfirmButton Class="link" OnConfirm="() => DeleteAsync(n)" Question='@L("Удалить?")'>@L("Удалить")</ConfirmButton>
+                </div>
+            </li>
+        }
+    </ul>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public ToolContext Context { get; set; } = default!;
+
+    private IReadOnlyList<NoteItem>? _notes;
+    private string _text = string.Empty;
+    private string? _editId;
+    private string? _error;
+    private bool _busy;
+
+    protected override Task OnInitializedAsync() => RunAsync(async () => _notes = await Personal.GetNotesAsync());
+
+    private void Edit(NoteItem n)
+    {
+        _editId = n.Id;
+        _text = n.Text;
+    }
+
+    private void Cancel()
+    {
+        _editId = null;
+        _text = string.Empty;
+    }
+
+    private Task SaveAsync() => RunAsync(async () =>
+    {
+        _notes = await Personal.SaveNoteAsync(_editId, _text);
+        Cancel();
+    });
+
+    private Task DeleteAsync(NoteItem n) => RunAsync(async () => _notes = await Personal.DeleteNoteAsync(n.Id));
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await action();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

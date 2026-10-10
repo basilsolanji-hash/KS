@@ -1,0 +1,212 @@
+@page "/vat-rates"
+@using KnitErp.Application.Catalog
+@using KnitErp.Domain.Catalog
+@using KnitErp.Web.Components.Shared
+@inject VatRateService VatRates
+
+<PageTitle>@L("Ставки НДС") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_list is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <div class="page-head">
+        <h1>@L("Ставки НДС")</h1>
+        @if (_list.CanEdit && !_creating)
+        {
+            <button type="button" @onclick="() => { _creating = true; _flash = null; }" disabled="@_busy">@L("Добавить ставку")</button>
+        }
+    </div>
+    <p class="muted">
+        @L("Ставки страны организации ({0}).", L(_list.CountryName))
+        @L("Номенклатура ссылается на вид ставки, а процент берётся по дате: когда закон меняет ставку, добавьте новый процент с даты — менять номенклатуру не нужно.")
+        @L("Льготные перечни товаров у каждой страны свои — сверьте с бухгалтером.")
+    </p>
+
+    @if (_flash is not null)
+    {
+        <div class="@(_flashIsError ? "flash error" : "flash")" role="@(_flashIsError ? "alert" : "status")"><span>@_flash</span></div>
+    }
+
+    @if (_creating)
+    {
+        <div class="panel">
+            <h2>@L("Новая ставка")</h2>
+            <div class="grid">
+                <label>@L("Наименование") <input @bind="_name" maxlength="100" placeholder="@L("Например: Пониженная 10%")" /></label>
+                <label>
+                    @L("Вид")
+                    <select @bind="_kind">
+                        @foreach (var k in Enum.GetValues<VatRateKind>())
+                        {
+                            <option value="@k">@L(VatRate.KindName(k))</option>
+                        }
+                    </select>
+                </label>
+                @if (_kind != VatRateKind.Exempt)
+                {
+                    <label>@L("Процент") <input type="number" step="0.01" min="0" max="100" @bind="_percent" /></label>
+                    <label>@L("Действует с") <input type="date" @bind="_from" /></label>
+                }
+            </div>
+            <div class="actions" style="margin-top: 12px">
+                <button type="button" @onclick="CreateAsync" disabled="@_busy">@L("Сохранить")</button>
+                <button type="button" class="secondary" @onclick="() => _creating = false" disabled="@_busy">@L("Отмена")</button>
+            </div>
+        </div>
+    }
+
+    @if (_period is not null)
+    {
+        <div class="panel">
+            <h2>@L("Новый процент:") @L(_period.Name)</h2>
+            <div class="grid">
+                <label>@L("Процент") <input type="number" step="0.01" min="0" max="100" @bind="_percent" /></label>
+                <label>@L("Действует с") <input type="date" @bind="_from" /></label>
+            </div>
+            <div class="actions" style="margin-top: 12px">
+                <button type="button" @onclick="AddPeriodAsync" disabled="@_busy">@L("Добавить")</button>
+                <button type="button" class="secondary" @onclick="() => _period = null" disabled="@_busy">@L("Отмена")</button>
+            </div>
+        </div>
+    }
+
+    <label class="inline" style="margin: 8px 0"><input type="checkbox" @bind="_includeArchived" @bind:after="ReloadAsync" /> @L("Показать архив")</label>
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>@L("Ставка")</th><th>@L("Сейчас")</th><th class="opt">@L("История")</th><th class="opt num">@L("Позиций")</th>@if (_list.CanEdit) { <th>@L("Действия")</th> }</tr></thead>
+            <tbody>
+                @foreach (var r in _list.Rates)
+                {
+                    <tr class="@(r.IsArchived ? "archived" : null)">
+                        <td>@L(r.Name) <span class="tag">@L(r.KindName)</span>@if (r.IsArchived) { <span class="tag">@L("архив")</span> }</td>
+                        <td><b>@L(r.CurrentText)</b></td>
+                        <td>
+                            @foreach (var p in r.Periods)
+                            {
+                                <div>@p.Percent.ToString("0.##")% @L("с {0}", p.ValidFrom.ToString("dd.MM.yyyy"))@(p.ValidTo is { } to ? " " + L("по {0:dd.MM.yyyy}", to) : "")</div>
+                            }
+                        </td>
+                        <td class="num">@r.ItemCount</td>
+                        @if (_list.CanEdit)
+                        {
+                            <td>
+                                <div class="row-actions">
+                                    @if (!r.IsArchived && r.Kind != VatRateKind.Exempt && r.Kind != VatRateKind.Zero)
+                                    {
+                                        <button type="button" class="secondary" @onclick="() => OpenPeriod(r)" disabled="@_busy">@L("Новый процент")</button>
+                                    }
+                                    @if (r.IsArchived)
+                                    {
+                                        <button type="button" class="secondary" @onclick="() => RestoreAsync(r)" disabled="@_busy">@L("Вернуть")</button>
+                                    }
+                                    else
+                                    {
+                                        <ConfirmButton Class="secondary" OnConfirm="() => ArchiveAsync(r)" Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
+                                    }
+                                </div>
+                            </td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private VatRateListDto? _list;
+    private bool _busy;
+    private bool _creating;
+    private bool _includeArchived;
+    private string? _denied;
+    private string? _flash;
+    private bool _flashIsError;
+    private string _name = string.Empty;
+    private VatRateKind _kind = VatRateKind.Reduced;
+    private decimal _percent;
+    private DateTime _from = new(DateTime.Today.Year, 1, 1);
+    private VatRateDto? _period;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _list = await VatRates.ListAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private void OpenPeriod(VatRateDto r)
+    {
+        _period = r;
+        _percent = r.CurrentPercent ?? 0;
+        _from = new DateTime(DateTime.Today.Year + 1, 1, 1);
+        _flash = null;
+    }
+
+    private Task CreateAsync() => RunAsync(async () =>
+    {
+        await VatRates.CreateAsync(_name, _kind, _kind == VatRateKind.Exempt ? null : DateOnly.FromDateTime(_from),
+            _kind == VatRateKind.Exempt ? null : _percent);
+        _creating = false;
+        _name = string.Empty;
+    }, L("Ставка добавлена."));
+
+    private Task AddPeriodAsync() => RunAsync(async () =>
+    {
+        await VatRates.AddPeriodAsync(_period!.Id, DateOnly.FromDateTime(_from), _percent, _period.RowVersion);
+        _period = null;
+    }, L("Процент добавлен."));
+
+    private Task ArchiveAsync(VatRateDto r) => RunAsync(() => VatRates.ArchiveAsync(r.Id, r.RowVersion), L("Ставка «{0}» в архиве.", r.Name));
+
+    private Task RestoreAsync(VatRateDto r) => RunAsync(() => VatRates.RestoreAsync(r.Id, r.RowVersion), L("Ставка «{0}» возвращена.", r.Name));
+
+    private Task ReloadAsync() => RunAsync(() => Task.CompletedTask, null);
+
+    private async Task RunAsync(Func<Task> action, string? success)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _flash = null;
+        try
+        {
+            await action();
+            _flash = success;
+            _flashIsError = false;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _flash = UiErrors.Message(ex);
+            _flashIsError = true;
+        }
+        finally
+        {
+            try
+            {
+                _list = await VatRates.ListAsync(_includeArchived);
+            }
+            catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+            {
+                _flash ??= UiErrors.Message(ex);
+            }
+
+            _busy = false;
+        }
+    }
+}

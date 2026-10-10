@@ -1,0 +1,139 @@
+@page "/cash-book"
+@using KnitErp.Application.Finance
+@using KnitErp.Domain.Organizations
+@inject CashReportsService Reports
+@inject MoneyService Money
+
+<PageTitle>@L("Кассовая книга") — knitERP</PageTitle>
+
+@* D86: кассовая книга КО-4 — листы по дням с движением наличных; печать — в отдельной вкладке. *@
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else
+{
+    <h1>@L("Кассовая книга")</h1>
+    <p class="muted">@L("Лист за каждый день, когда были приходные или расходные кассовые ордера: остаток на начало дня, ордера, итог за день и остаток на конец. Индивидуальный предприниматель, который ведёт учёт доходов по НК РФ, может не вести кассовую книгу (п. 4.6 Указания № 3210-У).")</p>
+
+    @if (_cashes.Count == 0)
+    {
+        <p class="muted">@L("Касс пока нет.") <a href="legal-entities">@L("Добавьте кассу или расчётный счёт юрлица")</a></p>
+    }
+    else
+    {
+        <form class="inline-form" @onsubmit="BuildAsync">
+            <label>
+                @L("Касса")
+                <select @bind="_cash">
+                    @foreach (var c in _cashes)
+                    {
+                        <option value="@c.Id">@c.Label</option>
+                    }
+                </select>
+            </label>
+            <label>@L("С") <input type="date" @bind="_from" required /></label>
+            <label>@L("По") <input type="date" @bind="_to" required /></label>
+            <button type="submit" disabled="@_busy">@L("Показать")</button>
+            @if (_book is not null && _book.Sheets.Count > 0)
+            {
+                <a class="button secondary" href="@PrintHref" target="_blank" rel="noopener">@L("Печать")</a>
+            }
+        </form>
+    }
+
+    @if (_message is not null)
+    {
+        <div class="flash error" role="alert">@_message</div>
+    }
+
+    @if (_book is { } b)
+    {
+        @if (b.Sheets.Count == 0)
+        {
+            <p class="muted">@L("За период кассовых ордеров нет.")</p>
+        }
+        @foreach (var sheet in b.Sheets)
+        {
+            <h2 style="margin-top: 14px">@L("Касса за {0}", sheet.Date.ToString("dd.MM.yyyy")) <span class="muted">@L("лист {0}", sheet.SheetNumber)</span></h2>
+            <div class="scroll">
+                <table class="compact">
+                    <thead><tr><th>@L("Номер документа")</th><th>@L("От кого получено или кому выдано")</th><th class="num">@L("Приход")</th><th class="num">@L("Расход")</th></tr></thead>
+                    <tbody>
+                        <tr class="group"><td colspan="2">@L("Остаток на начало дня")</td><td class="num">@Amounts.Format(sheet.Opening)</td><td></td></tr>
+                        @foreach (var l in sheet.Lines)
+                        {
+                            <tr>
+                                <td>@l.Number</td><td>@l.Party</td>
+                                <td class="num">@(l.In == 0 ? "" : Amounts.Format(l.In))</td>
+                                <td class="num">@(l.Out == 0 ? "" : Amounts.Format(l.Out))</td>
+                            </tr>
+                        }
+                        <tr class="group"><td colspan="2">@L("Итого за день")</td><td class="num">@Amounts.Format(sheet.In)</td><td class="num">@Amounts.Format(sheet.Out)</td></tr>
+                        <tr class="group"><td colspan="2">@L("Остаток на конец дня")</td><td class="num"><b>@Amounts.Format(sheet.Closing)</b></td><td></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private IReadOnlyList<MoneyAccountOptionDto> _cashes = [];
+    private CashBookDto? _book;
+    private string _cash = string.Empty;
+    private DateTime _from;
+    private DateTime _to;
+    private bool _busy;
+    private string? _denied;
+    private string? _message;
+
+    private string PrintHref => _book is { } b ? $"print/cash-book?account={b.AccountId}&from={b.From:yyyy-MM-dd}&to={b.To:yyyy-MM-dd}" : "#";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var today = TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId).Date;
+        _from = new DateTime(today.Year, today.Month, 1);
+        _to = today;
+        try
+        {
+            _cashes = (await Money.OptionsAsync()).Where(a => a.Kind == MoneyAccountKind.Cash).ToList();
+            _cash = _cashes.FirstOrDefault()?.Id.ToString() ?? string.Empty;
+            if (_cashes.Count > 0)
+            {
+                await BuildAsync();
+            }
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private async Task BuildAsync()
+    {
+        if (_busy || !long.TryParse(_cash, out var cash))
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        try
+        {
+            _book = await Reports.CashBookAsync(cash, DateOnly.FromDateTime(_from), DateOnly.FromDateTime(_to));
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex) && ex is not AccessDeniedException)
+        {
+            _message = UiErrors.Message(ex);
+            _book = null;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

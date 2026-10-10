@@ -1,0 +1,76 @@
+@page "/reconciliation"
+@using KnitErp.Application.Warehousing
+@inject ReconciliationService Reconciliation
+
+<PageTitle>@L("Сверка") — knitERP</PageTitle>
+
+<h1>@L("Сверка регистра с документами")</h1>
+<p class="muted">
+    @L("Каждое движение остатков должно быть ровно таким, каким его требует свой документ: начальные остатки, поступления, перемещения, списания, сторно и инвентаризации. Сверка находит лишние, пропавшие и изменённые движения, движения без документа и отрицательные остатки. Запускайте её перед закрытием периода вместе с «Проверкой целостности».")
+</p>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else
+{
+    <button type="button" @onclick="RunAsync" disabled="@_busy">@(_busy ? L("Сверяю…") : L("Сверить сейчас"))</button>
+
+    @if (_result is not null)
+    {
+        <div class="@(_result.Ok ? "flash" : "flash error")" role="status" style="margin-top: 16px">
+            @(_result.Ok ? L("Расхождений нет: регистр совпадает с документами.") : L("Найдено расхождений: {0}.", _result.Problems.Count))
+        </div>
+        <div class="totals">
+            <span>@L("Документов:") <b>@_result.DocumentsChecked</b></span>
+            <span>@L("Движений:") <b>@_result.MovementsChecked</b></span>
+            <span>@L("Позиций по документам:") <b>@_result.PositionsChecked</b></span>
+        </div>
+        @if (_result.Problems.Count > 0)
+        {
+            <div class="scroll">
+                <table>
+                    <thead><tr><th>@L("Документ")</th><th>@L("Расхождение")</th></tr></thead>
+                    <tbody>
+                        @foreach (var p in _result.Problems)
+                        {
+                            <tr>
+                                <td>@if (p.Link is not null) { <a href="@p.Link">@p.Document</a> } else { @p.Document }</td>
+                                <td>@p.Description</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+}
+
+@code {
+    private ReconciliationResult? _result;
+    private string? _denied;
+    private bool _busy;
+
+    private async Task RunAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            _result = await Reconciliation.RunAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

@@ -1,0 +1,210 @@
+@inject IJSRuntime JS
+@*
+    Калькулятор — отдельное плавающее окно поверх страницы: не закрывает её, его можно перетащить за заголовок,
+    положение запоминается в браузере. Считает с клавиатуры, когда окно в фокусе (щёлкните по нему):
+    цифры, + − * /, %, запятая или точка, скобки, Enter или = — посчитать, Backspace — стереть символ, Delete или Esc — очистить.
+*@
+
+<div id="calc-win" class="float-win calc-win" role="dialog" aria-modal="false" aria-labelledby="calc-win-title" tabindex="0"
+     @onkeydown="OnKeyDown">
+    <div class="float-head" data-drag-handle title="@L("Перетащите, чтобы переместить окно")">
+        <span id="calc-win-title"><Icon Name="calculator" Size="16" /> @L("Калькулятор")</span>
+        <button type="button" class="float-close" @onclick="() => OnClose.InvokeAsync()" aria-label="@L("Закрыть калькулятор")" title="@L("Закрыть")"><Icon Name="close" Size="14" /></button>
+    </div>
+    <div class="calc-display" aria-live="polite">
+        <div class="calc-expr">@(_shown ?? "")</div>
+        <div class="calc-main @(_error is not null ? "calc-error" : "")">@(_error ?? (_expression.Length > 0 ? _expression : _result ?? "0"))</div>
+        @if (_expression.Length > 0 && Preview is { } preview)
+        {
+            <div class="calc-preview">= @preview</div>
+        }
+    </div>
+    <div class="calc-pad" role="group" aria-label="@L("Кнопки калькулятора")">
+        @foreach (var key in Keys)
+        {
+            <button type="button" class="calc-key @KeyClass(key)" tabindex="-1" @onclick="() => Press(key)" aria-label="@KeyLabel(key)">@key</button>
+        }
+    </div>
+    <div class="calc-foot">
+        @if (_result is not null)
+        {
+            <button type="button" class="link" @onclick="CopyAsync" title="@L("Скопировать результат")">@(_copied ? L("Скопировано") : L("Копировать"))</button>
+        }
+        <span class="muted">@L("Enter — равно, Esc — очистить")</span>
+    </div>
+    @if (_history.Count > 0)
+    {
+        <ul class="calc-history" aria-label="@L("Последние расчёты")">
+            @foreach (var h in _history)
+            {
+                <li><button type="button" class="link" tabindex="-1" @onclick="() => Use(h.Result)" title="@L("Подставить результат")">@h.Expression = <b>@h.Result</b></button></li>
+            }
+        </ul>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    private static readonly string[] Keys =
+        ["C", "⌫", "%", "÷", "7", "8", "9", "×", "4", "5", "6", "−", "1", "2", "3", "+", "(", "0", ",", ")", "="];
+
+    private string _expression = string.Empty;
+    private string? _result;
+    private string? _shown;
+    private string? _error;
+    private bool _copied;
+    private readonly List<(string Expression, string Result)> _history = [];
+
+    /// <summary>Результат на лету — пока выражение вычисляется; незаконченное («12 +») не показывается.</summary>
+    private string? Preview
+    {
+        get
+        {
+            try
+            {
+                return KnitErp.Application.Workspace.Calculator.Format(KnitErp.Application.Workspace.Calculator.Evaluate(_expression));
+            }
+            catch (BusinessRuleException)
+            {
+                return null;
+            }
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("kniterp.openWindow", "calc-win");
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+        }
+    }
+
+    /// <summary>Клавиатура (окно в фокусе). Действие браузера по этим клавишам гасит kniterp.openWindow.</summary>
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.CtrlKey || e.AltKey || e.MetaKey)
+        {
+            return;
+        }
+
+        var key = e.Key switch
+        {
+            "*" or "x" or "X" or "х" or "Х" => "×",
+            "/" or ":" => "÷",
+            "-" => "−",
+            "." => ",",
+            "Enter" or "=" => "=",
+            "Backspace" => "⌫",
+            "Delete" or "Escape" or "c" or "C" or "с" or "С" => "C",
+            _ => e.Key,
+        };
+        if (Array.IndexOf(Keys, key) >= 0)
+        {
+            Press(key);
+        }
+
+        await Task.CompletedTask;
+    }
+
+    private void Press(string key)
+    {
+        _copied = false;
+        _error = null;
+        switch (key)
+        {
+            case "C":
+                _expression = string.Empty;
+                _result = null;
+                _shown = null;
+                break;
+            case "⌫":
+                _expression = _expression.Length > 0 ? _expression[..^1] : "";
+                break;
+            case "=":
+                Calculate();
+                break;
+            default:
+                // После результата: оператор продолжает от результата, цифра начинает новый расчёт.
+                if (_expression.Length == 0 && _result is not null && key is "+" or "−" or "×" or "÷" or "%")
+                {
+                    _expression = _result.Replace(" ", "").Replace(" ", "");
+                }
+
+                _expression += key;
+                break;
+        }
+    }
+
+    private void Calculate()
+    {
+        if (_expression.Length == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var value = KnitErp.Application.Workspace.Calculator.Evaluate(_expression);
+            _result = KnitErp.Application.Workspace.Calculator.Format(value);
+            _shown = _expression + " =";
+            _history.Insert(0, (_expression, _result));
+            if (_history.Count > 5)
+            {
+                _history.RemoveAt(5);
+            }
+
+            _expression = string.Empty;
+        }
+        catch (BusinessRuleException ex)
+        {
+            _error = KnitErp.Web.Localization.Text.Message(ex.Message);
+        }
+    }
+
+    private void Use(string result)
+    {
+        _expression = result.Replace(" ", "").Replace(" ", "");
+        _error = null;
+    }
+
+    private async Task CopyAsync()
+    {
+        if (_result is null)
+        {
+            return;
+        }
+
+        // Буфер обмена — в браузере; если он запрещён, результат остаётся на экране.
+        _copied = await JS.InvokeAsync<bool>("kniterp.copy", _result.Replace(" ", "").Replace(" ", ""));
+    }
+
+    private static string KeyClass(string key) => key switch
+    {
+        "=" => "calc-eq",
+        "÷" or "×" or "−" or "+" => "calc-op",
+        "C" or "⌫" or "%" or "(" or ")" => "calc-fn",
+        _ => "",
+    };
+
+    private static string KeyLabel(string key) => key switch
+    {
+        "÷" => L("Разделить"),
+        "×" => L("Умножить"),
+        "−" => L("Минус"),
+        "+" => L("Плюс"),
+        "%" => L("Процент"),
+        "⌫" => L("Стереть символ"),
+        "," => L("Запятая"),
+        "C" => L("Очистить"),
+        "=" => L("Посчитать"),
+        _ => key,
+    };
+}

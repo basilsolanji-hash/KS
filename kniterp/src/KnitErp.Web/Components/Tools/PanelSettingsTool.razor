@@ -1,0 +1,106 @@
+@* Настройка панели: какие ярлыки закреплены, их порядок и сколько видно сразу. Хранится в профиле пользователя. *@
+
+<p class="muted">@L("Закреплённые значки показываются в верхней строке по порядку. Первые {0} видно сразу, остальные — в меню «Ещё». Быстрый поиск в строке всегда; обучение и поддержка — внизу меню слева. На телефоне все значки — в одном меню «Инструменты».", _visible)</p>
+
+<h3>@L("Закреплённые")</h3>
+@if (_pinned.Count == 0)
+{
+    <p class="muted">@L("Ничего не закреплено — инструменты доступны через «Все инструменты».")</p>
+}
+<ol class="pin-list">
+    @for (var i = 0; i < _pinned.Count; i++)
+    {
+        var index = i;
+        var tool = ToolCatalog.Find(_pinned[index])!;
+        <li class="@(index < _visible ? "" : "pin-more")">
+            <span class="pin-icon"><Icon Name="@tool.Id" /></span>
+            <span class="pin-title">@tool.Title @if (index >= _visible) { <span class="tag">@L("в «Ещё»")</span> }</span>
+            <button type="button" class="secondary icon" @onclick="() => Move(index, -1)" disabled="@(index == 0)" aria-label="@L("Выше: {0}", L(tool.Title))" title="@L("Выше")">↑</button>
+            <button type="button" class="secondary icon" @onclick="() => Move(index, 1)" disabled="@(index == _pinned.Count - 1)" aria-label="@L("Ниже: {0}", L(tool.Title))" title="@L("Ниже")">↓</button>
+            <button type="button" class="secondary icon" @onclick="() => _pinned.RemoveAt(index)" aria-label="@L("Открепить: {0}", L(tool.Title))" title="@L("Открепить")">✕</button>
+        </li>
+    }
+</ol>
+
+<label class="tool-row">
+    @L("Видно сразу")
+    <input type="number" min="0" max="@ToolCatalog.MaxVisible" @bind="_visible" style="width: 6em" />
+</label>
+
+<h3>@L("Можно добавить")</h3>
+<ul class="plain pin-list">
+    @foreach (var tool in ToolCatalog.Configurable.Where(t => !_pinned.Contains(t.Id)))
+    {
+        <li>
+            <span class="pin-icon"><Icon Name="@tool.Id" /></span>
+            <span class="pin-title">@tool.Title <span class="muted">— @tool.Hint</span></span>
+            <button type="button" class="secondary icon" @onclick="() => _pinned.Add(tool.Id)" aria-label="@L("Закрепить: {0}", L(tool.Title))" title="@L("Закрепить")">+</button>
+        </li>
+    }
+</ul>
+
+@if (_message is not null)
+{
+    <div class="@(_isError ? "flash error" : "flash")" role="status">@_message</div>
+}
+<div class="actions">
+    <button type="button" @onclick="SaveAsync" disabled="@_busy">@L("Сохранить")</button>
+    <button type="button" class="secondary" @onclick="Reset" disabled="@_busy">@L("Как было по умолчанию")</button>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public PanelSettings Settings { get; set; } = default!;
+
+    [Parameter]
+    public EventCallback<PanelSettings> OnSave { get; set; }
+
+    private List<string> _pinned = [];
+    private int _visible;
+    private string? _message;
+    private bool _isError;
+    private bool _busy;
+    private PanelSettings? _loaded;
+
+    protected override void OnParametersSet()
+    {
+        if (!ReferenceEquals(_loaded, Settings))
+        {
+            _pinned = Settings.Pinned.ToList();
+            _visible = Settings.Visible;
+            _loaded = Settings;
+        }
+    }
+
+    private void Move(int index, int delta)
+    {
+        var target = index + delta;
+        (_pinned[index], _pinned[target]) = (_pinned[target], _pinned[index]);
+    }
+
+    private void Reset()
+    {
+        _pinned = ToolCatalog.DefaultPinned.ToList();
+        _visible = ToolCatalog.DefaultVisible;
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        try
+        {
+            await OnSave.InvokeAsync(new PanelSettings(_pinned.ToList(), _visible));
+            _message = L("Панель сохранена — она будет такой же на других устройствах.");
+            _isError = false;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+            _isError = true;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

@@ -1,0 +1,132 @@
+@page "/reports/movements"
+@using KnitErp.Application.Warehousing
+@using KnitErp.Web.Components.Shared
+@inject StockReportService Reports
+@inject StockService Stock
+
+<PageTitle>@L("Движения") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_report is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <h1>@L("Движения")</h1>
+    <p class="muted">@L("Каждый приход и расход по складу с документом, который его создал. Новые сверху.")</p>
+
+    @if (_error is not null)
+    {
+        <div class="error" role="alert">@_error</div>
+    }
+
+    <form class="inline-form" @onsubmit="ReloadAsync">
+        <label>
+            @L("Склад")
+            <select @bind="_warehouse">
+                <option value="">@L("Все доступные")</option>
+                @foreach (var w in _warehouses)
+                {
+                    <option value="@w.Id">@w.Name</option>
+                }
+            </select>
+        </label>
+        <label>@L("С") <input type="date" @bind="_from" /></label>
+        <label>@L("По") <input type="date" @bind="_to" /></label>
+        <label>@L("Позиция") <input @bind="_search" placeholder="@L("Код или наименование")" /></label>
+        <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
+        <a class="button secondary" href="@ExportHref" download data-enhance-nav="false" title="@L("Выгрузить с текущими фильтрами")">Excel</a>
+    </form>
+
+    @if (_report.Truncated)
+    {
+        <p class="muted">@L("Показаны последние {0} строк — сузьте период или выберите склад.", StockReportService.MaxMovementRows)</p>
+    }
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>@L("Дата")</th><th>@L("Документ")</th><th class="opt">@L("Склад")</th><th>@L("Код")</th><th class="opt">@L("Наименование")</th><th class="num">@L("Приход")</th><th class="num">@L("Расход")</th><th>@L("Ед.")</th></tr></thead>
+            <tbody>
+                @if (_report.Rows.Count == 0)
+                {
+                    <tr><td colspan="8" class="muted">@L("Движений нет.")</td></tr>
+                }
+                @foreach (var r in _report.Rows)
+                {
+                    <tr>
+                        <td>@r.Date.ToString("dd.MM.yyyy")</td>
+                        <td>@if (r.Link is not null) { <a href="@r.Link">@r.Document</a> } else { @r.Document }</td>
+                        <td>@r.WarehouseName</td>
+                        <td>@r.Code</td>
+                        <td>@r.Name</td>
+                        <td class="num">@(r.Incoming == 0 ? "" : Quantities.Format(r.Incoming))</td>
+                        <td class="num">@(r.Outgoing == 0 ? "" : Quantities.Format(r.Outgoing))</td>
+                        <td>@r.UnitSymbol</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private MovementReport? _report;
+    private IReadOnlyList<LookupWarehouseDto> _warehouses = [];
+    private bool _busy;
+    private string? _denied;
+    private string? _error;
+    private string _warehouse = string.Empty;
+    private DateTime? _from;
+    private DateTime? _to;
+    private string _search = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _warehouses = await Stock.ListWarehousesAsync();
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private string ExportHref => KnitErp.Web.Exports.ExportLink.Build("reports/movements.xlsx", ("warehouse", _warehouse),
+        ("from", KnitErp.Web.Exports.ExportLink.Date(_from)), ("to", KnitErp.Web.Exports.ExportLink.Date(_to)), ("search", _search));
+
+    private async Task LoadAsync() =>
+        _report = await Reports.MovementsAsync(new MovementFilter(
+            long.TryParse(_warehouse, out var w) ? w : null,
+            _from is { } f ? DateOnly.FromDateTime(f) : null,
+            _to is { } t ? DateOnly.FromDateTime(t) : null,
+            _search));
+
+    private async Task ReloadAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await LoadAsync();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

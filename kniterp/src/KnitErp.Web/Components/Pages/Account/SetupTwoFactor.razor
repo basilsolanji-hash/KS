@@ -1,0 +1,99 @@
+@page "/account/setup-2fa"
+@attribute [AllowAnonymous]
+@attribute [ExcludeFromInteractiveRouting]
+@layout AccountLayout
+@inject SignInService SignIn
+@inject NavigationManager Navigation
+
+<PageTitle>@L("Двухфакторная аутентификация") — knitERP</PageTitle>
+<h1>@L("Подключите второй фактор")</h1>
+<p class="muted">
+    @L("Ваша роль даёт административные права, поэтому вход возможен только с кодом из приложения-аутентификатора (Яндекс Ключ, Google Authenticator или аналог).")
+</p>
+
+@if (_setup is not null)
+{
+    <ol>
+        <li>@L("Отсканируйте QR-код в приложении или введите ключ вручную.")</li>
+        <li>@L("Введите 6 цифр, которые покажет приложение.")</li>
+    </ol>
+    <img class="qr" src="@_qr" alt="@L("QR-код для приложения-аутентификатора")" />
+    <p>@L("Ключ"): <span class="key">@FormatKey(_setup.Key)</span></p>
+}
+
+@if (_message is not null)
+{
+    <div class="error" role="alert">@_message</div>
+}
+
+<EditForm Model="Input" method="post" FormName="setup-2fa" OnValidSubmit="SubmitAsync">
+    <label>@L("Код из приложения") <InputText @bind-Value="Input.Code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required /></label>
+    <button type="submit">@L("Подключить и войти")</button>
+</EditForm>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private CodeInput Input { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    private PendingSignIn? _pending;
+    private AuthenticatorSetup? _setup;
+    private string? _qr;
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+        _pending = await PendingSignInCookie.ReadAsync(HttpContext);
+        if (_pending is null)
+        {
+            Navigation.NavigateTo("account/login", forceLoad: true);
+            return;
+        }
+
+        try
+        {
+            _setup = await SignIn.BeginTwoFactorSetupAsync(_pending, HttpContext.RequestAborted);
+            _qr = QrCodes.PngDataUri(_setup.ProvisioningUri);
+        }
+        catch (Exception ex) when (ex is BusinessRuleException or NotFoundException)
+        {
+            // 2FA уже подключена или сессия входа устарела — начинаем вход заново.
+            _pending = null;
+            Navigation.NavigateTo("account/login", forceLoad: true);
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (_pending is null)
+        {
+            return;
+        }
+
+        var result = await SignIn.CompleteTwoFactorSetupAsync(_pending, Input.Code, HttpContext.RequestAborted);
+        if (result.Status == SignInStatus.Succeeded)
+        {
+            await PendingSignInCookie.CompleteAsync(HttpContext, result.Session!);
+            // Сразу после подключения 2FA — выдать резервные коды на случай потери телефона (D06).
+            Navigation.NavigateTo("security?setup=true", forceLoad: true);
+            return;
+        }
+
+        _message = result.Status == SignInStatus.Failed ? L("Код не подошёл. Проверьте время на телефоне и введите новый код.") : SignInMessages.For(result.Status);
+        Input.Code = string.Empty;
+    }
+
+    private static string FormatKey(string key) =>
+        string.Join(' ', Enumerable.Range(0, (key.Length + 3) / 4).Select(i => key.Substring(i * 4, Math.Min(4, key.Length - i * 4))));
+
+    private sealed class CodeInput
+    {
+        public string Code { get; set; } = string.Empty;
+    }
+}

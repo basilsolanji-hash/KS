@@ -1,0 +1,450 @@
+@inherits LayoutComponentBase
+@implements IAsyncDisposable
+@inject UserAccessService Access
+@inject PersonalToolsService Personal
+@inject NotificationService Notifications
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<div class="shell @(_narrow ? "narrow" : "")">
+    <nav class="side" aria-label="@L("Разделы")">
+        <div class="side-head">
+            <a href="" class="logo" title="@L("Главная")"><img src="img/icon-64.png" alt="" /><span class="logo-text">knit<span style="color: var(--accent)">ERP</span></span></a>
+            @if (_access is not null && _panel is not null)
+            {
+                @* Телефон и узкий планшет: инструменты и профиль — в этой же строке, одной кнопкой. *@
+                <div class="side-tools">
+                    <QuickBar Access="_access" Settings="_panel" Compact="true" ActiveTool="@_activeTool" Badge="_badge" OnOpen="OpenTool" OpenWindows="Windows" />
+                </div>
+            }
+            @* На телефоне меню свёрнуто в кнопку, чтобы не занимать экран над страницей. *@
+            <button type="button" class="secondary menu-toggle" aria-expanded="@(_menuOpen ? "true" : "false")" aria-controls="nav-body"
+                    @onclick="() => _menuOpen = !_menuOpen">@(_menuOpen ? L("Закрыть") : L("Меню"))</button>
+        </div>
+        <div id="nav-body" class="nav-body @(_menuOpen ? "open" : "")">
+        @if (_access is not null)
+        {
+            @foreach (var group in Groups)
+            {
+                var open = IsOpen(group);
+                @if (group.Items.Length == 1)
+                {
+                    var item = group.Items[0];
+                    <NavLink class="nav-single" href="@item.Href" Match="@(item.Href == "" ? NavLinkMatch.All : NavLinkMatch.Prefix)" title="@L(group.Title)"
+                             style="@($"--sec: var(--sec-{group.Key})")">
+                        <Icon Name="@group.Key" Size="16" /><span class="nav-text">@L(group.Title)</span>
+                    </NavLink>
+                    continue;
+                }
+
+                <div class="nav-group @(open ? "open" : "")" style="@($"--sec: var(--sec-{group.Key})")">
+                    <button type="button" class="nav-group-head" aria-expanded="@(open ? "true" : "false")" title="@L(group.Title)"
+                            @onclick="() => Toggle(group.Key)">
+                        <Icon Name="@group.Key" Size="16" /><span class="nav-text">@L(group.Title)</span><span class="caret" aria-hidden="true">▾</span>
+                    </button>
+                    @if (open)
+                    {
+                        <div class="nav-items">
+                            @foreach (var item in group.Items)
+                            {
+                                @if (item.Planned)
+                                {
+                                    <span class="nav-planned" title="@L("В плане разработки")">@L(item.Label) <span class="tag">@L("скоро")</span></span>
+                                    continue;
+                                }
+
+                                <a href="@item.Href" class="@(item.Href == Current ? "active" : null)" aria-current="@(item.Href == Current ? "page" : null)">
+                                    @L(item.Label)
+                                    @if (!item.Allowed(_access))
+                                    {
+                                        <span class="tag">@L("нет доступа")</span>
+                                    }
+                                </a>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+            <button type="button" class="nav-collapse" @onclick="ToggleNarrow" title="@(_narrow ? L("Развернуть меню") : L("Свернуть меню"))">@(_narrow ? "»" : "«")</button>
+        }
+        </div>
+        @if (_access is not null)
+        {
+            <SideFooter Access="_access" Narrow="_narrow" Route="@Navigation.ToBaseRelativePath(Navigation.Uri)" OnOpen="OpenTool" />
+        }
+    </nav>
+    <div class="main-col">
+        @if (_access is not null && _panel is not null)
+        {
+            <header class="topbar">
+                <QuickBar Access="_access" Settings="_panel" ActiveTool="@_activeTool" Badge="_badge" OnOpen="OpenTool" OpenWindows="Windows" ShowProfile="false" />
+            </header>
+        }
+        <main class="main">
+            @if (_access is null)
+            {
+                <p class="muted">@L("Загрузка…")</p>
+            }
+            else
+            {
+                @* Страница начинает работу после меню: у вкладки один DbContext, параллельных запросов к нему быть не должно.
+                   Инструменты панели работают со своим DbContext на каждую операцию и страницу не трогают. *@
+                <CascadingValue Value="_access" IsFixed="true">
+                    @Body
+                </CascadingValue>
+            }
+        </main>
+    </div>
+    @if (_access is not null && _panel is not null && _opened.Count > 0)
+    {
+        <ToolDrawer Context="ToolContext()" Settings="_panel" Active="@_activeTool" Opened="_opened" HelpArticleId="@_helpArticle"
+                    OnClose="CloseTool" OnBadge="count => _badge = count" OnSaveSettings="SavePanelAsync" />
+    }
+    @if (_calculatorOpen)
+    {
+        <CalculatorWindow OnClose="() => _calculatorOpen = false" />
+    }
+</div>
+
+@code {
+    private CurrentAccessDto? _access;
+
+    /// <summary>Пункт меню. Planned — функция в плане: виден серым с пометкой «скоро» и никуда не ведёт.</summary>
+    private sealed record NavItem(string Href, string Label, Func<CurrentAccessDto, bool> Allowed, bool Planned = false);
+
+    private sealed record NavGroup(string Key, string Title, NavItem[] Items);
+
+    private static bool Docs(CurrentAccessDto a) =>
+        a.Has(Permissions.WarehouseDocumentCreate) || a.Has(Permissions.WarehouseDocumentPost) || a.Has(Permissions.WarehouseReportView);
+
+    private static NavItem Soon(string key, string label) => new("plan:" + key, label, _ => true, Planned: true);
+
+    // Разделы меню — по структуре, которую задал пользователь (Продажи, Закупки, CRM, Склад, в каждом «Обучение»).
+    // Названия — русские ключи, переводятся при показе (L). Пункты без доступа видны и кликабельны: сервер ответит
+    // отказом и запишет попытку в журнал. Пункты «скоро» — функции в плане (D66).
+    private static readonly NavGroup[] Groups =
+    [
+        new("home", "Главная", [new("", "Главная", a => true)]),
+        new("sales", "Продажи",
+        [
+            new("sales-orders", "Заказы покупателей", a => a.Has(Permissions.SalesView)),
+            new("customer-invoices", "Счета покупателям", a => a.Has(Permissions.SalesView) && a.Has(Permissions.PriceView)),
+            new("stock-documents?kind=6", "Отгрузки", Docs),
+            Soon("commission-reports", "Отчёты комиссионера"),
+            new("stock-documents?kind=7", "Возвраты покупателей", Docs),
+            new("vat-invoices/issued", "Счета-фактуры выданные", a => a.Has(Permissions.SalesView) && a.Has(Permissions.PriceView)),
+            new("reports/profitability", "Прибыльность", a => a.Has(Permissions.SalesView) && a.Has(Permissions.PriceView)),
+            new("reports/sales-by-item", "Товары и реализации", a => a.Has(Permissions.SalesView) && a.Has(Permissions.PriceView)),
+            Soon("sales-funnel", "Воронка продаж"),
+            Soon("unit-economics", "Юнит-экономика"),
+            new("sales-order-stages", "Этапы заказов", a => a.Has(Permissions.SalesView)),
+            new("learn/sales", "Обучение", a => true),
+        ]),
+        new("purchases", "Закупки",
+        [
+            new("purchase-orders", "Заказы поставщикам", a => a.Has(Permissions.PurchaseView)),
+            new("supplier-invoices", "Счета поставщиков", a => a.Has(Permissions.PurchaseView) && a.Has(Permissions.PriceView)),
+            new("stock-documents?kind=1&order=1", "Приёмка", Docs),
+            new("stock-documents?kind=5", "Возвраты поставщикам", Docs),
+            new("vat-invoices/received", "Счета-фактуры полученные", a => a.Has(Permissions.PurchaseView) && a.Has(Permissions.PriceView)),
+            Soon("purchase-planning", "Управление закупками"),
+            new("learn/purchases", "Обучение", a => true),
+        ]),
+        new("money", "Деньги",
+        [
+            new("money", "Касса и счета", a => a.Has(Permissions.PriceView)),
+            new("customer-payments", "Оплаты покупателей", a => a.Has(Permissions.SalesView) && a.Has(Permissions.PriceView)),
+            new("supplier-payments", "Оплаты поставщикам", a => a.Has(Permissions.PurchaseView) && a.Has(Permissions.PriceView)),
+            new("reports/customer-balances", "Расчёты с покупателями", a => a.Has(Permissions.SalesView) && a.Has(Permissions.PriceView)),
+            new("reports/supplier-balances", "Расчёты с поставщиками", a => a.Has(Permissions.PurchaseView) && a.Has(Permissions.PriceView)),
+            new("settlement-statement", "Акт сверки", a => a.Has(Permissions.PriceView) && (a.Has(Permissions.SalesView) || a.Has(Permissions.PurchaseView))),
+            new("reports/cash-flow", "Движение денег (ДДС)", a => a.Has(Permissions.PriceView)),
+            new("cash-book", "Кассовая книга", a => a.Has(Permissions.PriceView)),
+            new("accountables", "Подотчётные лица", a => a.Has(Permissions.PriceView)),
+            new("cash-flow-items", "Статьи движения денег", a => a.Has(Permissions.PriceView)),
+            new("legal-entities", "Юрлица, счета и кассы", a => a.Has(Permissions.OrganizationView)),
+        ]),
+        new("crm", "CRM",
+        [
+            new("counterparties", "Контрагенты", a => a.Has(Permissions.CatalogView)),
+            new("counterparties?role=customer", "Покупатели", a => a.Has(Permissions.CatalogView)),
+            new("counterparties?role=supplier", "Поставщики", a => a.Has(Permissions.CatalogView)),
+            Soon("contracts", "Договоры"),
+            Soon("calls", "Звонки"),
+            Soon("discounts", "Скидки"),
+            new("learn/crm", "Обучение", a => true),
+        ]),
+        new("warehouse", "Склад",
+        [
+            new("stock-documents?kind=1&order=0", "Оприходования", Docs),
+            new("stock-documents?kind=2", "Списания", Docs),
+            new("stock-documents?kind=3", "Перемещения", Docs),
+            new("inventory", "Инвентаризация", Docs),
+            Soon("picking-waves", "Волны отбора"),
+            Soon("internal-orders", "Внутренние заказы"),
+            new("stock", "Остатки", a => a.Has(Permissions.WarehouseReportView)),
+            new("reports/turnover", "Обороты", a => a.Has(Permissions.WarehouseReportView)),
+            new("warehouses", "Склады", a => a.Has(Permissions.CatalogView)),
+            new("opening-balances", "Начальные остатки", a => a.Has(Permissions.OpeningBalanceCreate) || a.Has(Permissions.OpeningBalanceApprove)
+                                                         || a.Has(Permissions.WarehouseReportView)),
+            new("stock-documents", "Все складские документы", Docs),
+            new("learn/warehouse", "Обучение", a => true),
+        ]),
+        new("production", "Производство",
+        [
+            new("tech-cards", "Техкарты", a => a.Has(Permissions.CatalogView)),
+        ]),
+        new("reports", "Отчёты",
+        [
+            new("reports/movements", "Движения", a => a.Has(Permissions.WarehouseReportView)),
+            new("reports/inventory-variances", "Отклонения инвентаризации", a => a.Has(Permissions.WarehouseReportView)),
+            new("reconciliation", "Сверка", a => a.Has(Permissions.WarehouseReportView)),
+            new("audit", "Журнал аудита", a => a.HasOwnOnly(Permissions.AuditLogView)),
+            new("signins", "Журнал входов", a => a.HasOwnOnly(Permissions.AuditLogView)),
+        ]),
+        new("catalogs", "Справочники",
+        [
+            new("catalog", "Номенклатура", a => a.Has(Permissions.CatalogView)),
+            new("catalog/settings?tab=Groups", "Группы номенклатуры", a => a.Has(Permissions.CatalogView)),
+            new("catalog/settings?tab=Prices", "Виды цен", a => a.Has(Permissions.CatalogView) && a.Has(Permissions.PriceView)),
+            new("catalog/settings?tab=Characteristics", "Характеристики", a => a.Has(Permissions.CatalogView)),
+            new("catalog/settings?tab=Fields", "Доп. поля номенклатуры", a => a.Has(Permissions.CatalogView)),
+            new("catalog/settings?tab=Catalogs", "Свои справочники", a => a.Has(Permissions.CatalogView)),
+            new("sales-settings?section=projects", "Проекты", a => a.Has(Permissions.SalesView)),
+            new("sales-settings?section=channels", "Каналы продаж", a => a.Has(Permissions.SalesView)),
+            new("sales-settings?section=fields", "Доп. поля заказов", a => a.Has(Permissions.SalesView)),
+            new("units", "Единицы измерения", a => a.Has(Permissions.CatalogView)),
+            new("vat-rates", "Ставки НДС", a => a.Has(Permissions.CatalogView)),
+            new("structure", "Структура", a => a.Has(Permissions.DepartmentView)),
+            new("employees", "Сотрудники", a => a.HasOwnOnly(Permissions.EmployeeView)),
+        ]),
+        new("settings", "Настройки",
+        [
+            new("organization", "Организация", a => a.Has(Permissions.OrganizationView)),
+            new("launch", "Готовность к запуску", a => a.Has(Permissions.OrganizationEdit)),
+            new("users", "Пользователи", a => a.Has(Permissions.UserView)),
+            new("roles", "Роли и права", a => a.Has(Permissions.UserView)),
+            new("period", "Закрытие периода", a => a.Has(Permissions.ClosedPeriodReopen) || a.Has(Permissions.WarehouseReportView)),
+            new("integrity", "Проверка целостности", a => a.Has(Permissions.AuditLogView)),
+        ]),
+    ];
+
+    private static readonly NavItem[] Items = Groups.SelectMany(g => g.Items).Where(i => !i.Planned).ToArray();
+
+    private readonly HashSet<string> _toggled = [];
+    private bool _narrow;
+
+    /// <summary>
+    /// Пункт меню текущей страницы — один: точное совпадение с параметрами («Поступления» = stock-documents?kind=1)
+    /// важнее общего раздела, длинный адрес — важнее короткого.
+    /// </summary>
+    private string? Current
+    {
+        get
+        {
+            var path = Navigation.ToBaseRelativePath(Navigation.Uri);
+            return Items.Where(i => i.Href.Length > 0 && Matches(path, i.Href))
+                .OrderByDescending(i => i.Href.Contains('?')).ThenByDescending(i => i.Href.Length)
+                .Select(i => i.Href).FirstOrDefault();
+        }
+    }
+
+    /// <summary>Раздел раскрыт, если в нём текущая страница; щелчок по заголовку меняет это состояние.</summary>
+    private bool IsOpen(NavGroup group)
+    {
+        var current = Current;
+        return group.Items.Any(i => i.Href == current) ^ _toggled.Contains(group.Key);
+    }
+
+    private static bool Matches(string path, string href)
+    {
+        var p = path.Split('#')[0];
+        var h = href;
+        if (h.Contains('?'))
+        {
+            return p == h || p.StartsWith(h + "&", StringComparison.Ordinal);
+        }
+
+        var bare = p.Split('?')[0];
+        return bare == h || bare.StartsWith(h + "/", StringComparison.Ordinal);
+    }
+
+    private void Toggle(string key)
+    {
+        if (!_toggled.Remove(key))
+        {
+            _toggled.Add(key);
+        }
+    }
+
+    private void ToggleNarrow() => _narrow = !_narrow;
+
+    private bool _menuOpen;
+    private PanelSettings? _panel;
+    private string? _activeTool;
+    private string? _helpArticle;
+    private readonly List<string> _opened = [];
+    private int _badge;
+    private DateTime _badgeAt;
+    private DotNetObjectReference<MainLayout>? _self;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+        _access = await Access.GetCurrentAccessAsync();
+        try
+        {
+            _panel = await Personal.GetPanelAsync();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            // Панель не должна мешать работе: без настроек показываем панель по умолчанию.
+            _panel = new PanelSettings(ToolCatalog.DefaultPinned, ToolCatalog.DefaultVisible);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _self = DotNetObjectReference.Create(this);
+            try
+            {
+                await JS.InvokeVoidAsync("kniterp.registerHotkeys", _self);
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+
+            // Счётчик уведомлений — после отрисовки страницы, чтобы не задерживать её загрузку.
+            await RefreshBadgeAsync();
+        }
+    }
+
+    /// <summary>Ctrl+K — поиск, Esc — закрыть инструмент (вызывается из браузера).</summary>
+    [JSInvokable]
+    public Task OnHotkey(string key) => InvokeAsync(async () =>
+    {
+        if (key == "search")
+        {
+            await OpenTool(ToolCatalog.Search);
+        }
+        else if (key == "escape" && _activeTool is not null)
+        {
+            await CloseTool();
+        }
+
+        StateHasChanged();
+    });
+
+    private async Task OpenTool(string id) => await OpenTool(id, null);
+
+    private bool _calculatorOpen;
+
+    private IReadOnlyCollection<string> Windows => _calculatorOpen ? [ToolCatalog.Calculator] : [];
+
+    private async Task OpenTool(string id, string? arg)
+    {
+        _menuOpen = false;
+        if (id == ToolCatalog.Calculator)
+        {
+            // Калькулятор — отдельным окном: повторный щелчок по значку закрывает его.
+            _calculatorOpen = !_calculatorOpen;
+            StateHasChanged();
+            return;
+        }
+
+        if (id == ToolCatalog.Help)
+        {
+            _helpArticle = arg;
+        }
+
+        if (!_opened.Contains(id))
+        {
+            _opened.Add(id);
+        }
+
+        _activeTool = id;
+        StateHasChanged();
+        try
+        {
+            await JS.InvokeVoidAsync("kniterp.focusDrawer", id == ToolCatalog.Search ? "quick-search-input" : "drawer-title");
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private async Task CloseTool()
+    {
+        _activeTool = null;
+        try
+        {
+            await JS.InvokeVoidAsync("kniterp.restoreFocus");
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private Task NavigateFromTool(string href)
+    {
+        _activeTool = null;
+        Navigation.NavigateTo(href);
+        return Task.CompletedTask;
+    }
+
+    private async Task SavePanelAsync(PanelSettings settings) => _panel = await Personal.SavePanelAsync(settings);
+
+    private ToolContext ToolContext()
+    {
+        var route = Navigation.ToBaseRelativePath(Navigation.Uri);
+        return new ToolContext(_access!, route, RouteTitle(route),
+            Items.Where(i => i.Href.Length > 0).Select(i => new NavEntry(i.Href, L(i.Label), i.Allowed(_access!))).ToList(),
+            (id, arg) => InvokeAsync(() => OpenTool(id, arg)), href => InvokeAsync(() => NavigateFromTool(href)));
+    }
+
+    /// <summary>Название текущего раздела — для избранного и поддержки.</summary>
+    private static string RouteTitle(string route)
+    {
+        var path = route.Split('?', '#')[0];
+        var item = Items.Where(i => i.Href.Length == 0 ? route.Length == 0 : Matches(route, i.Href))
+            .OrderByDescending(i => i.Href.Length).FirstOrDefault();
+        return item is null ? path : path.Contains('/') ? $"{item.Label}: {path[(path.IndexOf('/') + 1)..]}" : item.Label;
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        _menuOpen = false;
+        _toggled.Clear();
+        _ = InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            if (DateTime.UtcNow - _badgeAt > TimeSpan.FromMinutes(1))
+            {
+                await RefreshBadgeAsync();
+            }
+        });
+    }
+
+    private async Task RefreshBadgeAsync()
+    {
+        _badgeAt = DateTime.UtcNow;
+        try
+        {
+            _badge = (await Notifications.ListAsync()).Count;
+            StateHasChanged();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            // Счётчик — подсказка; ошибка не мешает работе.
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Navigation.LocationChanged -= OnLocationChanged;
+        _self?.Dispose();
+        await Task.CompletedTask;
+    }
+}

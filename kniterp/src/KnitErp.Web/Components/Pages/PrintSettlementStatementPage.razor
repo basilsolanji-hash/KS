@@ -1,0 +1,128 @@
+@page "/print/settlement-statement"
+@layout KnitErp.Web.Components.Layout.PrintLayout
+@using System.Globalization
+@using KnitErp.Application.Finance
+@inject SettlementStatementService Statements
+
+@*
+    Акт сверки взаимных расчётов (D85). Унифицированной формы нет — состав по обычаю делового оборота: наши данные заполнены,
+    графы контрагента — для его отметок; подписи руководителей и главных бухгалтеров обеих сторон. Печатается по-русски (D68).
+*@
+<PageTitle>@(_doc is null ? "Акт сверки" : $"Акт сверки — {_doc.Counterparty}") — knitERP</PageTitle>
+<style>@@media print { @@page { size: A4 portrait; margin: 10mm; } }</style>
+
+<div class="print-bar">
+    <button type="button" data-print>@L("Печать")</button>
+    <a href="@($"settlement-statement?counterparty={Counterparty}")">@L("← Назад")</a>
+</div>
+
+@if (_error is not null)
+{
+    <div class="sheet portrait"><p>@_error</p></div>
+}
+else if (_doc is null)
+{
+    <div class="sheet portrait"><p>@L("Загрузка…")</p></div>
+}
+else
+{
+    var d = _doc;
+    <div class="sheet portrait">
+        <h1 style="text-align: center; border: 0">Акт сверки взаимных расчётов</h1>
+        <p style="text-align: center">
+            за период с @d.From.ToString("dd.MM.yyyy") по @d.To.ToString("dd.MM.yyyy")<br />
+            между @d.Entity@(d.EntityInn is null ? "" : $" (ИНН {d.EntityInn}{(d.EntityKpp is null ? "" : $", КПП {d.EntityKpp}")})")
+            и @d.Counterparty@(d.CounterpartyInn is null ? "" : $" (ИНН {d.CounterpartyInn}{(d.CounterpartyKpp is null ? "" : $", КПП {d.CounterpartyKpp}")})")
+        </p>
+        <p>Мы, нижеподписавшиеся, составили настоящий акт сверки в том, что состояние взаимных расчётов по данным учёта следующее (@Currency):</p>
+
+        <table>
+            <tr><th colspan="4">По данным @d.EntityShort</th><th colspan="4">По данным @d.Counterparty</th></tr>
+            <tr><th>Дата</th><th>Документ</th><th>Дебет</th><th>Кредит</th><th>Дата</th><th>Документ</th><th>Дебет</th><th>Кредит</th></tr>
+            <tr><td colspan="2"><b>Сальдо на @d.From.ToString("dd.MM.yyyy")</b></td><td class="n">@Debit(d.Opening)</td><td class="n">@Credit(d.Opening)</td><td colspan="2"></td><td></td><td></td></tr>
+            @foreach (var r in d.Rows)
+            {
+                <tr>
+                    <td>@r.Date.ToString("dd.MM.yyyy")</td><td>@r.Document</td>
+                    <td class="n">@(r.Debit == 0 ? "" : r.Debit.ToString("N2", Ru))</td><td class="n">@(r.Credit == 0 ? "" : r.Credit.ToString("N2", Ru))</td>
+                    <td></td><td></td><td></td><td></td>
+                </tr>
+            }
+            <tr><td colspan="2"><b>Обороты за период</b></td><td class="n">@d.DebitTotal.ToString("N2", Ru)</td><td class="n">@d.CreditTotal.ToString("N2", Ru)</td><td colspan="2"></td><td></td><td></td></tr>
+            <tr><td colspan="2"><b>Сальдо на @d.To.ToString("dd.MM.yyyy")</b></td><td class="n">@Debit(d.Closing)</td><td class="n">@Credit(d.Closing)</td><td colspan="2"></td><td></td><td></td></tr>
+        </table>
+
+        <p style="margin-top: 10px">
+            <span>По данным @d.EntityShort на @d.To.ToString("dd.MM.yyyy"):</span>
+            @if (d.Closing > 0)
+            {
+                <b>&nbsp;задолженность в пользу @d.EntityShort — @d.Closing.ToString("N2", Ru) @Currency</b>
+            }
+            else if (d.Closing < 0)
+            {
+                <b>&nbsp;задолженность в пользу @d.Counterparty — @((-d.Closing).ToString("N2", Ru)) @Currency</b>
+            }
+            else
+            {
+                <b>&nbsp;задолженность отсутствует</b>
+            }
+        </p>
+
+        <div class="sign">
+            <div>
+                <p><b>От @d.EntityShort</b></p>
+                <p>@(d.DirectorPosition ?? "Руководитель") <span class="line"></span> @d.DirectorName</p>
+                <p>Главный бухгалтер <span class="line"></span> @(d.AccountantName ?? d.DirectorName)</p>
+                <p>М. П.</p>
+            </div>
+            <div>
+                <p><b>От @d.Counterparty</b></p>
+                <p>Руководитель <span class="line"></span></p>
+                <p>Главный бухгалтер <span class="line"></span></p>
+                <p>М. П.</p>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "counterparty")]
+    public long Counterparty { get; set; }
+
+    [SupplyParameterFromQuery(Name = "entity")]
+    public long? Entity { get; set; }
+
+    [SupplyParameterFromQuery(Name = "from")]
+    public string? From { get; set; }
+
+    [SupplyParameterFromQuery(Name = "to")]
+    public string? To { get; set; }
+
+    private SettlementStatementDto? _doc;
+    private string? _error;
+
+    private static readonly CultureInfo Ru = CultureInfo.GetCultureInfo("ru-RU");
+
+    private string Currency => _doc?.CurrencyCode == "RUB" ? "руб." : _doc?.CurrencyCode ?? "";
+
+    private string Debit(decimal saldo) => saldo > 0 ? saldo.ToString("N2", Ru) : "";
+
+    private string Credit(decimal saldo) => saldo < 0 ? (-saldo).ToString("N2", Ru) : "";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            if (!DateOnly.TryParseExact(From, "yyyy-MM-dd", out var from) || !DateOnly.TryParseExact(To, "yyyy-MM-dd", out var to))
+            {
+                throw new BusinessRuleException("settlement.period", "Укажите период акта.");
+            }
+
+            _doc = await Statements.BuildAsync(Counterparty, Entity, from, to);
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+    }
+}

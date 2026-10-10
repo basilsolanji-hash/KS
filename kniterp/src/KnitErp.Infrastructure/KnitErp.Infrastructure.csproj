@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>KnitErp.Infrastructure</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\KnitErp.Application\KnitErp.Application.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="ClosedXML" />
+    <!-- Официальный SDK Anthropic: ИИ-помощник (включается ключом в настройках, по умолчанию выключен). -->
+    <PackageReference Include="Anthropic" />
+    <PackageReference Include="MailKit" />
+    <PackageReference Include="Microsoft.Extensions.Http" />
+    <!-- Ключи защиты cookie хранятся в базе, зашифрованные мастер-ключом. -->
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
+    <!-- Только для команды dotnet ef: в сборку приложения не попадает. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <!-- Design тянет через MSBuild уязвимую 9.0.0 (GHSA-23rf-6693-g89p и др.): закрепляем исправленную. -->
+    <PackageReference Include="System.Security.Cryptography.Xml" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

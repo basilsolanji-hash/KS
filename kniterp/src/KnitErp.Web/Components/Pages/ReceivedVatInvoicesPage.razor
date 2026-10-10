@@ -1,0 +1,252 @@
+@page "/vat-invoices/received"
+@using KnitErp.Application.Taxes
+@using KnitErp.Domain.Purchasing
+@inject VatInvoiceService VatInvoices
+
+<PageTitle>@L("Счета-фактуры полученные") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_rows is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <h1>@L("Счета-фактуры полученные")</h1>
+    <p class="muted">@L("Счёт-фактура (или УПД) поставщика регистрируется к проведённой приёмке по заказу: номер и дата — как в документе поставщика, суммы подставляются по ценам заказа и правятся по документу.")</p>
+
+    @if (_message is not null)
+    {
+        <div class="@(_messageIsError ? "flash error" : "flash")" role="@(_messageIsError ? "alert" : "status")">@_message</div>
+    }
+
+    @if (CanEdit && _todo is { Count: > 0 })
+    {
+        <div class="panel">
+            <h2>@L("Зарегистрировать счёт-фактуру") <span class="muted">· @L("приёмок без счёта-фактуры: {0}", _todo.Count)</span></h2>
+            <form @onsubmit="RegisterAsync">
+                <div class="grid">
+                    <label>@L("Приёмка")
+                        <select value="@_receiptId" @onchange="PickReceipt">
+                            <option value="">@L("— выберите —")</option>
+                            @foreach (var t in _todo)
+                            {
+                                <option value="@t.Id">@t.Number @t.Date.ToString("dd.MM.yyyy") · @t.Supplier · @Amounts.Format(t.Amount)</option>
+                            }
+                        </select>
+                    </label>
+                    <label>@L("Номер счёта-фактуры") <input @bind="_number" maxlength="@ReceivedVatInvoice.NumberMaxLength" /></label>
+                    <label>@L("Дата") <input type="date" @bind="_date" /></label>
+                    <label>@L("Сумма с НДС") <input @bind="_amountText" inputmode="decimal" /></label>
+                    <label>@L("НДС") <input @bind="_vatText" inputmode="decimal" /></label>
+                    <label>@L("Комментарий") <input @bind="_comment" maxlength="@ReceivedVatInvoice.CommentMaxLength" /></label>
+                </div>
+                <div class="actions"><button type="submit" disabled="@(_busy || _receiptId is null)">@L("Зарегистрировать")</button></div>
+            </form>
+        </div>
+    }
+
+    @if (_cancel is not null)
+    {
+        <div class="panel">
+            <h2>@L("Отменить счёт-фактуру № {0}", _cancel.SupplierNumber)</h2>
+            <form class="inline-form" @onsubmit="CancelAsync">
+                <label>@L("Причина") <input @bind="_reason" maxlength="@ReceivedVatInvoice.CommentMaxLength" size="40" /></label>
+                <button type="submit" disabled="@_busy">@L("Отменить")</button>
+                <button type="button" class="secondary" @onclick="() => _cancel = null">@L("Закрыть")</button>
+            </form>
+        </div>
+    }
+
+    <form class="inline-form" @onsubmit="ReloadAsync">
+        <label>@L("С") <input type="date" @bind="_from" /></label>
+        <label>@L("По") <input type="date" @bind="_to" /></label>
+        @if (_buyers.Count > 1)
+        {
+            <label>
+                @L("Покупатель")
+                <select @bind="_buyer">
+                    <option value="">@L("все юрлица")</option>
+                    @foreach (var b in _buyers)
+                    {
+                        <option value="@b.Id">@b.Name</option>
+                    }
+                </select>
+            </label>
+        }
+        <label>@L("Поиск") <input @bind="_search" placeholder="@L("номер, поставщик, ИНН, приёмка")" /></label>
+        <label class="inline"><input type="checkbox" @bind="_cancelled" /> @L("Показать отменённые")</label>
+        <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
+        <a class="button secondary" href="@ExportHref" download data-enhance-nav="false" title="@L("Выгрузить с текущими фильтрами")">Excel</a>
+    </form>
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>@L("Номер")</th><th>@L("Дата")</th><th>@L("Поставщик")</th><th class="opt">@L("ИНН/КПП")</th><th class="opt">@L("Приёмка")</th>@if (_buyers.Count > 1) { <th class="opt">@L("Покупатель")</th> }<th class="num">@L("Без НДС")</th><th class="num">@L("НДС")</th><th class="num">@L("Всего")</th><th class="num opt">@L("Расхождение с приёмкой")</th>@if (CanEdit) { <th></th> }</tr></thead>
+            <tbody>
+                @if (_rows.Count == 0)
+                {
+                    <tr><td colspan="10" class="muted">@L("За период счетов-фактур нет.")</td></tr>
+                }
+                @foreach (var r in _rows)
+                {
+                    var cancelled = r.Status == ReceivedVatInvoiceStatus.Cancelled;
+                    <tr class="@(cancelled ? "archived" : null)">
+                        <td>@r.SupplierNumber @if (cancelled) { <span class="tag" title="@r.CancelReason">@L("отменён")</span> }</td>
+                        <td>@r.Date.ToString("dd.MM.yyyy")</td>
+                        <td>@r.Supplier</td>
+                        <td>@r.Inn@(r.Kpp is null ? "" : "/" + r.Kpp)</td>
+                        <td><a href="stock-documents/@r.ReceiptId">@r.ReceiptNumber</a></td>
+                        @if (_buyers.Count > 1) { <td>@r.Buyer</td> }
+                        <td class="num">@Amounts.Format(r.AmountWithoutVat)</td>
+                        <td class="num">@Amounts.Format(r.VatAmount)</td>
+                        <td class="num"><b>@Amounts.Format(r.Amount)</b></td>
+                        <td class="num"><span class="@(r.Difference != 0 ? "warn-text" : "")">@(r.Difference == 0 ? "—" : Amounts.Format(r.Difference))</span></td>
+                        @if (CanEdit)
+                        {
+                            <td>@if (!cancelled) { <button type="button" class="secondary" @onclick="() => { _cancel = r; _reason = null; }" disabled="@_busy">@L("Отменить")</button> }</td>
+                        }
+                    </tr>
+                }
+            </tbody>
+            @if (_rows.Count > 0)
+            {
+                var valid = _rows.Where(r => r.Status == ReceivedVatInvoiceStatus.Registered).ToList();
+                <tfoot><tr><td colspan="5"><b>@L("Итого")</b></td><td class="num">@Amounts.Format(valid.Sum(r => r.AmountWithoutVat))</td><td class="num"><b>@Amounts.Format(valid.Sum(r => r.VatAmount))</b></td><td class="num"><b>@Amounts.Format(valid.Sum(r => r.Amount))</b></td><td></td>@if (CanEdit) { <td></td> }</tr></tfoot>
+            }
+        </table>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private IReadOnlyList<ReceivedVatInvoiceDto>? _rows;
+    private IReadOnlyList<ReceiptToRegisterDto>? _todo;
+    private bool _busy;
+    private string? _denied;
+    private string? _message;
+    private bool _messageIsError;
+    private DateTime _from;
+    private DateTime _to;
+    private string? _search;
+    private bool _cancelled;
+    private long? _receiptId;
+    private string? _number;
+    private DateTime _date = DateTime.Today;
+    private string _amountText = string.Empty;
+    private string _vatText = string.Empty;
+    private string? _comment;
+    private ReceivedVatInvoiceDto? _cancel;
+    private string? _reason;
+
+    private bool CanEdit => CurrentAccess.Has(Permissions.PurchaseEdit);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var today = TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId).Date;
+        _from = new DateTime(today.Year, (today.Month - 1) / 3 * 3 + 1, 1);
+        _to = _from.AddMonths(3).AddDays(-1);
+        _date = today;
+        try
+        {
+            _buyers = await VatInvoices.BuyersAsync();
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private string ExportHref => KnitErp.Web.Exports.ExportLink.Build("vat-invoices/received.xlsx",
+        ("from", KnitErp.Web.Exports.ExportLink.Date(_from)), ("to", KnitErp.Web.Exports.ExportLink.Date(_to)), ("search", _search),
+        ("entity", _buyer));
+
+    private string _buyer = string.Empty;
+    private IReadOnlyList<KnitErp.Application.Structure.LookupDto> _buyers = [];
+
+    private async Task LoadAsync()
+    {
+        _rows = await VatInvoices.ReceivedAsync(new VatJournalFilter(DateOnly.FromDateTime(_from), DateOnly.FromDateTime(_to), _search, _cancelled,
+            long.TryParse(_buyer, out var buyer) ? buyer : null));
+        _todo = CanEdit ? await VatInvoices.ReceiptsToRegisterAsync() : null;
+    }
+
+    /// <summary>Выбор приёмки подставляет суммы по ценам заказа и номер счёта из шапки заказа.</summary>
+    private void PickReceipt(ChangeEventArgs e)
+    {
+        _receiptId = long.TryParse(e.Value?.ToString(), out var id) ? id : null;
+        if (_todo?.FirstOrDefault(t => t.Id == _receiptId) is { } t)
+        {
+            _amountText = Amounts.Format(t.Amount);
+            _vatText = Amounts.Format(t.VatAmount);
+            _number ??= t.SupplierInvoice;
+            _date = t.Date.ToDateTime(TimeOnly.MinValue);
+        }
+    }
+
+    private Task RegisterAsync() => RunAsync(async () =>
+    {
+        await VatInvoices.RegisterAsync(new RegisterVatInvoiceCommand(_receiptId ?? 0, _number, DateOnly.FromDateTime(_date), Number(_amountText),
+            Number(_vatText), _comment));
+        _receiptId = null;
+        _number = null;
+        _comment = null;
+        _amountText = _vatText = string.Empty;
+    }, L("Счёт-фактура зарегистрирован."));
+
+    private Task CancelAsync() => RunAsync(async () =>
+    {
+        await VatInvoices.CancelAsync(_cancel!.Id, _reason, _cancel.RowVersion);
+        _cancel = null;
+    }, L("Счёт-фактура отменён."));
+
+    private static decimal Number(string text) =>
+        Quantities.TryParse(text, out var value) ? value : throw new BusinessRuleException("vat_invoice.number", L("Укажите число, например 1 220,50."));
+
+    private Task ReloadAsync() => RunAsync(() => Task.CompletedTask, null);
+
+    /// <summary>Одна операция за раз, затем свежие списки: у вкладки один DbContext.</summary>
+    private async Task RunAsync(Func<Task> action, string? success)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _messageIsError = false;
+        try
+        {
+            await action();
+            _message = success;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+            _messageIsError = true;
+        }
+        finally
+        {
+            try
+            {
+                await LoadAsync();
+            }
+            catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+            {
+                _message = UiErrors.Message(ex);
+                _messageIsError = true;
+            }
+            finally
+            {
+                _busy = false;
+            }
+        }
+    }
+}

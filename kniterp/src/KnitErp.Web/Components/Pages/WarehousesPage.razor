@@ -1,0 +1,354 @@
+@page "/warehouses"
+@using KnitErp.Application.Warehousing
+@using KnitErp.Web.Components.Shared
+@using KnitErp.Domain.Warehousing
+@inject WarehouseService Warehouses
+@inject OperationReasonService Reasons
+
+<PageTitle>@L("Площадки и склады") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_data is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <div class="page-head">
+        <h1>@L("Площадки и склады")</h1>
+        <label class="inline"><input type="checkbox" checked="@_showArchived" @onchange="ToggleArchivedAsync" disabled="@_busy" /> @L("Показать архив")</label>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="@(_messageIsError ? "error" : "flash")" role="@(_messageIsError ? "alert" : "status")">@_message</div>
+    }
+
+    <h2>@L("Склады")</h2>
+    @if (_data.CanEdit)
+    {
+        <form class="inline-form" @onsubmit="CreateWarehouseAsync">
+            <label>@L("Новый склад") <input @bind="_newWarehouse" maxlength="150" placeholder="@L("Например: Склад пряжи")" /></label>
+            <label>
+                @L("Площадка")
+                <select @bind="_newWarehouseSite">
+                    <option value="">@L("— не указана —")</option>
+                    @foreach (var s in ActiveSites)
+                    {
+                        <option value="@s.Id">@s.Name</option>
+                    }
+                </select>
+            </label>
+            <button type="submit" disabled="@_busy">@L("Добавить")</button>
+        </form>
+    }
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>@L("Склад")</th><th>@L("Площадка")</th>@if (_data.CanEdit || _data.CanArchive) { <th>@L("Действия")</th> }</tr></thead>
+            <tbody>
+                @if (_data.Warehouses.Count == 0)
+                {
+                    <tr><td colspan="3" class="muted">@L("Складов пока нет.")</td></tr>
+                }
+                @foreach (var w in _data.Warehouses)
+                {
+                    <tr class="@(w.IsArchived ? "archived" : null)">
+                        @if (_editWarehouse?.Id == w.Id)
+                        {
+                            <td colspan="3">
+                                <form class="inline-form" @onsubmit="() => SaveWarehouseAsync(w)">
+                                    <label>@L("Название") <input @bind="_editName" maxlength="150" /></label>
+                                    <label>
+                                        @L("Площадка")
+                                        <select @bind="_editSite">
+                                            <option value="">@L("— не указана —")</option>
+                                            @foreach (var s in ActiveSites)
+                                            {
+                                                <option value="@s.Id">@s.Name</option>
+                                            }
+                                        </select>
+                                    </label>
+                                    <button type="submit" disabled="@_busy">@L("Сохранить")</button>
+                                    <button type="button" class="secondary" @onclick="() => _editWarehouse = null">@L("Отмена")</button>
+                                </form>
+                            </td>
+                        }
+                        else
+                        {
+                            <td>@w.Name @if (w.IsArchived) { <span class="tag">@L("архив")</span> }</td>
+                            <td>@(w.SiteName ?? "—")</td>
+                            @if (_data.CanEdit || _data.CanArchive)
+                            {
+                                <td>
+                                    @if (!w.IsArchived)
+                                    {
+                                        <div class="row-actions">
+                                            @if (_data.CanEdit)
+                                            {
+                                                <button type="button" class="secondary" @onclick="() => StartEditWarehouse(w)" disabled="@_busy">@L("Изменить")</button>
+                                            }
+                                            @if (_data.CanArchive)
+                                            {
+                                                <ConfirmButton Class="secondary" OnConfirm="() => ArchiveWarehouseAsync(w)" Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
+                                            }
+                                        </div>
+                                    }
+                                </td>
+                            }
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <h2 style="margin-top: 32px">@L("Площадки")</h2>
+    <p class="muted">@L("Площадка — адрес, где стоят цеха и склады. Если фабрика на одном адресе, достаточно одной площадки.")</p>
+    @if (_data.CanEdit)
+    {
+        <form class="inline-form" @onsubmit="CreateSiteAsync">
+            <label>@L("Новая площадка") <input @bind="_newSite" maxlength="150" placeholder="@L("Например: Электросталь")" /></label>
+            <label>@L("Адрес") <input @bind="_newSiteAddress" maxlength="500" size="40" /></label>
+            <button type="submit" disabled="@_busy">@L("Добавить")</button>
+        </form>
+    }
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>@L("Площадка")</th><th>@L("Адрес")</th><th>@L("Складов")</th>@if (_data.CanEdit || _data.CanArchive) { <th>@L("Действия")</th> }</tr></thead>
+            <tbody>
+                @if (_data.Sites.Count == 0)
+                {
+                    <tr><td colspan="4" class="muted">@L("Площадок пока нет.")</td></tr>
+                }
+                @foreach (var s in _data.Sites)
+                {
+                    <tr class="@(s.IsArchived ? "archived" : null)">
+                        @if (_editSiteRow?.Id == s.Id)
+                        {
+                            <td colspan="4">
+                                <form class="inline-form" @onsubmit="() => SaveSiteAsync(s)">
+                                    <label>@L("Название") <input @bind="_editName" maxlength="150" /></label>
+                                    <label>@L("Адрес") <input @bind="_editAddress" maxlength="500" size="40" /></label>
+                                    <button type="submit" disabled="@_busy">@L("Сохранить")</button>
+                                    <button type="button" class="secondary" @onclick="() => _editSiteRow = null">@L("Отмена")</button>
+                                </form>
+                            </td>
+                        }
+                        else
+                        {
+                            <td>@s.Name @if (s.IsArchived) { <span class="tag">@L("архив")</span> }</td>
+                            <td>@(s.Address ?? "—")</td>
+                            <td>@s.WarehouseCount</td>
+                            @if (_data.CanEdit || _data.CanArchive)
+                            {
+                                <td>
+                                    @if (!s.IsArchived)
+                                    {
+                                        <div class="row-actions">
+                                            @if (_data.CanEdit)
+                                            {
+                                                <button type="button" class="secondary" @onclick="() => StartEditSite(s)" disabled="@_busy">@L("Изменить")</button>
+                                            }
+                                            @if (_data.CanArchive)
+                                            {
+                                                <ConfirmButton Class="secondary" OnConfirm="() => ArchiveSiteAsync(s)" Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
+                                            }
+                                        </div>
+                                    }
+                                </td>
+                            }
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <h2 style="margin-top: 32px">@L("Причины складских операций")</h2>
+    <p class="muted">@L("Причина обязательна в складском документе. Для причин с отметкой «нужно пояснение» документ потребует комментарий — например, что именно испорчено.")</p>
+    @if (_reasons is { CanEdit: true })
+    {
+        <form class="inline-form" @onsubmit="CreateReasonAsync">
+            <label>
+                @L("Вид операции")
+                <select @bind="_newReasonKind">
+                    @foreach (var k in StockOperationKinds.All)
+                    {
+                        <option value="@((byte)k)">@StockOperationKinds.Name(k)</option>
+                    }
+                </select>
+            </label>
+            <label>@L("Причина") <input @bind="_newReason" maxlength="150" placeholder="@L("Например: Образцы для выставки")" /></label>
+            <label class="inline"><input type="checkbox" @bind="_newReasonComment" /> @L("нужно пояснение")</label>
+            <button type="submit" disabled="@_busy">@L("Добавить")</button>
+        </form>
+    }
+    @if (_reasons is not null)
+    {
+        <div class="scroll">
+            <table>
+                <thead><tr><th>@L("Вид операции")</th><th>@L("Причина")</th><th>@L("Пояснение")</th>@if (_reasons.CanArchive) { <th>@L("Действия")</th> }</tr></thead>
+                <tbody>
+                    @foreach (var r in _reasons.Reasons)
+                    {
+                        <tr class="@(r.IsArchived ? "archived" : null)">
+                            <td>@L(r.KindName)</td>
+                            <td>@L(r.Name) @if (r.IsArchived) { <span class="tag">@L("архив")</span> }</td>
+                            <td>@(r.RequiresComment ? L("нужно") : "—")</td>
+                            @if (_reasons.CanArchive)
+                            {
+                                <td>
+                                    @if (!r.IsArchived)
+                                    {
+                                        <ConfirmButton Class="secondary" OnConfirm="() => ArchiveReasonAsync(r)" Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
+                                    }
+                                </td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    <p class="muted">@L("Склад можно указать кладовщику как область данных в разделе «Пользователи». Остатки и складские документы — в следующих срезах.")</p>
+}
+
+@code {
+    private WarehousesDto? _data;
+    private OperationReasonListDto? _reasons;
+    private string _newReason = string.Empty;
+    private byte _newReasonKind = (byte)StockOperationKind.WriteOff;
+    private bool _newReasonComment;
+    private bool _showArchived;
+    private bool _busy;
+    private string? _denied;
+    private string? _message;
+    private bool _messageIsError;
+
+    private string _newWarehouse = string.Empty;
+    private string _newWarehouseSite = string.Empty;
+    private string _newSite = string.Empty;
+    private string _newSiteAddress = string.Empty;
+    private WarehouseDto? _editWarehouse;
+    private SiteDto? _editSiteRow;
+    private string _editName = string.Empty;
+    private string _editSite = string.Empty;
+    private string _editAddress = string.Empty;
+
+    private IEnumerable<SiteDto> ActiveSites => _data!.Sites.Where(s => !s.IsArchived);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _data = await Warehouses.GetAsync();
+            _reasons = await Reasons.ListAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private async Task ToggleArchivedAsync(ChangeEventArgs e)
+    {
+        _showArchived = e.Value is true;
+        await RunAsync(() => Task.CompletedTask, null);
+    }
+
+    private Task CreateWarehouseAsync() => RunAsync(async () =>
+    {
+        await Warehouses.CreateWarehouseAsync(_newWarehouse, ParseId(_newWarehouseSite));
+        _newWarehouse = string.Empty;
+    }, L("Склад добавлен."));
+
+    private void StartEditWarehouse(WarehouseDto w)
+    {
+        _editSiteRow = null;
+        _editWarehouse = w;
+        _editName = w.Name;
+        _editSite = w.SiteId?.ToString() ?? string.Empty;
+    }
+
+    private Task SaveWarehouseAsync(WarehouseDto w) => RunAsync(async () =>
+    {
+        await Warehouses.UpdateWarehouseAsync(w.Id, _editName, ParseId(_editSite), w.RowVersion);
+        _editWarehouse = null;
+    }, L("Склад сохранён."));
+
+    private Task ArchiveWarehouseAsync(WarehouseDto w) =>
+        RunAsync(() => Warehouses.ArchiveWarehouseAsync(w.Id, w.RowVersion), L("Склад «{0}» в архиве.", w.Name));
+
+    private Task ArchiveSiteAsync(SiteDto s) => RunAsync(() => Warehouses.ArchiveSiteAsync(s.Id, s.RowVersion), L("Площадка «{0}» в архиве.", s.Name));
+
+    private Task CreateReasonAsync() => RunAsync(async () =>
+    {
+        await Reasons.CreateAsync((StockOperationKind)_newReasonKind, _newReason, _newReasonComment);
+        _newReason = string.Empty;
+        _newReasonComment = false;
+    }, L("Причина добавлена."));
+
+    private Task ArchiveReasonAsync(OperationReasonDto r) => RunAsync(() => Reasons.ArchiveAsync(r.Id, r.RowVersion), L("Причина «{0}» в архиве.", r.Name));
+
+    private Task CreateSiteAsync() => RunAsync(async () =>
+    {
+        await Warehouses.CreateSiteAsync(_newSite, _newSiteAddress);
+        _newSite = string.Empty;
+        _newSiteAddress = string.Empty;
+    }, L("Площадка добавлена."));
+
+    private void StartEditSite(SiteDto s)
+    {
+        _editWarehouse = null;
+        _editSiteRow = s;
+        _editName = s.Name;
+        _editAddress = s.Address ?? string.Empty;
+    }
+
+    private Task SaveSiteAsync(SiteDto s) => RunAsync(async () =>
+    {
+        await Warehouses.UpdateSiteAsync(s.Id, _editName, _editAddress, s.RowVersion);
+        _editSiteRow = null;
+    }, L("Площадка сохранена."));
+
+    /// <summary>Одна операция за раз, затем свежие данные: у вкладки один DbContext.</summary>
+    private async Task RunAsync(Func<Task> action, string? success)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        try
+        {
+            await action();
+            _message = success;
+            _messageIsError = false;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+            _messageIsError = true;
+        }
+        finally
+        {
+            try
+            {
+                _data = await Warehouses.GetAsync(_showArchived);
+                _reasons = await Reasons.ListAsync(_showArchived);
+            }
+            finally
+            {
+                _busy = false;
+            }
+        }
+    }
+
+    private static long? ParseId(string value) => long.TryParse(value, out var id) ? id : null;
+}

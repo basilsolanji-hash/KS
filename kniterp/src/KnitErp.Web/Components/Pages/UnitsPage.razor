@@ -1,0 +1,145 @@
+@page "/units"
+@using KnitErp.Application.Catalog
+@using KnitErp.Web.Components.Shared
+@inject CatalogService Catalog
+
+<PageTitle>@L("Единицы измерения") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_units is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <h1>@L("Единицы измерения")</h1>
+    <p class="muted">@L("Знаков после запятой — сколько дробных разрядов допустимо в количестве: штуки целые, килограммы до граммов.")</p>
+
+    @if (_flash is not null)
+    {
+        <div class="@(_flashIsError ? "flash error" : "flash")" role="@(_flashIsError ? "alert" : "status")">@_flash</div>
+    }
+
+    @if (CurrentAccess.Has(Permissions.CatalogEdit))
+    {
+        <form class="inline-form" @onsubmit="CreateAsync">
+            <label>@L("Код") <input @bind="_form.Code" maxlength="10" size="6" placeholder="@L("ОКЕИ")" /></label>
+            <label>@L("Наименование") <input @bind="_form.Name" maxlength="50" placeholder="@L("Бобина")" /></label>
+            <label>@L("Обозначение") <input @bind="_form.Symbol" maxlength="10" size="6" placeholder="@L("боб")" /></label>
+            <label>@L("Знаков") <input type="number" min="0" max="6" @bind="_form.Precision" style="width: 70px" /></label>
+            <button type="submit" disabled="@_busy">@L("Добавить")</button>
+        </form>
+    }
+
+    <form class="inline-form" @onsubmit="ReloadAsync">
+        <label class="inline"><input type="checkbox" @bind="_includeArchived" /> @L("Показать архив")</label>
+        <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
+    </form>
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>@L("Код")</th><th>@L("Наименование")</th><th>@L("Обозначение")</th><th class="num">@L("Знаков")</th><th class="num">@L("Позиций")</th>@if (CanArchive) { <th></th> }</tr></thead>
+            <tbody>
+                @foreach (var u in _units)
+                {
+                    <tr class="@(u.IsArchived ? "archived" : null)">
+                        <td>@u.Code</td><td>@u.Name @if (u.IsArchived) { <span class="tag">@L("архив")</span> }</td><td>@u.Symbol</td><td class="num">@u.Precision</td><td class="num">@u.ItemCount</td>
+                        @if (CanArchive)
+                        {
+                            <td>
+                                @if (!u.IsArchived)
+                                {
+                                    <ConfirmButton Class="secondary" OnConfirm="() => ArchiveAsync(u)" Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
+                                }
+                            </td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private IReadOnlyList<UnitDto>? _units;
+    private UnitForm _form = new();
+    private bool _busy;
+    private bool _includeArchived;
+    private string? _denied;
+    private string? _flash;
+    private bool _flashIsError;
+
+    private bool CanArchive => CurrentAccess.Has(Permissions.CatalogArchive);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private async Task LoadAsync() => _units = await Catalog.ListUnitsAsync(_includeArchived);
+
+    private Task ReloadAsync() => RunAsync(() => Task.CompletedTask, null);
+
+    private Task CreateAsync() => RunAsync(async () =>
+    {
+        await Catalog.CreateUnitAsync(new UnitCommand(_form.Code, _form.Name, _form.Symbol, _form.Precision));
+        _form = new UnitForm();
+    }, L("Единица добавлена."));
+
+    private Task ArchiveAsync(UnitDto u) => RunAsync(() => Catalog.ArchiveUnitAsync(u.Id, u.RowVersion), L("Единица «{0}» в архиве.", u.Name));
+
+    /// <summary>Одна операция за раз, затем свежий список: у вкладки один DbContext.</summary>
+    private async Task RunAsync(Func<Task> action, string? success)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _flash = null;
+        _flashIsError = false;
+        try
+        {
+            await action();
+            _flash = success;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _flash = UiErrors.Message(ex);
+            _flashIsError = true;
+        }
+        finally
+        {
+            try
+            {
+                await LoadAsync();
+            }
+            finally
+            {
+                _busy = false;
+            }
+        }
+    }
+
+    private sealed class UnitForm
+    {
+        public string Code { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string Symbol { get; set; } = string.Empty;
+        public byte Precision { get; set; }
+    }
+}
