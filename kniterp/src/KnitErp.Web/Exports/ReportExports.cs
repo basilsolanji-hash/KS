@@ -136,9 +136,9 @@ public sealed class ReportExports(
     {
         var rows = await vatInvoices.IssuedAsync(filter with { IncludeCancelled = false }, ct);
         var title = $"Счета-фактуры выданные {filter.From:dd.MM.yyyy}–{filter.To:dd.MM.yyyy}";
-        return spreadsheet.Write([new SheetData("Выданные", ["Номер", "Дата", "Отгрузка", "Покупатель", "ИНН", "КПП", "Заказ", "Без НДС", "НДС", "Всего", title],
+        return spreadsheet.Write([new SheetData("Выданные", ["Номер", "Дата", "Отгрузка", "Покупатель", "ИНН", "КПП", "Заказ", "Без НДС", "НДС", "Всего", "Продавец", title],
             rows.Select(r => Row(r.InvoiceNumber, r.Date.ToString("dd.MM.yyyy"), r.Number, r.Customer, r.Inn ?? "", r.Kpp ?? "", r.OrderNumber, Number(r.AmountWithoutVat),
-                Number(r.VatAmount), Number(r.Amount), "")).ToList(), Numeric(7, 8, 9))]);
+                Number(r.VatAmount), Number(r.Amount), r.Seller ?? "", "")).ToList(), Numeric(7, 8, 9))]);
     }
 
     public async Task<byte[]> ReceivedVatInvoicesAsync(VatJournalFilter filter, CancellationToken ct)

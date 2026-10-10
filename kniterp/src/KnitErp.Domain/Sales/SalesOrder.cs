@@ -60,6 +60,12 @@ public sealed class SalesOrder
     public long? ChannelId { get; private set; }
     public string? DeliveryAddress { get; private set; }
 
+    /// <summary>Своё юрлицо-продавец (D78): от его имени счёт, УПД и счёт-фактура. Меняется только в черновике.</summary>
+    public long LegalEntityId { get; private set; }
+
+    /// <summary>Расчётный счёт юрлица для оплаты; null — основной счёт юрлица.</summary>
+    public long? BankAccountId { get; private set; }
+
     /// <summary>Ответственный сотрудник (пользователь организации); по умолчанию — автор.</summary>
     public long? ResponsibleUserId { get; private set; }
 
@@ -180,7 +186,7 @@ public sealed class SalesOrder
     public const int AddressMaxLength = 500;
 
     /// <summary>
-    /// Детали заказа (D77): время, проект, канал, адрес доставки, ответственный. На учёт не влияют, поэтому меняются
+    /// Детали заказа (D77): время, проект, канал, адрес доставки, ответственный, расчётный счёт. На учёт не влияют, поэтому меняются
     /// в любом состоянии, кроме отменённого (ссылки проверяет сервис).
     /// </summary>
     public void SetDetails(SalesOrderDetails details)
@@ -195,6 +201,7 @@ public sealed class SalesOrder
         ChannelId = details.ChannelId;
         DeliveryAddress = DomainText.Optional(details.DeliveryAddress, AddressMaxLength, "Адрес доставки");
         ResponsibleUserId = details.ResponsibleUserId;
+        BankAccountId = details.BankAccountId;
     }
 
     /// <summary>Этап меняется в любом состоянии, кроме отменённого: это метка работы, а не учёт.</summary>
@@ -281,6 +288,12 @@ public sealed class SalesOrder
         CustomerReference = DomainText.Optional(h.CustomerReference, InvoiceMaxLength, "Договор покупателя");
         PricesIncludeVat = h.PricesIncludeVat;
         Comment = DomainText.Optional(h.Comment, CommentMaxLength, "Комментарий");
+        if (h.LegalEntityId is { } entity && entity != LegalEntityId)
+        {
+            // Другое юрлицо — свой расчётный счёт: прежний сбрасывается на основной счёт нового юрлица.
+            LegalEntityId = entity;
+            BankAccountId = null;
+        }
     }
 
     private void EnsureDraft()
@@ -292,10 +305,14 @@ public sealed class SalesOrder
     }
 }
 
-public sealed record SalesOrderDetails(TimeOnly? OrderTime, long? ProjectId, long? ChannelId, string? DeliveryAddress, long? ResponsibleUserId);
+/// <summary>Детали заказа (D77). BankAccountId — расчётный счёт своего юрлица (D78), null — основной.</summary>
+public sealed record SalesOrderDetails(
+    TimeOnly? OrderTime, long? ProjectId, long? ChannelId, string? DeliveryAddress, long? ResponsibleUserId, long? BankAccountId = null);
 
+/// <summary>Шапка заказа. LegalEntityId — своё юрлицо-продавец (D78); null — не менять (у нового заказа сервис ставит основное).</summary>
 public sealed record SalesOrderHeader(
-    DateOnly OrderDate, long CustomerId, long WarehouseId, DateOnly? ShipDate, string? CustomerReference, bool PricesIncludeVat, string? Comment);
+    DateOnly OrderDate, long CustomerId, long WarehouseId, DateOnly? ShipDate, string? CustomerReference, bool PricesIncludeVat, string? Comment,
+    long? LegalEntityId = null);
 
 /// <summary>Строка заказа: количество, цена, процент НДС; сумма и НДС считаются и хранятся с округлением до копеек.</summary>
 public sealed class SalesOrderLine

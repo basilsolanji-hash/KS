@@ -31,6 +31,7 @@ PREVIOUS_MASTER_KEYS=
 SQL_MEMORY_MB=2048
 BACKUP_DIR=/opt/kniterp/backups
 ASSISTANT_API_KEY=
+REQUISITES_API_KEY=
 RCLONE_REMOTE=
 ENV
   echo "   Создан .env. СРАЗУ сохраните MASTER_KEY в сейф Владельца (cat .env) — без него не расшифровать 2FA и не проверить журналы."

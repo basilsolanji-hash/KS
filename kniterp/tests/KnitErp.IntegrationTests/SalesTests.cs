@@ -165,16 +165,19 @@ public sealed class SalesTests(SqlTestHost host) : IClassFixture<SqlTestHost>
             var row = (await s.Invoices.ListAsync(new CustomerInvoiceFilter())).Single(r => r.Id == invoice);
             Assert.Equal((40_000m, InvoicePaymentState.Partial, false), (row.Paid, row.PaymentState, row.Overdue));
 
-            // Реквизиты для печати: БИК и счета проверяются по контрольному ключу.
-            var org = await s.Organizations.GetCurrentAsync();
-            Assert.Equal("org.bank.bik", (await Assert.ThrowsAsync<BusinessRuleException>(() => s.Organizations.UpdatePrintRequisitesAsync(
-                new UpdatePrintRequisitesCommand(new PrintRequisites(null, "Банк", "12345", null, null, null, null), org.RowVersion)))).Code);
-            Assert.Equal("org.bank.account", (await Assert.ThrowsAsync<BusinessRuleException>(() => s.Organizations.UpdatePrintRequisitesAsync(
-                new UpdatePrintRequisitesCommand(new PrintRequisites(null, "Банк", "044525225", "40702810138000000000", null, null, null), org.RowVersion)))).Code);
-            org = await s.Organizations.UpdatePrintRequisitesAsync(new UpdatePrintRequisitesCommand(new PrintRequisites(
-                "г. Москва, ул. Тестовая, д. 1", "ПАО «Тестбанк»", "044525225", "4070 2810 9380 0000 0001", "30101810400000000225", "Иванов И. И.", null),
-                org.RowVersion));
-            Assert.Equal(("40702810938000000001", "Иванов И. И."), (org.PrintRequisites.BankAccount, org.PrintRequisites.DirectorName));
+            // Реквизиты для печати — у юрлица (D78): основное создано из реквизитов организации; БИК и счета проверяются по ключу.
+            var entity = (await s.LegalEntities.ListAsync()).Single();
+            Assert.True(entity.IsDefault);
+            await s.LegalEntities.UpdateAsync(entity.Id, entity.Data with { LegalAddress = "г. Москва, ул. Тестовая, д. 1", DirectorName = "Иванов И. И." },
+                entity.RowVersion);
+            Assert.Equal("org.bank.bik", (await Assert.ThrowsAsync<BusinessRuleException>(() => s.LegalEntities.AddAccountAsync(entity.Id,
+                new LegalEntityAccountCommand("Банк", "12345", "40702810938000000001", null)))).Code);
+            Assert.Equal("org.bank.account", (await Assert.ThrowsAsync<BusinessRuleException>(() => s.LegalEntities.AddAccountAsync(entity.Id,
+                new LegalEntityAccountCommand("Банк", "044525225", "40702810138000000000", null)))).Code);
+            await s.LegalEntities.AddAccountAsync(entity.Id, new LegalEntityAccountCommand("ПАО «Тестбанк»", "044525225", "4070 2810 9380 0000 0001",
+                "30101810400000000225"));
+            entity = (await s.LegalEntities.ListAsync()).Single();
+            Assert.Equal(("40702810938000000001", true, "Иванов И. И."), (entity.Accounts.Single().Account, entity.Accounts.Single().IsDefault, entity.DirectorName));
 
             var cp = (await s.Counterparties.ListAsync(new CounterpartyFilter())).Counterparties.Single(c => c.Id == f.Customer);
             await s.Counterparties.UpdateAsync(f.Customer, new CounterpartyCommand(cp.Name, null, null, false, true, null, Address: "г. Тверь, пр. Ленина, 5"),
@@ -203,7 +206,7 @@ public sealed class SalesTests(SqlTestHost host) : IClassFixture<SqlTestHost>
             Assert.Matches("^[1-9][0-9]*$", upd.Number);
             Assert.Equal("№ — от 09.10.2026", upd.PaymentDocuments);
             Assert.Contains(upd.Warnings, w => w.Contains("строка 5)"));
-            Assert.Contains(upd.Warnings, w => w.Contains("КПП продавца"));
+            Assert.Contains(upd.Warnings, w => w.Contains("строка 2б"));
 
             // Отмена счёта с причиной — затем можно выставить новый.
             Assert.Equal("field.required", (await Assert.ThrowsAsync<BusinessRuleException>(() =>
@@ -533,6 +536,99 @@ public sealed class SalesTests(SqlTestHost host) : IClassFixture<SqlTestHost>
                 new SalesOrderDetails(null, null, null, null, null), new Dictionary<long, string?> { [pieces] = "1" }, rv));
             await Assert.ThrowsAsync<NotFoundException>(() => s.SalesSettings.RenameLookupAsync(channel, "Моё", rv));
         }
+    }
+
+    [SqlFact]
+    public async Task Sole_proprietor_sells_with_own_requisites_account_and_journal()
+    {
+        var f = await SetUpAsync();
+        long ip, ipAccount, order, ship;
+        await using (var s = host.As(f.Org.OwnerUserId, f.Org.OrganizationId))
+        {
+            // Основное юрлицо создано из реквизитов организации; ИП добавляется вторым, освобождён от НДС.
+            var ooo = (await s.LegalEntities.ListAsync()).Single();
+            Assert.Equal((LegalEntityKind.Company, true, f.Org.OrganizationId > 0), (ooo.Kind, ooo.IsDefault, true));
+            ip = await s.LegalEntities.CreateAsync(new LegalEntityData(LegalEntityKind.SoleProprietor,
+                "Индивидуальный предприниматель Петров Пётр Петрович", "ИП Петров П. П.", "500100732259", null, "304500116000157",
+                "г. Тверь, ул. Ткацкая, 3", null, "Петров П. П.", null, VatExempt: true));
+            Assert.Equal("legal_entity.duplicate", (await Assert.ThrowsAsync<BusinessRuleException>(() => s.LegalEntities.CreateAsync(
+                new LegalEntityData(LegalEntityKind.SoleProprietor, "ИП", "ИП", "500100732259", null, null, null, null, null, null, false)))).Code);
+            ipAccount = await s.LegalEntities.AddAccountAsync(ip, new LegalEntityAccountCommand("ПАО «Тестбанк»", "044525225", "40802810138000000002", null));
+            Assert.True((await s.LegalEntities.ListAsync()).Single(e => e.Id == ip).Accounts.Single().IsDefault);
+
+            // Заполнение по ИНН — подсказка из реестра (в тестах — подставной справочник).
+            var found = await s.Requisites.ForLegalEntityAsync("7707 083 893");
+            Assert.Equal(("ООО «ТФ»", "773601001"), (found.ShortName, found.Kpp));
+            Assert.Equal("requisites.inn", (await Assert.ThrowsAsync<BusinessRuleException>(() => s.Requisites.ForCounterpartyAsync("123"))).Code);
+            Assert.Equal("requisites.not_found", (await Assert.ThrowsAsync<BusinessRuleException>(() => s.Requisites.ForCounterpartyAsync("500100732259"))).Code);
+
+            // Товар на склад.
+            var receipt = await s.Documents.CreateAsync(StockOperationKind.Receipt, new StockDocumentHeader(f.Store, null, null,
+                await ReasonAsync(f.Org.OrganizationId, StockOperationKind.Receipt), Day, null));
+            await s.Documents.SetLineAsync(receipt, f.Sweater, 10, (await s.Documents.GetAsync(receipt)).RowVersion);
+            await s.Documents.PostAsync(receipt, (await s.Documents.GetAsync(receipt)).RowVersion);
+
+            // Заказ от ИП: юрлицо в шапке, счёт — в деталях; счёт другого юрлица не подходит.
+            order = await s.Sales.CreateOrderAsync(new SalesOrderHeader(Day, f.Customer, f.Store, null, null, false, null, ip));
+            var dto = await s.Sales.GetOrderAsync(order);
+            Assert.Equal((ip, "ИП Петров П. П.", true), (dto.Details!.LegalEntityId, dto.Details.LegalEntity, dto.Details.VatExempt));
+            Assert.Equal("ПАО «Тестбанк», р/с …0002 (основной)", dto.Details.BankAccount);
+            var oooAccount = await s.LegalEntities.AddAccountAsync(ooo.Id, new LegalEntityAccountCommand("Банк", "044525225", "40702810938000000001", null));
+            await Assert.ThrowsAsync<NotFoundException>(() => s.Sales.SetOrderDetailsAsync(order,
+                new SalesOrderDetails(null, null, null, null, f.Org.OwnerUserId, oooAccount), new Dictionary<long, string?>(), dto.RowVersion));
+            await s.Sales.SetOrderDetailsAsync(order, new SalesOrderDetails(null, null, null, null, f.Org.OwnerUserId, ipAccount),
+                new Dictionary<long, string?>(), dto.RowVersion);
+            await s.Sales.SetOrderLineAsync(order, f.Sweater, 4, 2500m, null, (await s.Sales.GetOrderAsync(order)).RowVersion);
+            await s.Sales.ConfirmOrderAsync(order, (await s.Sales.GetOrderAsync(order)).RowVersion);
+
+            // Счёт на оплату — реквизиты ИП и его расчётный счёт; подпись — предприниматель.
+            var invoice = await s.Invoices.CreateAsync(order, null, null);
+            var print = await s.Print.InvoiceAsync(invoice);
+            Assert.Equal(("Индивидуальный предприниматель Петров Пётр Петрович", "500100732259", null, "40802810138000000002", true, true),
+                (print.Seller.Name, print.Seller.Inn, print.Seller.Kpp, print.Requisites.BankAccount, print.Requisites.SoleProprietor, print.Requisites.VatExempt));
+
+            // УПД от ИП: ОГРНИП для подписи есть — предупреждений об ИП нет; в журнал выданных счетов-фактур освобождённый не попадает.
+            ship = await s.Sales.CreateShipmentAsync(order);
+            await s.Documents.PostAsync(ship, (await s.Documents.GetAsync(ship)).RowVersion);
+            var upd = await s.Print.UpdAsync(ship);
+            Assert.Equal(("500100732259", "304500116000157"), (upd.Seller.Inn, upd.Requisites.Ogrn));
+            Assert.DoesNotContain(upd.Warnings, w => w.Contains("ОГРНИП") || w.Contains("строка 2б"));
+            Assert.Empty(await s.VatInvoices.IssuedAsync(new KnitErp.Application.Taxes.VatJournalFilter(Day, Day)));
+
+            // Юрлицо в подтверждённом заказе не меняется; основное — нельзя в архив; основным можно сделать ИП.
+            Assert.Equal("sales.not_draft", (await Assert.ThrowsAsync<BusinessRuleException>(async () => await s.Sales.UpdateOrderHeaderAsync(order,
+                new SalesOrderHeader(Day, f.Customer, f.Store, null, null, false, null, ooo.Id), (await s.Sales.GetOrderAsync(order)).RowVersion))).Code);
+            ooo = (await s.LegalEntities.ListAsync()).Single(e => e.Id == ooo.Id);
+            Assert.Equal("legal_entity.default_archive", (await Assert.ThrowsAsync<BusinessRuleException>(() =>
+                s.LegalEntities.SetArchivedAsync(ooo.Id, true, ooo.RowVersion))).Code);
+            await s.LegalEntities.MakeDefaultAsync(ip, (await s.LegalEntities.ListAsync()).Single(e => e.Id == ip).RowVersion);
+            ooo = (await s.LegalEntities.ListAsync()).Single(e => e.Id == ooo.Id);
+            await s.LegalEntities.SetArchivedAsync(ooo.Id, true, ooo.RowVersion);
+            var next = await s.Sales.CreateOrderAsync(new SalesOrderHeader(Day, f.Customer, f.Store, null, null, false, null));
+            Assert.Equal(ip, (await s.Sales.GetOrderAsync(next)).Details!.LegalEntityId);
+            await Assert.ThrowsAsync<BusinessRuleException>(() => s.Sales.CreateOrderAsync(new SalesOrderHeader(Day, f.Customer, f.Store, null, null, false, null, ooo.Id)));
+        }
+
+        await using (var s = host.As(f.Senior, f.Org.OrganizationId))
+        {
+            await Assert.ThrowsAsync<AccessDeniedException>(() => s.LegalEntities.CreateAsync(
+                new LegalEntityData(LegalEntityKind.Company, "ООО", "ООО", "7707083893", null, null, null, null, null, null, false)));
+        }
+
+        var other = await CreateOrgAsync();
+        await using (var s = host.As(other.OwnerUserId, other.OrganizationId))
+        {
+            await Assert.ThrowsAsync<NotFoundException>(() => s.LegalEntities.AddAccountAsync(ip, new LegalEntityAccountCommand("Банк", "044525225", "40702810938000000001", null)));
+            var customer = await s.Counterparties.CreateAsync(new CounterpartyCommand("ООО «Другой»", null, null, false, true, null));
+            var store = await s.Warehouses.CreateWarehouseAsync("Склад", null);
+            await Assert.ThrowsAsync<NotFoundException>(() => s.Sales.CreateOrderAsync(new SalesOrderHeader(Day, customer, store, null, null, false, null, ip)));
+        }
+    }
+
+    private async Task<long?> ReasonAsync(long organizationId, StockOperationKind kind)
+    {
+        await using var db = host.NewDb();
+        return await db.OperationReasons.Where(r => r.OrganizationId == organizationId && r.Kind == kind).Select(r => (long?)r.Id).FirstAsync();
     }
 
     private sealed record Fixture(CreatedOrganization Org, long Store, long Sweater, long Customer, long Senior);

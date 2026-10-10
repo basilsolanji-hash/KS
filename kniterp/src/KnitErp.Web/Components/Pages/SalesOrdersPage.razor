@@ -61,6 +61,18 @@ else
                                 }
                             </select>
                         </label>
+                        @if (_options.LegalEntities is { Count: > 1 } entities)
+                        {
+                            <label>
+                                @L("Юрлицо (продавец)")
+                                <select @bind="_entity">
+                                    @foreach (var le in entities)
+                                    {
+                                        <option value="@le.Id">@le.ShortName</option>
+                                    }
+                                </select>
+                            </label>
+                        }
                         <label>@L("Дата заказа") <input type="date" @bind="_date" /></label>
                         <label>@L("Дата отгрузки") <input type="date" @bind="_expected" /></label>
                         <label>@L("Договор покупателя") <input @bind="_invoice" maxlength="@SalesOrder.InvoiceMaxLength" placeholder="@L("Договор № 7 от 01.10.2026")" /></label>
@@ -183,6 +195,7 @@ else
     private DateTime? _to;
     private string _customer = string.Empty;
     private string _warehouse = string.Empty;
+    private string _entity = string.Empty;
     private DateTime _date = DateTime.Today;
     private DateTime? _expected;
     private string? _invoice;
@@ -216,6 +229,7 @@ else
         _options = await Sales.GetOptionsAsync();
         _customer = _options.Customers.FirstOrDefault()?.Id.ToString() ?? string.Empty;
         _warehouse = _options.Warehouses.FirstOrDefault()?.Id.ToString() ?? string.Empty;
+        _entity = _options.LegalEntities?.FirstOrDefault()?.Id.ToString() ?? string.Empty;
         _date = TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId).Date;
         _expected = null;
         _invoice = null;
@@ -225,7 +239,7 @@ else
     private Task CreateAsync() => RunAsync(async () =>
     {
         var id = await Sales.CreateOrderAsync(new SalesOrderHeader(DateOnly.FromDateTime(_date), long.Parse(_customer), long.Parse(_warehouse),
-            _expected is { } e ? DateOnly.FromDateTime(e) : null, _invoice, _withVat, null));
+            _expected is { } e ? DateOnly.FromDateTime(e) : null, _invoice, _withVat, null, long.TryParse(_entity, out var le) ? le : null));
         Navigation.NavigateTo($"sales-orders/{id}");
     });
 

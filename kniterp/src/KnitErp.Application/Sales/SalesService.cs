@@ -86,7 +86,8 @@ public sealed record SalesVatOptionDto(string Name, decimal? Percent);
 
 public sealed record SalesOptionsDto(
     IReadOnlyList<LookupDto> Customers, IReadOnlyList<LookupWarehouseDto> Warehouses, IReadOnlyList<SalesItemOptionDto> Items,
-    IReadOnlyList<SalesVatOptionDto> VatRates, string CurrencyCode);
+    IReadOnlyList<SalesVatOptionDto> VatRates, string CurrencyCode,
+    IReadOnlyList<KnitErp.Application.Organizations.LegalEntityOptionDto>? LegalEntities = null);
 
 /// <summary>Расчёты с покупателем: отгружено, возвращено, оплачено и долг (плюс — покупатель должен, минус — его аванс).</summary>
 /// <summary>
@@ -95,12 +96,15 @@ public sealed record SalesOptionsDto(
 /// </summary>
 public sealed record SalesOrderDetailsDto(
     TimeOnly? OrderTime, long? ProjectId, string? Project, long? ChannelId, string? Channel, string? DeliveryAddress,
-    long? ResponsibleUserId, string? Responsible, IReadOnlyList<SalesOrderCustomValueDto> CustomFields, decimal? CustomerBalance);
+    long? ResponsibleUserId, string? Responsible, IReadOnlyList<SalesOrderCustomValueDto> CustomFields, decimal? CustomerBalance,
+    long LegalEntityId = 0, string? LegalEntity = null, bool VatExempt = false, long? BankAccountId = null, string? BankAccount = null);
 
 public sealed record SalesOrderCustomValueDto(long FieldId, string Name, CustomFieldType Type, bool IsArchived, string? Value);
 
 /// <summary>Списки для деталей заказа: действующие проекты, каналы и сотрудники организации.</summary>
-public sealed record SalesOrderDetailOptionsDto(IReadOnlyList<LookupDto> Projects, IReadOnlyList<LookupDto> Channels, IReadOnlyList<LookupDto> Users);
+public sealed record SalesOrderDetailOptionsDto(
+    IReadOnlyList<LookupDto> Projects, IReadOnlyList<LookupDto> Channels, IReadOnlyList<LookupDto> Users,
+    IReadOnlyList<KnitErp.Application.Organizations.LegalEntityOptionDto>? LegalEntities = null);
 
 public sealed record CustomerBalanceDto(long CustomerId, string Customer, decimal Shipped, decimal Returned, decimal Paid)
 {
@@ -261,10 +265,19 @@ public sealed class SalesService(
         decimal? balance = prices
             ? (await ComputeBalancesAsync(ctx.OrganizationId, null, order.CustomerId, ct)).SingleOrDefault()?.Debt ?? 0m
             : null;
+        var entity = await db.LegalEntities.AsNoTracking().Where(e => e.OrganizationId == ctx.OrganizationId && e.Id == order.LegalEntityId)
+            .Select(e => new { e.ShortName, e.VatExempt }).SingleAsync(ct);
+        var account = await db.LegalEntityAccounts.AsNoTracking()
+            .Where(a => a.OrganizationId == ctx.OrganizationId && a.LegalEntityId == order.LegalEntityId
+                        && (order.BankAccountId == null ? a.IsDefault : a.Id == order.BankAccountId))
+            .Select(a => new { a.BankName, a.Account }).FirstOrDefaultAsync(ct);
         return new SalesOrderDetailsDto(order.OrderTime,
             order.ProjectId, order.ProjectId is { } p ? lookups.GetValueOrDefault(p) : null,
             order.ChannelId, order.ChannelId is { } c ? lookups.GetValueOrDefault(c) : null,
-            order.DeliveryAddress, order.ResponsibleUserId, responsible, custom, balance);
+            order.DeliveryAddress, order.ResponsibleUserId, responsible, custom, balance,
+            order.LegalEntityId, entity.ShortName, entity.VatExempt, order.BankAccountId,
+            account is null ? null : $"{account.BankName}, р/с …{account.Account[^Math.Min(4, account.Account.Length)..]}"
+                                     + (order.BankAccountId is null ? " (основной)" : ""));
     }
 
     /// <summary>Действующие проекты, каналы продаж и сотрудники организации — для деталей заказа (D77).</summary>
@@ -279,7 +292,8 @@ public sealed class SalesService(
             .OrderBy(u => u.DisplayName).Select(u => new LookupDto(u.Id, u.DisplayName)).ToListAsync(ct);
         return new SalesOrderDetailOptionsDto(
             lookups.Where(l => l.Kind == LookupKind.Project).Select(l => l.Dto).ToList(),
-            lookups.Where(l => l.Kind == LookupKind.SalesChannel).Select(l => l.Dto).ToList(), users);
+            lookups.Where(l => l.Kind == LookupKind.SalesChannel).Select(l => l.Dto).ToList(), users,
+            await KnitErp.Application.Organizations.LegalEntityService.OptionsAsync(db, ctx.OrganizationId, ct));
     }
 
     /// <summary>
@@ -300,6 +314,17 @@ public sealed class SalesService(
                                                           && m.Status == MembershipStatus.Active, ct))
         {
             throw new NotFoundException("Сотрудник");
+        }
+
+        if (details.BankAccountId is { } accountId && accountId != order.BankAccountId)
+        {
+            var account = await db.LegalEntityAccounts.AsNoTracking()
+                              .SingleOrDefaultAsync(a => a.Id == accountId && a.OrganizationId == ctx.OrganizationId && a.LegalEntityId == order.LegalEntityId, ct)
+                          ?? throw new NotFoundException("Расчётный счёт");
+            if (account.IsArchived)
+            {
+                throw new BusinessRuleException("legal_entity.account_archived", "Счёт в архиве.");
+            }
         }
 
         var before = DescribeDetails(order);
@@ -372,7 +397,7 @@ public sealed class SalesService(
 
     private static string DescribeDetails(SalesOrder o) =>
         $"время {o.OrderTime?.ToString("HH:mm") ?? "—"}, проект {o.ProjectId?.ToString() ?? "—"}, канал {o.ChannelId?.ToString() ?? "—"}, "
-        + $"адрес {o.DeliveryAddress ?? "—"}, ответственный {o.ResponsibleUserId?.ToString() ?? "—"}";
+        + $"адрес {o.DeliveryAddress ?? "—"}, ответственный {o.ResponsibleUserId?.ToString() ?? "—"}, р/с {o.BankAccountId?.ToString() ?? "основной"}";
 
     /// <summary>Скидка на весь заказ (D76): один процент всем строкам черновика.</summary>
     public async Task SetOrderDiscountAsync(long id, decimal discountPercent, byte[] rowVersion, CancellationToken ct = default)
@@ -452,13 +477,13 @@ public sealed class SalesService(
             rates.OrderBy(r => r.Kind).ThenBy(r => r.Name).Select(r => new SalesVatOptionDto(r.Name, r.PercentOn(date)))
                 .Where(r => r.Percent is not null || rates.Any(x => x.Kind == VatRateKind.Exempt && x.Name == r.Name))
                 .DistinctBy(r => r.Percent).ToList(),
-            org.CurrencyCode);
+            org.CurrencyCode, await KnitErp.Application.Organizations.LegalEntityService.OptionsAsync(db, ctx.OrganizationId, ct));
     }
 
     public async Task<long> CreateOrderAsync(SalesOrderHeader header, CancellationToken ct = default)
     {
         var ctx = await DemandEditAsync(ct);
-        await ValidateHeaderAsync(ctx, header, ct);
+        header = await ValidateHeaderAsync(ctx, header, null, ct);
         await using var tx = await db.BeginTransactionAsync(ct);
         var number = await DocumentNumbers.NextAsync(db, ctx.OrganizationId, SalesOrder.NumberPrefix, ct);
         var order = SalesOrder.Create(ctx.OrganizationId, number, header, ctx.UserId, clock.UtcNow);
@@ -473,7 +498,7 @@ public sealed class SalesService(
     public async Task UpdateOrderHeaderAsync(long id, SalesOrderHeader header, byte[] rowVersion, CancellationToken ct = default)
     {
         var (ctx, order) = await LoadForEditAsync(id, rowVersion, ct);
-        await ValidateHeaderAsync(ctx, header, ct);
+        header = await ValidateHeaderAsync(ctx, header, order.LegalEntityId, ct);
         order.UpdateHeader(header);
         Audit(ctx, AuditActions.SalesOrderChanged, nameof(SalesOrder), id, null, $"{order.OrderDate:dd.MM.yyyy}, договор {order.CustomerReference ?? "—"}",
             $"{order.Number}: шапка");
@@ -510,7 +535,7 @@ public sealed class SalesService(
     public async Task ConfirmOrderAsync(long id, byte[] rowVersion, CancellationToken ct = default)
     {
         var (ctx, order) = await LoadForEditAsync(id, rowVersion, ct);
-        await ValidateHeaderAsync(ctx, Header(order), ct);
+        await ValidateHeaderAsync(ctx, Header(order) with { LegalEntityId = order.LegalEntityId }, null, ct);
         order.Confirm(ctx.UserId, clock.UtcNow);
         Audit(ctx, AuditActions.SalesOrderConfirmed, nameof(SalesOrder), id, "Черновик", "Подтверждён", $"{order.Number}: {order.Total:0.00}");
         await db.SaveOrConflictAsync(ct);
@@ -762,8 +787,27 @@ public sealed class SalesService(
         return DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeBySystemTimeZoneId(clock.UtcNow, tz));
     }
 
-    private async Task ValidateHeaderAsync(AccessContext ctx, SalesOrderHeader h, CancellationToken ct)
+    /// <summary>
+    /// Проверка шапки; возвращает шапку с юрлицом (D78): у нового заказа без юрлица — основное, при смене — только действующее своё.
+    /// </summary>
+    private async Task<SalesOrderHeader> ValidateHeaderAsync(AccessContext ctx, SalesOrderHeader h, long? currentEntityId, CancellationToken ct)
     {
+        if (h.LegalEntityId is null && currentEntityId is null)
+        {
+            h = h with
+            {
+                LegalEntityId = await db.LegalEntities.AsNoTracking().Where(e => e.OrganizationId == ctx.OrganizationId && e.IsDefault)
+                                    .Select(e => (long?)e.Id).SingleOrDefaultAsync(ct)
+                                ?? throw new BusinessRuleException("legal_entity.no_default", "Нет основного юрлица — добавьте его в разделе «Юрлица и счета»."),
+            };
+        }
+        else if (h.LegalEntityId is { } entityId && entityId != currentEntityId)
+        {
+            var entity = await db.LegalEntities.AsNoTracking().SingleOrDefaultAsync(e => e.Id == entityId && e.OrganizationId == ctx.OrganizationId, ct)
+                         ?? throw new NotFoundException("Юрлицо");
+            entity.EnsureActive();
+        }
+
         var customer = await db.Counterparties.AsNoTracking().SingleOrDefaultAsync(c => c.Id == h.CustomerId && c.OrganizationId == ctx.OrganizationId, ct)
                        ?? throw new NotFoundException("Контрагент");
         if (customer.IsArchived)
@@ -782,6 +826,8 @@ public sealed class SalesService(
         {
             throw new BusinessRuleException("catalog.archived", $"Склад «{warehouse.Name}» в архиве.");
         }
+
+        return h;
     }
 
     private static SalesOrderHeader Header(SalesOrder o) =>

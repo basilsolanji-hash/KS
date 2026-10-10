@@ -49,6 +49,7 @@ public sealed class PrintService(IKnitErpDbContext db, IAccessGuard guard)
                       ?? throw new NotFoundException("Счёт покупателю");
         var org = await db.Organizations.AsNoTracking().SingleAsync(o => o.Id == ctx.OrganizationId, ct);
         var order = await db.SalesOrders.AsNoTracking().SingleAsync(o => o.Id == invoice.SalesOrderId, ct);
+        var (entity, account) = await SellerAsync(ctx.OrganizationId, invoice.LegalEntityId, invoice.BankAccountId, ct);
         var items = await ItemsAsync(invoice.Lines.Select(l => l.ItemId), ct);
         var lines = invoice.Lines
             .Select(l => (Item: items[l.ItemId], l.Quantity, l.Price, l.VatPercent, l.Amount, l.VatAmount))
@@ -56,7 +57,7 @@ public sealed class PrintService(IKnitErpDbContext db, IAccessGuard guard)
             .Select((l, i) => new PrintLineDto(i + 1, l.Item.Code, l.Item.Name, l.Item.Symbol, l.Item.UnitCode, l.Quantity, l.Price, l.VatPercent,
                 l.Amount - l.VatAmount, l.VatAmount, l.Amount))
             .ToList();
-        return new InvoicePrintDto(invoice.Number, invoice.InvoiceDate, invoice.DueDate, Seller(org), Requisites(org),
+        return new InvoicePrintDto(invoice.Number, invoice.InvoiceDate, invoice.DueDate, Seller(entity), Requisites(entity, account),
             await BuyerAsync(invoice.CustomerId, ct), Basis(order), invoice.PricesIncludeVat, lines, invoice.Total, invoice.VatTotal,
             AmountInWords.Format(invoice.Total, org.CurrencyCode), org.CurrencyCode, invoice.Status == CustomerInvoiceStatus.Cancelled);
     }
@@ -75,6 +76,7 @@ public sealed class PrintService(IKnitErpDbContext db, IAccessGuard guard)
 
         var org = await db.Organizations.AsNoTracking().SingleAsync(o => o.Id == ctx.OrganizationId, ct);
         var order = await db.SalesOrders.AsNoTracking().Include(o => o.Lines).SingleAsync(o => o.Id == doc.SalesOrderId, ct);
+        var (entity, account) = await SellerAsync(ctx.OrganizationId, order.LegalEntityId, order.BankAccountId, ct);
         var warehouse = await db.Warehouses.AsNoTracking().Where(w => w.Id == doc.WarehouseId).Select(w => w.Name).SingleAsync(ct);
         var items = await ItemsAsync(doc.Lines.Select(l => l.ItemId), ct);
         var lines = doc.Lines
@@ -102,21 +104,31 @@ public sealed class PrintService(IKnitErpDbContext db, IAccessGuard guard)
         var paymentDocuments = prepayments.Count == 0 ? null
             : string.Join("; ", prepayments.Select(p => $"№ {p.DocumentNumber ?? "—"} от {p.PaymentDate:dd.MM.yyyy}"));
 
-        var seller = Seller(org);
+        var seller = Seller(entity);
         var warnings = new List<string>();
         if (org.CountryCode != Countries.Russia)
         {
             warnings.Add("Форма УПД — российская; для организации другой страны нужен документ по её законодательству.");
         }
 
-        if (seller.Kpp is null)
+        if (seller.Kpp is null && !entity.IsSoleProprietor && org.CountryCode == Countries.Russia)
         {
-            warnings.Add("КПП продавца не указан или не сверен — строка 2б неполная. Сверьте КПП в разделе «Организация».");
+            warnings.Add($"У юрлица «{entity.ShortName}» не указан КПП — строка 2б неполная. Заполните его в разделе «Юрлица и счета».");
         }
 
         if (seller.Address is null)
         {
-            warnings.Add("Не указан адрес продавца (строка 2а) — заполните юридический адрес в разделе «Организация».");
+            warnings.Add($"Не указан адрес продавца (строка 2а) — заполните юридический адрес «{entity.ShortName}» в разделе «Юрлица и счета».");
+        }
+
+        if (entity.IsSoleProprietor && entity.Ogrn is null)
+        {
+            warnings.Add("Для подписи индивидуального предпринимателя нужен ОГРНИП (реквизиты свидетельства о госрегистрации) — раздел «Юрлица и счета».");
+        }
+
+        if (entity.VatExempt && lines.Any(l => l.VatPercent is > 0))
+        {
+            warnings.Add($"«{entity.ShortName}» освобождено от НДС, а в заказе указан НДС. Проверьте ставки: нужно «без НДС».");
         }
 
         if (buyer.Inn is null && buyerIsRussianCompany)
@@ -129,9 +141,11 @@ public sealed class PrintService(IKnitErpDbContext db, IAccessGuard guard)
             warnings.Add("Не указан адрес покупателя (строка 6а) — заполните его в карточке контрагента.");
         }
 
-        if (org.DirectorName is null)
+        if (entity.DirectorName is null)
         {
-            warnings.Add("Не указан руководитель для подписи — раздел «Организация», «Реквизиты для печати».");
+            warnings.Add(entity.IsSoleProprietor
+                ? "Не указаны ФИО предпринимателя для подписи — раздел «Юрлица и счета»."
+                : $"Не указан руководитель «{entity.ShortName}» для подписи — раздел «Юрлица и счета».");
         }
 
         if (prepayments.Any(p => p.DocumentNumber is null))
@@ -145,7 +159,7 @@ public sealed class PrintService(IKnitErpDbContext db, IAccessGuard guard)
                          + "В knitERP авансовые счета-фактуры пока не оформляются — впишите их реквизиты из учётной программы.");
         }
 
-        return new UpdPrintDto(VatInvoiceNumber(doc.Number), doc.DocumentDate, doc.Number, seller, Requisites(org), buyer,
+        return new UpdPrintDto(VatInvoiceNumber(doc.Number), doc.DocumentDate, doc.Number, seller, Requisites(entity, account), buyer,
             Basis(order), warehouse, lines, lines.Sum(l => l.AmountWithoutVat), lines.Sum(l => l.VatAmount), total,
             AmountInWords.Format(total, org.CurrencyCode),
             $"{char.ToUpperInvariant(country.CurrencyName[0])}{country.CurrencyName[1..]}, {CurrencyNumeric.GetValueOrDefault(org.CurrencyCode, org.CurrencyCode)}",
@@ -169,11 +183,22 @@ public sealed class PrintService(IKnitErpDbContext db, IAccessGuard guard)
         return ctx;
     }
 
-    private static PrintPartyDto Seller(Organization org) => new(org.FullName, org.Inn, org.PrintableKpp, org.LegalAddress ?? org.ActualAddress);
+    /// <summary>Юрлицо-продавец и счёт для оплаты: указанный или основной счёт юрлица (D78).</summary>
+    private async Task<(LegalEntity Entity, LegalEntityAccount? Account)> SellerAsync(long organizationId, long entityId, long? accountId,
+        CancellationToken ct)
+    {
+        var entity = await db.LegalEntities.AsNoTracking().SingleAsync(e => e.OrganizationId == organizationId && e.Id == entityId, ct);
+        var account = await db.LegalEntityAccounts.AsNoTracking()
+            .Where(a => a.OrganizationId == organizationId && a.LegalEntityId == entityId && (accountId == null ? a.IsDefault : a.Id == accountId))
+            .FirstOrDefaultAsync(ct);
+        return (entity, account);
+    }
 
-    private static PrintRequisites Requisites(Organization o) =>
-        new(o.LegalAddress ?? o.ActualAddress, o.BankName, o.BankBic, o.BankAccount, o.BankCorrAccount, o.DirectorName, o.AccountantName,
-            o.DirectorPosition);
+    private static PrintPartyDto Seller(LegalEntity e) => new(e.Name, e.Inn, e.Kpp, e.LegalAddress);
+
+    private static PrintRequisites Requisites(LegalEntity e, LegalEntityAccount? a) =>
+        new(e.LegalAddress, a?.BankName, a?.Bic, a?.Account, a?.CorrAccount, e.DirectorName, e.AccountantName, e.DirectorPosition,
+            e.IsSoleProprietor, e.Ogrn, e.VatExempt);
 
     private async Task<PrintPartyDto> BuyerAsync(long counterpartyId, CancellationToken ct) =>
         await db.Counterparties.AsNoTracking().Where(c => c.Id == counterpartyId)

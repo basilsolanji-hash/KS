@@ -134,7 +134,9 @@ public sealed class SqlTestHost : IAsyncLifetime
             new KnitErp.Application.Sales.SalesAnalyticsService(db, guard),
             new KnitErp.Application.Taxes.VatInvoiceService(db, guard, user, Clock),
             new KnitErp.Application.Sales.SalesStageService(db, guard, user, Clock),
-            new KnitErp.Application.Sales.SalesSettingsService(db, guard, user, Clock));
+            new KnitErp.Application.Sales.SalesSettingsService(db, guard, user, Clock),
+            new KnitErp.Application.Organizations.LegalEntityService(db, guard, user, Clock),
+            new KnitErp.Application.Common.RequisitesLookupService(new FakeRequisitesLookup(), guard));
     }
 
     private static readonly IPasswordHasher<UserAccount> Hasher = new PasswordHasher<UserAccount>();
@@ -205,7 +207,21 @@ public sealed record Services(
     KnitErp.Application.Sales.SalesAnalyticsService Analytics,
     KnitErp.Application.Taxes.VatInvoiceService VatInvoices,
     KnitErp.Application.Sales.SalesStageService Stages,
-    KnitErp.Application.Sales.SalesSettingsService SalesSettings) : IAsyncDisposable
+    KnitErp.Application.Sales.SalesSettingsService SalesSettings,
+    KnitErp.Application.Organizations.LegalEntityService LegalEntities,
+    KnitErp.Application.Common.RequisitesLookupService Requisites) : IAsyncDisposable
 {
     public ValueTask DisposeAsync() => Db.DisposeAsync();
+}
+
+/// <summary>Справочник реквизитов для тестов: без сети, один известный ИНН (данные вымышленные).</summary>
+public sealed class FakeRequisitesLookup : KnitErp.Application.Common.IRequisitesLookup
+{
+    public bool IsConfigured => true;
+
+    public Task<KnitErp.Application.Common.CompanyRequisites?> FindByInnAsync(string inn, CancellationToken ct = default) =>
+        Task.FromResult(inn == "7707083893"
+            ? new KnitErp.Application.Common.CompanyRequisites(false, "ООО «ТЕСТОВАЯ ФАБРИКА»", "ООО «ТФ»", inn, "773601001", "1027700132195",
+                "г. Москва, ул. Тестовая, д. 1", "ГЕНЕРАЛЬНЫЙ ДИРЕКТОР", "Тестов Тест Тестович", true, "ACTIVE")
+            : null);
 }

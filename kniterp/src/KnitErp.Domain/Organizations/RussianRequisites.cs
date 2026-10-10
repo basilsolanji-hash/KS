@@ -68,6 +68,14 @@ public static class RussianRequisites
         return true;
     }
 
+    /// <summary>ОГРН юридического лица: 13 цифр; контрольная — остаток от деления первых 12 на 11 (последняя цифра остатка).</summary>
+    public static bool IsValidOgrn(string? ogrn) =>
+        ogrn is { Length: 13 } && ogrn.All(char.IsAsciiDigit) && long.Parse(ogrn[..12]) % 11 % 10 == ogrn[12] - '0';
+
+    /// <summary>ОГРНИП индивидуального предпринимателя: 15 цифр; контрольная — остаток от деления первых 14 на 13 (последняя цифра).</summary>
+    public static bool IsValidOgrnip(string? ogrnip) =>
+        ogrnip is { Length: 15 } && ogrnip.All(char.IsAsciiDigit) && long.Parse(ogrnip[..14]) % 13 % 10 == ogrnip[14] - '0';
+
     /// <summary>БИК банка: 9 цифр, начинается с 04.</summary>
     public static bool IsValidBik(string? bik) => bik is { Length: 9 } && bik.All(char.IsAsciiDigit) && bik.StartsWith("04", StringComparison.Ordinal);
 

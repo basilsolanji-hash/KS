@@ -84,7 +84,7 @@ else
 
         <table class="totals-print">
             <tr><td>Итого:</td><td class="n">@Amounts.Format(_doc.PricesIncludeVat ? _doc.Total : _doc.Total - _doc.VatTotal)</td></tr>
-            <tr><td>@(_doc.PricesIncludeVat ? "В том числе НДС:" : "НДС:")</td><td class="n">@(_doc.VatTotal == 0 ? "Без НДС" : Amounts.Format(_doc.VatTotal))</td></tr>
+            <tr><td>@(_doc.PricesIncludeVat ? "В том числе НДС:" : "НДС:")</td><td class="n">@(_doc.VatTotal == 0 ? (r.VatExempt ? "Без налога (НДС)" : "Без НДС") : Amounts.Format(_doc.VatTotal))</td></tr>
             <tr><td>Всего к оплате:</td><td class="n">@Amounts.Format(_doc.Total)</td></tr>
         </table>
 
@@ -96,8 +96,15 @@ else
         }
 
         <div class="sign">
-            <div>Руководитель <span class="line"></span> @r.DirectorName</div>
-            <div>Бухгалтер <span class="line"></span> @(r.AccountantName ?? r.DirectorName)</div>
+            @if (r.SoleProprietor)
+            {
+                <div>Индивидуальный предприниматель <span class="line"></span> @r.DirectorName</div>
+            }
+            else
+            {
+                <div>Руководитель <span class="line"></span> @r.DirectorName</div>
+                <div>Бухгалтер <span class="line"></span> @(r.AccountantName ?? r.DirectorName)</div>
+            }
         </div>
     </div>
 }

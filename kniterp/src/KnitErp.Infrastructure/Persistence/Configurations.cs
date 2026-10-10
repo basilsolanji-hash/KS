@@ -37,17 +37,65 @@ internal sealed class OrganizationConfiguration : IEntityTypeConfiguration<Organ
         b.Property(x => x.WebsiteUrl).HasMaxLength(Organization.WebsiteMaxLength);
         b.Property(x => x.TimeZoneId).HasMaxLength(Organization.TimeZoneMaxLength).IsRequired();
         b.Property(x => x.CurrencyCode).HasColumnType("char(3)").IsRequired();
-        b.Property(x => x.LegalAddress).HasMaxLength(Organization.AddressMaxLength);
-        b.Property(x => x.BankName).HasMaxLength(Organization.BankNameMaxLength);
-        b.Property(x => x.BankBic).HasColumnType("varchar(11)");
-        b.Property(x => x.BankAccount).HasColumnType("varchar(34)");
-        b.Property(x => x.BankCorrAccount).HasColumnType("varchar(34)");
-        b.Property(x => x.DirectorName).HasMaxLength(Organization.PersonNameMaxLength);
-        b.Property(x => x.AccountantName).HasMaxLength(Organization.PersonNameMaxLength);
-        b.Property(x => x.DirectorPosition).HasMaxLength(Organization.PositionMaxLength);
         b.Property(x => x.RowVersion).IsRowVersion();
         b.Ignore(x => x.PrintableKpp);
         b.HasIndex(x => new { x.CountryCode, x.Inn }).IsUnique().HasDatabaseName("ux_organizations_country_inn");
+    }
+}
+
+internal sealed class LegalEntityConfiguration : IEntityTypeConfiguration<LegalEntity>
+{
+    public void Configure(EntityTypeBuilder<LegalEntity> b)
+    {
+        b.ToTable("legal_entities", t =>
+        {
+            t.HasCheckConstraint("ck_legal_entities_kind", "[Kind] IN (1, 2)");
+            // ИНН: 9–12 цифр (страны D60); у ИП (вид 2) КПП нет; основное юрлицо не в архиве.
+            t.HasCheckConstraint("ck_legal_entities_inn", "LEN([Inn]) BETWEEN 9 AND 14 AND [Inn] NOT LIKE '%[^0-9]%'");
+            t.HasCheckConstraint("ck_legal_entities_kpp", "[Kpp] IS NULL OR (LEN([Kpp]) = 9 AND [Kind] = 1)");
+            t.HasCheckConstraint("ck_legal_entities_default", "[IsDefault] = 0 OR [IsArchived] = 0");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Kind).HasConversion<byte>();
+        b.Property(x => x.Name).HasMaxLength(LegalEntity.NameMaxLength).IsRequired();
+        b.Property(x => x.ShortName).HasMaxLength(LegalEntity.ShortNameMaxLength).IsRequired();
+        b.Property(x => x.Inn).HasColumnType("varchar(14)").IsRequired();
+        b.Property(x => x.Kpp).HasColumnType("char(9)");
+        b.Property(x => x.Ogrn).HasColumnType("varchar(20)");
+        b.Property(x => x.LegalAddress).HasMaxLength(LegalEntity.AddressMaxLength);
+        b.Property(x => x.DirectorPosition).HasMaxLength(LegalEntity.PositionMaxLength);
+        b.Property(x => x.DirectorName).HasMaxLength(LegalEntity.PersonNameMaxLength);
+        b.Property(x => x.AccountantName).HasMaxLength(LegalEntity.PersonNameMaxLength);
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.Ignore(x => x.IsSoleProprietor);
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_legal_entities_org_id");
+        b.HasIndex(x => x.OrganizationId).IsUnique().HasFilter("[IsDefault] = 1").HasDatabaseName("ux_legal_entities_org_default");
+        b.HasIndex(x => new { x.OrganizationId, x.Inn, x.Kpp }).IsUnique().HasFilter("[IsArchived] = 0")
+            .HasDatabaseName("ux_legal_entities_org_inn_kpp_active");
+    }
+}
+
+internal sealed class LegalEntityAccountConfiguration : IEntityTypeConfiguration<LegalEntityAccount>
+{
+    public void Configure(EntityTypeBuilder<LegalEntityAccount> b)
+    {
+        b.ToTable("legal_entity_accounts", t => t.HasCheckConstraint("ck_legal_entity_accounts_default", "[IsDefault] = 0 OR [IsArchived] = 0"));
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.BankName).HasMaxLength(LegalEntityAccount.BankNameMaxLength).IsRequired();
+        b.Property(x => x.Bic).HasColumnType("varchar(11)").IsRequired();
+        b.Property(x => x.Account).HasColumnType("varchar(34)").IsRequired();
+        b.Property(x => x.CorrAccount).HasColumnType("varchar(34)");
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasAlternateKey(x => new { x.OrganizationId, x.LegalEntityId, x.Id }).HasName("ak_legal_entity_accounts_org_entity_id");
+        b.HasOne<LegalEntity>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.LegalEntityId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_legal_entity_accounts_entity");
+        b.HasIndex(x => x.LegalEntityId).IsUnique().HasFilter("[IsDefault] = 1").HasDatabaseName("ux_legal_entity_accounts_entity_default");
+        b.HasIndex(x => new { x.LegalEntityId, x.Account }).IsUnique().HasFilter("[IsArchived] = 0")
+            .HasDatabaseName("ux_legal_entity_accounts_entity_account_active");
     }
 }
 
@@ -694,6 +742,14 @@ internal sealed class SalesOrderConfiguration : IEntityTypeConfiguration<SalesOr
             .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("fk_sales_orders_stage");
         b.HasIndex(x => new { x.OrganizationId, x.StageId }).HasDatabaseName("ix_sales_orders_org_stage");
+        b.HasOne<LegalEntity>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.LegalEntityId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_sales_orders_legal_entity");
+        // Счёт — только своего юрлица заказа: ключ (организация, юрлицо, счёт).
+        b.HasOne<LegalEntityAccount>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.LegalEntityId, x.BankAccountId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.LegalEntityId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_sales_orders_bank_account");
+        b.HasIndex(x => new { x.OrganizationId, x.LegalEntityId }).HasDatabaseName("ix_sales_orders_org_legal_entity");
         b.Property(x => x.OrderTime).HasColumnType("time(0)");
         b.Property(x => x.DeliveryAddress).HasMaxLength(SalesOrder.AddressMaxLength);
         b.HasOne<Lookup>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.ProjectId })
@@ -876,6 +932,12 @@ internal sealed class CustomerInvoiceConfiguration : IEntityTypeConfiguration<Cu
         b.HasOne<SalesOrder>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.SalesOrderId })
             .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("fk_customer_invoices_order");
+        b.HasOne<LegalEntity>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.LegalEntityId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_customer_invoices_legal_entity");
+        b.HasOne<LegalEntityAccount>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.LegalEntityId, x.BankAccountId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.LegalEntityId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_customer_invoices_bank_account");
         b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.CancelledByUserId).OnDelete(DeleteBehavior.Restrict);
         b.HasIndex(x => new { x.OrganizationId, x.Number }).IsUnique().HasDatabaseName("ux_customer_invoices_org_number");

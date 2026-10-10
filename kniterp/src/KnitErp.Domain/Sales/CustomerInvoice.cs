@@ -34,6 +34,11 @@ public sealed class CustomerInvoice
 
     public long SalesOrderId { get; private set; }
     public long CustomerId { get; private set; }
+
+    /// <summary>Юрлицо-продавец и расчётный счёт на дату счёта — копия из заказа (D78); счёт печатается с этими реквизитами.</summary>
+    public long LegalEntityId { get; private set; }
+
+    public long? BankAccountId { get; private set; }
     public bool PricesIncludeVat { get; private set; }
     public CustomerInvoiceStatus Status { get; private set; }
     public string? Comment { get; private set; }
@@ -49,7 +54,8 @@ public sealed class CustomerInvoice
     public decimal VatTotal => _lines.Sum(l => l.VatAmount);
 
     public static CustomerInvoice Create(
-        long organizationId, string number, DateOnly date, DateOnly? dueDate, SalesOrder order, string? comment, long userId, DateTime nowUtc)
+        long organizationId, string number, DateOnly date, DateOnly? dueDate, SalesOrder order, string? comment, long userId, DateTime nowUtc,
+        long? bankAccountId = null)
     {
         EnsureCanIssue(order, date, dueDate);
         var invoice = new CustomerInvoice
@@ -60,6 +66,8 @@ public sealed class CustomerInvoice
             DueDate = dueDate,
             SalesOrderId = order.Id,
             CustomerId = order.CustomerId,
+            LegalEntityId = order.LegalEntityId,
+            BankAccountId = bankAccountId,
             PricesIncludeVat = order.PricesIncludeVat,
             Status = CustomerInvoiceStatus.Issued,
             Comment = DomainText.Optional(comment, CommentMaxLength, "Комментарий"),

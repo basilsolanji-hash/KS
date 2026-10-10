@@ -144,9 +144,14 @@ public sealed class CustomerInvoiceService(IKnitErpDbContext db, IAccessGuard gu
 
         var today = await TodayAsync(ctx, ct);
         CustomerInvoice.EnsureCanIssue(order, today, dueDate, comment);
+        // Юрлицо и счёт заказа (D78): счёт выписывается от действующего юрлица; без выбранного счёта — его основной счёт.
+        (await db.LegalEntities.AsNoTracking().SingleAsync(e => e.OrganizationId == ctx.OrganizationId && e.Id == order.LegalEntityId, ct)).EnsureActive();
+        var bankAccountId = order.BankAccountId ?? await db.LegalEntityAccounts.AsNoTracking()
+            .Where(a => a.OrganizationId == ctx.OrganizationId && a.LegalEntityId == order.LegalEntityId && a.IsDefault)
+            .Select(a => (long?)a.Id).FirstOrDefaultAsync(ct);
         await using var tx = await db.BeginTransactionAsync(ct);
         var number = await DocumentNumbers.NextAsync(db, ctx.OrganizationId, CustomerInvoice.NumberPrefix, ct);
-        var invoice = CustomerInvoice.Create(ctx.OrganizationId, number, today, dueDate, order, comment, ctx.UserId, clock.UtcNow);
+        var invoice = CustomerInvoice.Create(ctx.OrganizationId, number, today, dueDate, order, comment, ctx.UserId, clock.UtcNow, bankAccountId);
         db.CustomerInvoices.Add(invoice);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.CustomerInvoiceIssued, invoice.Id, null, $"{invoice.Total:0.00}", $"{number} по заказу {order.Number}");

@@ -14,7 +14,8 @@ public static class DependencyInjection
     public const string MigrationsHistoryTable = "__ef_migrations_history";
 
     public static IServiceCollection AddKnitErpInfrastructure(
-        this IServiceCollection services, string connectionString, string? assistantApiKey = null, string? assistantModel = null)
+        this IServiceCollection services, string connectionString, string? assistantApiKey = null, string? assistantModel = null,
+        string? requisitesApiKey = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
         services.AddDbContext<KnitErpDbContext>(o => o.UseSqlServer(connectionString, ConfigureSqlServer));
@@ -25,6 +26,9 @@ public static class DependencyInjection
         // Внешние сервисы панели быстрого доступа: короткие таймауты, ошибка — не ошибка системы.
         services.AddHttpClient<IWeatherProvider, OpenMeteoWeatherProvider>(c => c.Timeout = TimeSpan.FromSeconds(4));
         services.AddSingleton<IAssistantModel>(new ClaudeAssistantModel(assistantApiKey, assistantModel));
+        // Заполнение реквизитов по ИНН (D78): DaData по ключу из секретов сервера; без ключа — не подключено.
+        services.AddSingleton(new RequisitesLookupOptions(requisitesApiKey));
+        services.AddHttpClient<IRequisitesLookup, DaDataRequisitesLookup>(c => c.Timeout = TimeSpan.FromSeconds(6));
         services.AddSingleton<KnitErp.Application.Security.IIntegrityVerifier, Security.IntegrityVerifier>();
         return services;
     }

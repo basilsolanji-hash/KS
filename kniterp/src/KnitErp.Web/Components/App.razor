@@ -358,6 +358,11 @@
         .stage-select { border-left: 4px solid var(--st, var(--line-strong)) !important; font-weight: 500; }
         .cell-short { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad-text); font-weight: 600; }
         .money-debt { color: var(--bad-text); font-weight: 600; }
+        .inn-fill { display: flex; gap: 6px; align-items: center; }
+        .inn-fill input { flex: 1; min-width: 0; }
+        .inn-fill button { white-space: nowrap; }
+        section.legal-entity { margin-bottom: 16px; }
+        section.legal-entity.archived { opacity: .7; }
         .money-advance { color: var(--good); font-weight: 600; }
         @@media (min-width: 900px) { .panel .grid label.wide { grid-column: 1 / -1; } }
         .reserve-toggle { display: inline-flex; align-items: center; gap: 6px; margin: 8px 0; color: var(--text); }

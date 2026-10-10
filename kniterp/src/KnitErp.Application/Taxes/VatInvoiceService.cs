@@ -9,12 +9,13 @@ using Microsoft.EntityFrameworkCore;
 
 namespace KnitErp.Application.Taxes;
 
-public sealed record VatJournalFilter(DateOnly From, DateOnly To, string? Search = null, bool IncludeCancelled = false);
+/// <summary>Период журнала. LegalEntityId — журнал одного своего юрлица (D78): каждый налогоплательщик ведёт свой журнал.</summary>
+public sealed record VatJournalFilter(DateOnly From, DateOnly To, string? Search = null, bool IncludeCancelled = false, long? LegalEntityId = null);
 
 /// <summary>Выданный счёт-фактура = УПД по отгрузке (D68). Annulled — отгрузка сторнирована, в итоги не входит.</summary>
 public sealed record IssuedVatInvoiceDto(
     long DocumentId, string InvoiceNumber, string Number, DateOnly Date, string Customer, string? Inn, string? Kpp, string OrderNumber,
-    decimal AmountWithoutVat, decimal VatAmount, bool Annulled)
+    decimal AmountWithoutVat, decimal VatAmount, bool Annulled, string? Seller = null)
 {
     public decimal Amount => AmountWithoutVat + VatAmount;
 }
@@ -57,7 +58,10 @@ public sealed class VatInvoiceService(IKnitErpDbContext db, IAccessGuard guard, 
                       && d.DocumentDate >= filter.From && d.DocumentDate <= filter.To
                 join c in db.Counterparties.AsNoTracking() on d.CounterpartyId equals c.Id
                 join o in db.SalesOrders.AsNoTracking() on d.SalesOrderId equals o.Id
-                select new { d, c.Name, c.Inn, c.Kpp, OrderNumber = o.Number };
+                join e in db.LegalEntities.AsNoTracking() on o.LegalEntityId equals e.Id
+                // Освобождённые от НДС (D78) журнал выданных счетов-фактур не ведут.
+                where !e.VatExempt && (filter.LegalEntityId == null || e.Id == filter.LegalEntityId)
+                select new { d, c.Name, c.Inn, c.Kpp, OrderNumber = o.Number, Seller = e.ShortName };
         if (!string.IsNullOrWhiteSpace(filter.Search))
         {
             var text = filter.Search.Trim();
@@ -65,7 +69,7 @@ public sealed class VatInvoiceService(IKnitErpDbContext db, IAccessGuard guard, 
         }
 
         var docs = await q.OrderBy(x => x.d.DocumentDate).ThenBy(x => x.d.Number).Take(MaxRows)
-            .Select(x => new { x.d.Id, x.d.Number, x.d.DocumentDate, x.d.Status, OrderId = x.d.SalesOrderId!.Value, x.Name, x.Inn, x.Kpp, x.OrderNumber,
+            .Select(x => new { x.d.Id, x.d.Number, x.d.DocumentDate, x.d.Status, OrderId = x.d.SalesOrderId!.Value, x.Name, x.Inn, x.Kpp, x.OrderNumber, x.Seller,
                 Lines = x.d.Lines.Select(l => new { l.ItemId, l.Quantity }).ToList() })
             .ToListAsync(ct);
         var orderIds = docs.Select(d => d.OrderId).Distinct().ToList();
@@ -80,7 +84,7 @@ public sealed class VatInvoiceService(IKnitErpDbContext db, IAccessGuard guard, 
                 return (acc.Amount + a, acc.Vat + v);
             });
             return new IssuedVatInvoiceDto(d.Id, KnitErp.Application.Printing.PrintService.VatInvoiceNumber(d.Number), d.Number, d.DocumentDate, d.Name, d.Inn, d.Kpp, d.OrderNumber, amount - vat, vat,
-                d.Status == StockDocumentStatus.Reversed);
+                d.Status == StockDocumentStatus.Reversed, d.Seller);
         }).ToList();
     }
 

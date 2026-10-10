@@ -109,7 +109,7 @@ else
                         <td class="n">@Amounts.Format(l.AmountWithoutVat)</td>
                         <td class="c">без акциза</td>
                         <td class="c">@Amounts.Vat(l.VatPercent)</td>
-                        <td class="n">@(l.VatPercent is null ? "без НДС" : Amounts.Format(l.VatAmount))</td>
+                        <td class="n">@(l.VatPercent is null ? (r.VatExempt ? "Без налога (НДС)" : "без НДС") : Amounts.Format(l.VatAmount))</td>
                         <td class="n">@Amounts.Format(l.Amount)</td>
                         <td class="c">--</td><td class="c">--</td><td class="c">--</td><td class="c">--</td><td class="c">--</td><td class="c">--</td><td class="c">--</td>
                     </tr>
@@ -127,8 +127,16 @@ else
         <p class="words">Всего к оплате: @_doc.TotalInWords</p>
 
         <div class="sign">
-            <div>Руководитель организации или иное уполномоченное лицо <span class="line"></span> @r.DirectorName<div class="small">(подпись) (ф.и.о.)</div></div>
-            <div>Главный бухгалтер или иное уполномоченное лицо <span class="line"></span> @(r.AccountantName ?? r.DirectorName)<div class="small">(подпись) (ф.и.о.)</div></div>
+            @if (r.SoleProprietor)
+            {
+                <div>Индивидуальный предприниматель или иное уполномоченное лицо <span class="line"></span> @r.DirectorName<div class="small">(подпись) (ф.и.о.)</div></div>
+                <div>@(r.Ogrn is null ? "" : "ОГРНИП " + r.Ogrn) <span class="line"></span><div class="small">(реквизиты свидетельства о государственной регистрации индивидуального предпринимателя)</div></div>
+            }
+            else
+            {
+                <div>Руководитель организации или иное уполномоченное лицо <span class="line"></span> @r.DirectorName<div class="small">(подпись) (ф.и.о.)</div></div>
+                <div>Главный бухгалтер или иное уполномоченное лицо <span class="line"></span> @(r.AccountantName ?? r.DirectorName)<div class="small">(подпись) (ф.и.о.)</div></div>
+            }
         </div>
 
         <table class="plain" style="margin-top: 14px">
@@ -136,7 +144,7 @@ else
             <tr><td colspan="2">Данные о транспортировке и грузе: <span class="line"></span> <span class="small">[9]</span></td></tr>
             <tr>
                 <td style="width: 50%">Товар (груз) передал / услуги, результаты работ, права сдал <span class="small">[10]</span><br />
-                    @(r.DirectorPosition ?? "") <span class="line"></span> @r.DirectorName<div class="small">(должность) (подпись) (ф.и.о.)</div></td>
+                    @(r.SoleProprietor ? "Индивидуальный предприниматель" : r.DirectorPosition ?? "") <span class="line"></span> @r.DirectorName<div class="small">(должность) (подпись) (ф.и.о.)</div></td>
                 <td>Товар (груз) получил / услуги, результаты работ, права принял <span class="small">[15]</span><br />
                     <span class="line"></span> <span class="line"></span> <span class="line"></span><div class="small">(должность) (подпись) (ф.и.о.)</div></td>
             </tr>
@@ -145,7 +153,7 @@ else
             <tr><td>Иные сведения об отгрузке, передаче: склад отгрузки — @_doc.Warehouse <span class="small">[12]</span></td>
                 <td>Иные сведения о получении, приёмке: <span class="line"></span> <span class="small">[17]</span></td></tr>
             <tr><td>Ответственный за правильность оформления факта хозяйственной жизни <span class="small">[13]</span><br />
-                    @(r.DirectorPosition ?? "") <span class="line"></span> @r.DirectorName<div class="small">(должность) (подпись) (ф.и.о.)</div></td>
+                    @(r.SoleProprietor ? "Индивидуальный предприниматель" : r.DirectorPosition ?? "") <span class="line"></span> @r.DirectorName<div class="small">(должность) (подпись) (ф.и.о.)</div></td>
                 <td>Ответственный за правильность оформления факта хозяйственной жизни <span class="small">[18]</span><br />
                     <span class="line"></span> <span class="line"></span> <span class="line"></span><div class="small">(должность) (подпись) (ф.и.о.)</div></td></tr>
             <tr><td>Наименование экономического субъекта — составителя документа (в т. ч. комиссионера / агента): @_doc.Seller.Name, ИНН/КПП @_doc.Seller.Inn@(_doc.Seller.Kpp is null ? "" : "/" + _doc.Seller.Kpp) <span class="small">[14]</span></td>

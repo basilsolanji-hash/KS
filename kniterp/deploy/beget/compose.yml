@@ -46,6 +46,7 @@ services:
       Security__PreviousMasterKeys: ${PREVIOUS_MASTER_KEYS:-}
       ReverseProxy__KnownNetwork: 172.30.0.0/24
       Assistant__ApiKey: ${ASSISTANT_API_KEY:-}
+      Requisites__ApiKey: ${REQUISITES_API_KEY:-}
     ports:
       # Только для Caddy на этом же сервере.
       - "127.0.0.1:8080:8080"

@@ -3,6 +3,7 @@
 @using KnitErp.Web.Components.Shared
 @inject CounterpartyService Counterparties
 @inject CounterpartyExchangeService Exchange
+@inject KnitErp.Application.Common.RequisitesLookupService Requisites
 
 <PageTitle>@L("Контрагенты") — knitERP</PageTitle>
 
@@ -45,7 +46,16 @@ else
                             }
                         </InputSelect>
                     </label>
-                    <label>@FormCountry.TaxIdName <InputText @bind-Value="_form.Inn" maxlength="14" inputmode="numeric" placeholder="@KnitErp.Domain.Organizations.Countries.TaxIdRule(FormCountry.Code, organization: false)" /></label>
+                    <label>
+                        @FormCountry.TaxIdName
+                        <span class="inn-fill">
+                            <InputText @bind-Value="_form.Inn" maxlength="14" inputmode="numeric" placeholder="@KnitErp.Domain.Organizations.Countries.TaxIdRule(FormCountry.Code, organization: false)" />
+                            @if (Requisites.IsConfigured && FormCountry.Code == KnitErp.Domain.Organizations.Countries.Russia)
+                            {
+                                <button type="button" class="secondary" @onclick="FillByInnAsync" disabled="@_busy" title="@L("Подставить реквизиты из ЕГРЮЛ/ЕГРИП")">@L("Заполнить по ИНН")</button>
+                            }
+                        </span>
+                    </label>
                     @if (FormCountry.HasKpp)
                     {
                         <label>@L("КПП") <InputText @bind-Value="_form.Kpp" maxlength="9" placeholder="@L("только у организации")" /></label>
@@ -225,6 +235,38 @@ else
 
         Close();
     }, L("Контрагент сохранён."));
+
+    /// <summary>Наименование, КПП и адрес из ЕГРЮЛ/ЕГРИП по ИНН (D78) — пользователь проверяет и сохраняет сам.</summary>
+    private async Task FillByInnAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _formError = null;
+        try
+        {
+            var r = await Requisites.ForCounterpartyAsync(_form.Inn);
+            _form.Inn = r.Inn;
+            _form.Name = r.ShortName;
+            _form.Kpp = r.Kpp;
+            _form.Address = r.Address ?? _form.Address;
+            if (!r.Active)
+            {
+                _formError = L("Внимание: по реестру организация не действует ({0}). Проверьте, прежде чем сохранять.", r.Status ?? "—");
+            }
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _formError = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
 
     private Task ArchiveAsync(CounterpartyDto c) => RunAsync(() => Counterparties.ArchiveAsync(c.Id, c.RowVersion), L("Контрагент «{0}» в архиве.", c.Name));
 

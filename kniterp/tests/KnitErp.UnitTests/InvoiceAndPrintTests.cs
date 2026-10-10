@@ -43,23 +43,59 @@ public sealed class InvoiceAndPrintTests
     }
 
     [Fact]
-    public void Print_requisites_are_validated_and_logged()
+    public void Bank_account_is_validated_by_bik_key()
     {
-        var org = Organization.Create("ООО «Тест»", "Тест", "7707083893", null, false, "Europe/Moscow", DateTime.UtcNow);
         Assert.Equal("org.bank.bik_required", Assert.Throws<BusinessRuleException>(() =>
-            org.UpdatePrintRequisites(new PrintRequisites(null, null, null, "40702810938000000001", null, null, null))).Code);
+            LegalEntityAccount.Create(1, 2, Countries.Russia, "Банк", null, "40702810938000000001", null, true)).Code);
         Assert.Equal("org.bank.code", Assert.Throws<BusinessRuleException>(() =>
-            org.UpdatePrintRequisites(new PrintRequisites(null, null, "04-4525225", null, null, null, null))).Code);
-        var changes = org.UpdatePrintRequisites(new PrintRequisites(" г. Москва ", "Банк", "044525225", "4070 2810 9380 0000 0001", null, "Иванов И. И.", null));
-        Assert.Equal(["LegalAddress", "BankName", "BankBic", "BankAccount", "DirectorName"], changes.Select(c => c.Field));
-        Assert.Equal(("г. Москва", "40702810938000000001"), (org.LegalAddress, org.BankAccount));
-        Assert.Empty(org.UpdatePrintRequisites(new PrintRequisites("г. Москва", "Банк", "044525225", "40702810938000000001", null, "Иванов И. И.", null)));
+            LegalEntityAccount.Create(1, 2, Countries.Russia, "Банк", "04-4525225", "40702810938000000001", null, true)).Code);
+        Assert.Equal("org.bank.account", Assert.Throws<BusinessRuleException>(() =>
+            LegalEntityAccount.Create(1, 2, Countries.Russia, "Банк", "044525225", "40702810138000000000", null, true)).Code);
+        var account = LegalEntityAccount.Create(1, 2, Countries.Russia, " Банк ", "044525225", "4070 2810 9380 0000 0001", "30101810400000000225", true);
+        Assert.Equal(("Банк", "40702810938000000001"), (account.BankName, account.Account));
+        account.SetArchived(true);
+        Assert.False(account.IsDefault);
 
         // Другая страна: только символы и длина (IBAN, SWIFT).
-        var kz = Organization.Create("ТОО «Тест»", "Тест", "980630000970", null, false, "Asia/Almaty", DateTime.UtcNow, Countries.Kazakhstan);
-        kz.UpdatePrintRequisites(new PrintRequisites(null, "Halyk", "HSBKKZKX", "KZ86125KZT5004100100", null, null, null));
-        Assert.Equal("HSBKKZKX", kz.BankBic);
+        var kz = LegalEntityAccount.Create(1, 2, Countries.Kazakhstan, "Halyk", "HSBKKZKX", "KZ86125KZT5004100100", null, true);
+        Assert.Equal("HSBKKZKX", kz.Bic);
     }
+
+    [Fact]
+    public void Legal_entity_and_sole_proprietor_requisites_follow_rf_rules()
+    {
+        LegalEntityData Company(string inn, string? kpp = null, string? ogrn = null) =>
+            new(LegalEntityKind.Company, "Общество с ограниченной ответственностью «Тест»", "ООО «Тест»", inn, kpp, ogrn, null, "Генеральный директор",
+                "Иванов И. И.", null, false);
+        var ooo = LegalEntity.Create(1, Countries.Russia, Company("7707083893", "773601001", "1027700132195"), isDefault: true);
+        Assert.Equal(("7707083893", "773601001", "1027700132195"), (ooo.Inn, ooo.Kpp, ooo.Ogrn));
+        Assert.Equal("legal_entity.inn", Assert.Throws<BusinessRuleException>(() => LegalEntity.Create(1, Countries.Russia, Company("7707083894"), false)).Code);
+        Assert.Equal("legal_entity.ogrn", Assert.Throws<BusinessRuleException>(() =>
+            LegalEntity.Create(1, Countries.Russia, Company("7707083893", null, "1027700132196"), false)).Code);
+
+        // ИП: ИНН 12 цифр, без КПП, ОГРНИП 15 цифр; должность не хранится.
+        var ip = new LegalEntityData(LegalEntityKind.SoleProprietor, "Индивидуальный предприниматель Петров Пётр Петрович", "ИП Петров П. П.",
+            "500100732259", null, "304500116000157", null, "Директор", "Петров П. П.", null, true);
+        var sole = LegalEntity.Create(1, Countries.Russia, ip, isDefault: false);
+        Assert.Equal((true, null, true), (sole.IsSoleProprietor, sole.DirectorPosition, sole.VatExempt));
+        Assert.Equal("legal_entity.kpp_sole", Assert.Throws<BusinessRuleException>(() =>
+            LegalEntity.Create(1, Countries.Russia, ip with { Kpp = "773601001" }, false)).Code);
+        Assert.Equal("legal_entity.inn", Assert.Throws<BusinessRuleException>(() =>
+            LegalEntity.Create(1, Countries.Russia, ip with { Inn = "7707083893" }, false)).Code);
+        Assert.Equal("legal_entity.ogrn", Assert.Throws<BusinessRuleException>(() =>
+            LegalEntity.Create(1, Countries.Russia, ip with { Ogrn = "304500116000158" }, false)).Code);
+
+        // Основное юрлицо нельзя убрать в архив; изменения возвращаются для журнала.
+        Assert.Equal("legal_entity.default_archive", Assert.Throws<BusinessRuleException>(() => ooo.SetArchived(true)).Code);
+        var changes = ooo.Update(Countries.Russia, Company("7707083893", "773601001", "1027700132195") with { LegalAddress = "г. Москва" });
+        Assert.Equal(["LegalAddress"], changes.Select(c => c.Field));
+    }
+
+    [Theory]
+    [InlineData("1027700132195", true)]
+    [InlineData("1027700132196", false)]
+    [InlineData("102770013219", false)]
+    public void Ogrn_check_digit(string ogrn, bool valid) => Assert.Equal(valid, RussianRequisites.IsValidOgrn(ogrn));
 
     [Fact]
     public void Counterparty_address_changes_separately()

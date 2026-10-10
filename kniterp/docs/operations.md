@@ -56,6 +56,7 @@
 | `Security__MasterKey` | мастер-ключ (`dotnet KnitErp.Web.dll new-master-key`) |
 | `Security__PreviousMasterKeys` | прежние ключи после смены, через запятую |
 | `Assistant__ApiKey` | необязательно: ключ Anthropic для ИИ-помощника |
+| `Requisites__ApiKey` | необязательно: API-ключ DaData для заполнения реквизитов по ИНН (бесплатный тариф, dadata.ru → личный кабинет → «API-ключ») |
 | `ASPNETCORE_URLS` | адрес и порт за обратным прокси |
 
 Секреты — в переменных окружения службы или хранилище секретов, не в `appsettings.json`.

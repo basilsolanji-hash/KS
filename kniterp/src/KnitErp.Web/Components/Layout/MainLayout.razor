@@ -204,6 +204,7 @@
         new("settings", "Настройки",
         [
             new("organization", "Организация", a => a.Has(Permissions.OrganizationView)),
+            new("legal-entities", "Юрлица и счета", a => a.Has(Permissions.OrganizationView)),
             new("launch", "Готовность к запуску", a => a.Has(Permissions.OrganizationEdit)),
             new("users", "Пользователи", a => a.Has(Permissions.UserView)),
             new("roles", "Роли и права", a => a.Has(Permissions.UserView)),

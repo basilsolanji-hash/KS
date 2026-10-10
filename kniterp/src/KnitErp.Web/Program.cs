@@ -51,7 +51,9 @@ builder.Services.AddKnitErpInfrastructure(
     connectionString,
     // ИИ-помощник включается ключом из секретов сервера; без ключа он отвечает по справочному центру.
     builder.Configuration["Assistant:ApiKey"] ?? builder.Configuration["ANTHROPIC_API_KEY"],
-    builder.Configuration["Assistant:Model"]);
+    builder.Configuration["Assistant:Model"],
+    // Заполнение реквизитов по ИНН (DaData, данные ЕГРЮЛ/ЕГРИП) — ключ тоже только из секретов сервера.
+    builder.Configuration["Requisites:ApiKey"]);
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<KnitErp.Application.Workspace.IUiText, KnitErp.Web.Localization.WebUiText>();
@@ -252,8 +254,8 @@ app.MapGet("/reports/profitability.xlsx", (DateOnly from, DateOnly to, byte? gro
     FileOrForbid(() => export.ProfitabilityAsync(new KnitErp.Application.Sales.SalesAnalyticsFilter(from, to, customer),
         group == 2 ? KnitErp.Application.Sales.ProfitGrouping.Customer : KnitErp.Application.Sales.ProfitGrouping.Item, ct),
         $"pribylnost-{from:yyyy-MM-dd}-{to:yyyy-MM-dd}.xlsx"));
-app.MapGet("/vat-invoices/issued.xlsx", (DateOnly from, DateOnly to, string? search, KnitErp.Web.Exports.ReportExports export, CancellationToken ct) =>
-    FileOrForbid(() => export.IssuedVatInvoicesAsync(new KnitErp.Application.Taxes.VatJournalFilter(from, to, search), ct),
+app.MapGet("/vat-invoices/issued.xlsx", (DateOnly from, DateOnly to, string? search, long? entity, KnitErp.Web.Exports.ReportExports export, CancellationToken ct) =>
+    FileOrForbid(() => export.IssuedVatInvoicesAsync(new KnitErp.Application.Taxes.VatJournalFilter(from, to, search, LegalEntityId: entity), ct),
         $"scheta-faktury-vydannye-{from:yyyy-MM-dd}-{to:yyyy-MM-dd}.xlsx"));
 app.MapGet("/vat-invoices/received.xlsx", (DateOnly from, DateOnly to, string? search, KnitErp.Web.Exports.ReportExports export, CancellationToken ct) =>
     FileOrForbid(() => export.ReceivedVatInvoicesAsync(new KnitErp.Application.Taxes.VatJournalFilter(from, to, search), ct),

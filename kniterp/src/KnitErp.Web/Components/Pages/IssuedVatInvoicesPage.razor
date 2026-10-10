@@ -1,6 +1,7 @@
 @page "/vat-invoices/issued"
 @using KnitErp.Application.Taxes
 @inject VatInvoiceService VatInvoices
+@inject KnitErp.Application.Organizations.LegalEntityService LegalEntities
 
 <PageTitle>@L("Счета-фактуры выданные") — knitERP</PageTitle>
 
@@ -16,6 +17,10 @@ else
 {
     <h1>@L("Счета-фактуры выданные")</h1>
     <p class="muted">@L("Счёт-фактура выдаётся в составе УПД по проведённой отгрузке по заказу покупателя; порядковый номер — цифры номера отгрузки. Сторнированная отгрузка — аннулированный счёт-фактура, в итоги не входит.")</p>
+    @if (_entities.Count > 1)
+    {
+        <p class="muted">@L("Журнал ведёт каждое юрлицо отдельно — выберите продавца. Юрлица, освобождённые от НДС, журнал не ведут.")</p>
+    }
 
     @if (_error is not null)
     {
@@ -25,6 +30,19 @@ else
     <form class="inline-form" @onsubmit="ReloadAsync">
         <label>@L("С") <input type="date" @bind="_from" /></label>
         <label>@L("По") <input type="date" @bind="_to" /></label>
+        @if (_entities.Count > 1)
+        {
+            <label>
+                @L("Продавец")
+                <select @bind="_entity">
+                    <option value="">@L("все юрлица")</option>
+                    @foreach (var e in _entities.Where(e => !e.VatExempt))
+                    {
+                        <option value="@e.Id">@e.ShortName</option>
+                    }
+                </select>
+            </label>
+        }
         <label>@L("Поиск") <input @bind="_search" placeholder="@L("номер, покупатель, ИНН, заказ")" /></label>
         <label class="inline"><input type="checkbox" @bind="_annulled" /> @L("Показать аннулированные")</label>
         <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
@@ -33,11 +51,11 @@ else
 
     <div class="scroll">
         <table>
-            <thead><tr><th>@L("Номер")</th><th>@L("Дата")</th><th class="opt">@L("Отгрузка")</th><th>@L("Покупатель")</th><th class="opt">@L("ИНН/КПП")</th><th class="opt">@L("Заказ")</th><th class="num">@L("Без НДС")</th><th class="num">@L("НДС")</th><th class="num">@L("Всего")</th><th></th></tr></thead>
+            <thead><tr><th>@L("Номер")</th><th>@L("Дата")</th><th class="opt">@L("Отгрузка")</th><th>@L("Покупатель")</th><th class="opt">@L("ИНН/КПП")</th><th class="opt">@L("Заказ")</th>@if (_entities.Count > 1) { <th class="opt">@L("Продавец")</th> }<th class="num">@L("Без НДС")</th><th class="num">@L("НДС")</th><th class="num">@L("Всего")</th><th></th></tr></thead>
             <tbody>
                 @if (_rows.Count == 0)
                 {
-                    <tr><td colspan="10" class="muted">@L("За период счетов-фактур нет.")</td></tr>
+                    <tr><td colspan="11" class="muted">@L("За период счетов-фактур нет.")</td></tr>
                 }
                 @foreach (var r in _rows)
                 {
@@ -48,6 +66,10 @@ else
                         <td>@r.Customer</td>
                         <td>@r.Inn@(r.Kpp is null ? "" : "/" + r.Kpp)</td>
                         <td>@r.OrderNumber</td>
+                        @if (_entities.Count > 1)
+                        {
+                            <td>@r.Seller</td>
+                        }
                         <td class="num">@Amounts.Format(r.AmountWithoutVat)</td>
                         <td class="num">@Amounts.Format(r.VatAmount)</td>
                         <td class="num"><b>@Amounts.Format(r.Amount)</b></td>
@@ -58,7 +80,7 @@ else
             @if (_rows.Count > 0)
             {
                 var valid = _rows.Where(r => !r.Annulled).ToList();
-                <tfoot><tr><td colspan="6"><b>@L("Итого")</b></td><td class="num">@Amounts.Format(valid.Sum(r => r.AmountWithoutVat))</td><td class="num"><b>@Amounts.Format(valid.Sum(r => r.VatAmount))</b></td><td class="num"><b>@Amounts.Format(valid.Sum(r => r.Amount))</b></td><td></td></tr></tfoot>
+                <tfoot><tr><td colspan="@(_entities.Count > 1 ? 7 : 6)"><b>@L("Итого")</b></td><td class="num">@Amounts.Format(valid.Sum(r => r.AmountWithoutVat))</td><td class="num"><b>@Amounts.Format(valid.Sum(r => r.VatAmount))</b></td><td class="num"><b>@Amounts.Format(valid.Sum(r => r.Amount))</b></td><td></td></tr></tfoot>
             }
         </table>
     </div>
@@ -76,6 +98,8 @@ else
     private DateTime _to;
     private string? _search;
     private bool _annulled;
+    private string _entity = string.Empty;
+    private IReadOnlyList<KnitErp.Application.Organizations.LegalEntityOptionDto> _entities = [];
 
     protected override async Task OnInitializedAsync()
     {
@@ -85,6 +109,7 @@ else
         _to = _from.AddMonths(3).AddDays(-1);
         try
         {
+            _entities = await LegalEntities.OptionsAsync();
             await LoadAsync();
         }
         catch (AccessDeniedException ex)
@@ -93,10 +118,12 @@ else
         }
     }
 
-    private VatJournalFilter Filter => new(DateOnly.FromDateTime(_from), DateOnly.FromDateTime(_to), _search, _annulled);
+    private long? EntityId => long.TryParse(_entity, out var id) ? id : null;
+
+    private VatJournalFilter Filter => new(DateOnly.FromDateTime(_from), DateOnly.FromDateTime(_to), _search, _annulled, EntityId);
 
     private string ExportHref => KnitErp.Web.Exports.ExportLink.Build("vat-invoices/issued.xlsx",
-        ("from", KnitErp.Web.Exports.ExportLink.Date(_from)), ("to", KnitErp.Web.Exports.ExportLink.Date(_to)), ("search", _search));
+        ("from", KnitErp.Web.Exports.ExportLink.Date(_from)), ("to", KnitErp.Web.Exports.ExportLink.Date(_to)), ("search", _search), ("entity", EntityId?.ToString()));
 
     private async Task LoadAsync() => _rows = await VatInvoices.IssuedAsync(Filter);
 

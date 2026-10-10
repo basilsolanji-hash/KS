@@ -80,6 +80,22 @@ else
                             }
                         </select>
                     </label>
+                    @if (_options.LegalEntities is { Count: > 1 } entities)
+                    {
+                        <label>
+                            @L("Юрлицо (продавец)")
+                            <select @bind="_header.Entity">
+                                @foreach (var le in entities)
+                                {
+                                    <option value="@le.Id">@le.ShortName</option>
+                                }
+                                @if (entities.All(le => le.Id != _order.Details?.LegalEntityId))
+                                {
+                                    <option value="@_order.Details?.LegalEntityId">@_order.Details?.LegalEntity (@L("в архиве"))</option>
+                                }
+                            </select>
+                        </label>
+                    }
                     <label>@L("Дата заказа") <input type="date" @bind="_header.Date" /></label>
                     <label>@L("Дата отгрузки") <input type="date" @bind="_header.Expected" /></label>
                     <label>@L("Договор покупателя") <input @bind="_header.Invoice" maxlength="@SalesOrder.InvoiceMaxLength" /></label>
@@ -99,6 +115,11 @@ else
             <dt>@L("Покупатель")</dt><dd>@_order.Customer</dd>
             <dt>@L("Дата")</dt><dd>@_order.OrderDate.ToString("dd.MM.yyyy")@(_order.Details?.OrderTime is { } ot ? $" {ot:HH\\:mm}" : "")@(_order.ShipDate is { } e ? $" · {L("отгрузка")} {e:dd.MM.yyyy}" : "")</dd>
             <dt>@L("Склад отгрузки")</dt><dd>@_order.Warehouse</dd>
+            @if (_order.Details is { LegalEntity: not null } sd)
+            {
+                <dt>@L("Продавец")</dt>
+                <dd>@sd.LegalEntity @if (sd.VatExempt) { <span class="tag">@L("без НДС")</span> }</dd>
+            }
             @if (_order.Details?.CustomerBalance is { } bal)
             {
                 <dt>@L("Баланс покупателя")</dt>
@@ -180,6 +201,19 @@ else
                                 }
                             </select>
                         </label>
+                        @if (_detailOptions.LegalEntities?.FirstOrDefault(le => le.Id == det.LegalEntityId) is { } seller)
+                        {
+                            <label>
+                                @L("Расчётный счёт")
+                                <select @bind="_details.Account">
+                                    <option value="">@L("основной счёт юрлица")</option>
+                                    @foreach (var acc in seller.Accounts)
+                                    {
+                                        <option value="@acc.Id">@acc.Label</option>
+                                    }
+                                </select>
+                            </label>
+                        }
                         <label class="wide">@L("Адрес доставки") <input @bind="_details.Address" maxlength="@SalesOrder.AddressMaxLength" /></label>
                         @foreach (var f in det.CustomFields.Where(f => !f.IsArchived))
                         {
@@ -222,6 +256,7 @@ else
                 <dt>@L("Проект")</dt><dd>@(det.Project ?? "—")</dd>
                 <dt>@L("Канал продаж")</dt><dd>@(det.Channel ?? "—")</dd>
                 <dt>@L("Ответственный")</dt><dd>@(det.Responsible ?? "—")</dd>
+                <dt>@L("Расчётный счёт")</dt><dd>@(det.BankAccount ?? L("не указан — добавьте в «Юрлица и счета»"))</dd>
                 <dt>@L("Адрес доставки")</dt><dd>@(det.DeliveryAddress ?? "—")</dd>
                 @foreach (var f in det.CustomFields)
                 {
@@ -498,6 +533,7 @@ else
         public string Channel { get; set; } = string.Empty;
         public string Responsible { get; set; } = string.Empty;
         public string? Address { get; set; }
+        public string Account { get; set; } = string.Empty;
         public Dictionary<long, string?> Values { get; } = [];
     }
 
@@ -510,6 +546,7 @@ else
         public string? Invoice { get; set; }
         public string? Comment { get; set; }
         public bool WithVat { get; set; }
+        public string Entity { get; set; } = string.Empty;
     }
 
     protected override async Task OnParametersSetAsync()
@@ -583,7 +620,7 @@ else
         {
             Customer = _order!.CustomerId.ToString(), Warehouse = _order.WarehouseId.ToString(), Date = _order.OrderDate.ToDateTime(TimeOnly.MinValue),
             Expected = _order.ShipDate?.ToDateTime(TimeOnly.MinValue), Invoice = _order.CustomerReference, Comment = _order.Comment,
-            WithVat = _order.PricesIncludeVat,
+            WithVat = _order.PricesIncludeVat, Entity = _order.Details?.LegalEntityId.ToString() ?? string.Empty,
         };
         return Task.CompletedTask;
     }, null);
@@ -596,6 +633,7 @@ else
         {
             Time = d.OrderTime, Project = d.ProjectId?.ToString() ?? string.Empty, Channel = d.ChannelId?.ToString() ?? string.Empty,
             Responsible = d.ResponsibleUserId?.ToString() ?? string.Empty, Address = d.DeliveryAddress,
+            Account = d.BankAccountId?.ToString() ?? string.Empty,
         };
         foreach (var f in d.CustomFields.Where(f => !f.IsArchived))
         {
@@ -607,7 +645,8 @@ else
     {
         var d = _details!;
         static long? ParseId(string v) => long.TryParse(v, out var id) ? id : null;
-        await Sales.SetOrderDetailsAsync(Id, new SalesOrderDetails(d.Time, ParseId(d.Project), ParseId(d.Channel), d.Address, ParseId(d.Responsible)),
+        await Sales.SetOrderDetailsAsync(Id, new SalesOrderDetails(d.Time, ParseId(d.Project), ParseId(d.Channel), d.Address, ParseId(d.Responsible),
+            ParseId(d.Account)),
             d.Values, _order!.RowVersion);
         _details = null;
     }, L("Детали заказа сохранены."));
@@ -636,7 +675,8 @@ else
     {
         var h = _header!;
         await Sales.UpdateOrderHeaderAsync(Id, new SalesOrderHeader(DateOnly.FromDateTime(h.Date), long.Parse(h.Customer), long.Parse(h.Warehouse),
-            h.Expected is { } e ? DateOnly.FromDateTime(e) : null, h.Invoice, h.WithVat, h.Comment), _order!.RowVersion);
+            h.Expected is { } e ? DateOnly.FromDateTime(e) : null, h.Invoice, h.WithVat, h.Comment, long.TryParse(h.Entity, out var le) ? le : null),
+            _order!.RowVersion);
         _header = null;
     }, L("Сохранено."));
 

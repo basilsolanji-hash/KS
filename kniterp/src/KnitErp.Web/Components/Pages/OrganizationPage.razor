@@ -100,38 +100,11 @@ else
         }
     </EditForm>
 
-    <div class="page-head" style="margin-top: 20px">
-        <h2>@L("Реквизиты для печати")</h2>
-        @if (_org.CanEdit && _print is null)
-        {
-            <button type="button" class="secondary" @onclick="StartPrintEdit">@L("Изменить")</button>
-        }
+    <div class="panel" style="margin-top: 20px">
+        <h2>@L("Юрлица и расчётные счета")</h2>
+        <p class="muted">@L("Реквизиты для счетов, УПД и счетов-фактур — у каждого своего юрлица (ООО, ИП) отдельно, со своими расчётными счетами.")</p>
+        <a class="button secondary" href="legal-entities">@L("Открыть «Юрлица и счета»")</a>
     </div>
-    <p class="muted">@L("Печатаются в счёте на оплату и УПД. Для России БИК и счета проверяются по контрольному ключу.")</p>
-    @if (_printError is not null)
-    {
-        <div class="error" role="alert">@_printError</div>
-    }
-    var pr = _org.PrintRequisites;
-    <form @onsubmit="SavePrintAsync">
-        <table>
-            @PrintRow(L("Юридический адрес"), pr.LegalAddress, 500, v => _print!.LegalAddress = v, () => _print?.LegalAddress)
-            @PrintRow(L("Банк"), pr.BankName, 300, v => _print!.BankName = v, () => _print?.BankName)
-            @PrintRow(L("БИК"), pr.BankBic, 11, v => _print!.BankBic = v, () => _print?.BankBic)
-            @PrintRow(L("Расчётный счёт"), pr.BankAccount, 40, v => _print!.BankAccount = v, () => _print?.BankAccount)
-            @PrintRow(L("Корреспондентский счёт"), pr.BankCorrAccount, 40, v => _print!.BankCorrAccount = v, () => _print?.BankCorrAccount)
-            @PrintRow(L("Должность руководителя"), pr.DirectorPosition, 100, v => _print!.DirectorPosition = v, () => _print?.DirectorPosition)
-            @PrintRow(L("Руководитель"), pr.DirectorName, 150, v => _print!.DirectorName = v, () => _print?.DirectorName)
-            @PrintRow(L("Главный бухгалтер"), pr.AccountantName, 150, v => _print!.AccountantName = v, () => _print?.AccountantName)
-        </table>
-        @if (_print is not null)
-        {
-            <div class="actions">
-                <button type="submit" disabled="@_busy">@L("Сохранить")</button>
-                <button type="button" class="secondary" @onclick="() => { _print = null; _printError = null; }" disabled="@_busy">@L("Отмена")</button>
-            </div>
-        }
-    </form>
 
     @if (!_org.CanEdit)
     {
@@ -146,77 +119,6 @@ else
     private bool _busy;
     private string? _denied;
     private string? _message;
-    private PrintDraft? _print;
-    private string? _printError;
-
-    /// <summary>Строка реквизита: в просмотре — значение, в правке — поле ввода.</summary>
-    private RenderFragment PrintRow(string label, string? value, int max, Action<string?> set, Func<string?> get) => __builder =>
-    {
-        <tr>
-            <td class="muted" style="width: 220px">@label</td>
-            <td>
-                @if (_print is not null)
-                {
-                    <input value="@get()" @onchange="e => set(e.Value?.ToString())" maxlength="@max" style="width: 100%" aria-label="@label" />
-                }
-                else
-                {
-                    @(value ?? "—")
-                }
-            </td>
-        </tr>
-    };
-
-    private void StartPrintEdit()
-    {
-        var p = _org!.PrintRequisites;
-        _print = new PrintDraft
-        {
-            LegalAddress = p.LegalAddress, BankName = p.BankName, BankBic = p.BankBic, BankAccount = p.BankAccount,
-            BankCorrAccount = p.BankCorrAccount, DirectorName = p.DirectorName, AccountantName = p.AccountantName,
-            DirectorPosition = p.DirectorPosition ?? "Генеральный директор",
-        };
-        _printError = null;
-    }
-
-    private async Task SavePrintAsync()
-    {
-        if (_print is null || _busy)
-        {
-            return;
-        }
-
-        _busy = true;
-        try
-        {
-            _org = await Organizations.UpdatePrintRequisitesAsync(new UpdatePrintRequisitesCommand(new KnitErp.Domain.Organizations.PrintRequisites(
-                _print.LegalAddress, _print.BankName, _print.BankBic, _print.BankAccount, _print.BankCorrAccount, _print.DirectorName, _print.AccountantName,
-                _print.DirectorPosition),
-                _org!.RowVersion));
-            _print = null;
-            _printError = null;
-        }
-        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
-        {
-            _printError = UiErrors.Message(ex);
-        }
-        finally
-        {
-            _busy = false;
-        }
-    }
-
-    private sealed class PrintDraft
-    {
-        public string? LegalAddress { get; set; }
-        public string? BankName { get; set; }
-        public string? BankBic { get; set; }
-        public string? BankAccount { get; set; }
-        public string? BankCorrAccount { get; set; }
-        public string? DirectorName { get; set; }
-        public string? AccountantName { get; set; }
-        public string? DirectorPosition { get; set; }
-    }
 
     protected override async Task OnInitializedAsync()
     {
