@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 set -a; . ./.env; set +a
 TARGET="${TARGET:-kniterp_restore}"
-KEY=/opt/kniterp/backup.key
+KEY="${BACKUP_KEY_FILE:-/opt/kniterp/backup.key}"
 [[ $# -ge 1 ]] || { echo "Использование: $0 full.bak.gz.enc [log1.trn.gz.enc …]"; exit 2; }
 sql() { docker compose exec -T sql /opt/mssql-tools18/bin/sqlcmd -C -b -S localhost -U sa -P "$SQL_SA_PASSWORD" "$@"; }
 decrypt() { openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass "file:$KEY" -in "$1" | gunzip > "$BACKUP_DIR/raw/$2"; chown 10001:0 "$BACKUP_DIR/raw/$2"; }

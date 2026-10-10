@@ -157,16 +157,23 @@ if (app.Environment.IsDevelopment())
 else
 {
     await EnsureSchemaIsCurrentAsync(app);
-    app.UseExceptionHandler("/error", createScopeForErrors: true);
-    app.UseHsts();
 }
 
+// Сначала заголовки доверенного прокси (схема https от Caddy), и только потом обработчики, которым нужен протокол
+// запроса: HSTS добавляется лишь к HTTPS-ответам (аудит 10.10.2026, п. 6).
 if (!string.IsNullOrWhiteSpace(proxyNetwork))
 {
     // За прокси на HTTPS переводит сам прокси; приложение слушает только внутренний HTTP.
     app.UseForwardedHeaders();
 }
-else
+
+if (!app.Environment.IsDevelopment())
+{
+    app.UseExceptionHandler("/error", createScopeForErrors: true);
+    app.UseHsts();
+}
+
+if (string.IsNullOrWhiteSpace(proxyNetwork))
 {
     app.UseHttpsRedirection();
 }

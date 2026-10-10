@@ -4,11 +4,31 @@ using KnitErp.Domain.Common;
 
 namespace KnitErp.Infrastructure.Spreadsheets;
 
-/// <summary>Excel (.xlsx) через ClosedXML. Формулы не вычисляются: берётся сохранённое в файле значение.</summary>
+/// <summary>
+/// Excel (.xlsx) через ClosedXML. Формулы не вычисляются: берётся сохранённое в файле значение.
+/// Защита от «раздувающихся» файлов (аудит 10.10.2026, п. 7): до разбора проверяется распакованный объём архива,
+/// после — ширина таблицы и общее число ячеек; лишнее отклоняется до обхода ячеек.
+/// </summary>
 public sealed class ClosedXmlSpreadsheet : ISpreadsheetFormat
 {
+    /// <summary>Наши шаблоны уже 30 столбцов; запас — вдвое.</summary>
+    public const int MaxColumns = 64;
+    public const long MaxUncompressedBytes = 50L * 1024 * 1024;
+    public const int MaxZipEntries = 1000;
+    public const long MaxCells = 400_000;
+
     public IReadOnlyList<IReadOnlyList<string>> ReadFirstSheet(Stream stream, int maxRows)
     {
+        if (!stream.CanSeek)
+        {
+            var copy = new MemoryStream();
+            stream.CopyTo(copy);
+            stream = copy;
+        }
+
+        stream.Position = 0;
+        EnsureReasonableArchive(stream);
+        stream.Position = 0;
         XLWorkbook workbook;
         try
         {
@@ -36,6 +56,17 @@ public sealed class ClosedXmlSpreadsheet : ISpreadsheetFormat
             }
 
             var lastColumn = used.LastColumn().ColumnNumber();
+            if (lastColumn > MaxColumns)
+            {
+                throw new BusinessRuleException("import.too_many_columns",
+                    $"В таблице {lastColumn} столбцов — больше {MaxColumns}. Удалите лишние столбцы или скачайте шаблон заново.");
+            }
+
+            if ((long)lastRow * lastColumn > MaxCells)
+            {
+                throw new BusinessRuleException("import.too_many_cells", "Таблица слишком большая. Разбейте файл на части.");
+            }
+
             var rows = new List<IReadOnlyList<string>>(lastRow);
             for (var r = 1; r <= lastRow; r++)
             {
@@ -50,6 +81,34 @@ public sealed class ClosedXmlSpreadsheet : ISpreadsheetFormat
             }
 
             return rows;
+        }
+    }
+
+    /// <summary>XLSX — это ZIP: сумма распакованных размеров и число частей ограничены, иначе файл отклоняется сразу.</summary>
+    private static void EnsureReasonableArchive(Stream stream)
+    {
+        try
+        {
+            using var zip = new System.IO.Compression.ZipArchive(stream, System.IO.Compression.ZipArchiveMode.Read, leaveOpen: true);
+            if (zip.Entries.Count > MaxZipEntries)
+            {
+                throw new BusinessRuleException("import.file_too_complex", "Файл слишком сложный для загрузки. Сохраните таблицу заново как .xlsx.");
+            }
+
+            long total = 0;
+            foreach (var entry in zip.Entries)
+            {
+                total += entry.Length;
+                if (entry.Length < 0 || total > MaxUncompressedBytes)
+                {
+                    throw new BusinessRuleException("import.file_too_large_unpacked",
+                        "После распаковки файл больше 50 МБ. Удалите лишнее (картинки, пустое форматирование) или разбейте файл.");
+                }
+            }
+        }
+        catch (InvalidDataException)
+        {
+            throw new BusinessRuleException("import.file_invalid", "Файл не читается как таблица Excel (.xlsx). Сохраните его в формате .xlsx.");
         }
     }
 

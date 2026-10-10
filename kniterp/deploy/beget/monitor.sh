@@ -7,6 +7,7 @@
 # обычно закрыт, поэтому письмо уходит через SMTP с входом). Нерешённая проблема напоминает о себе раз в 6 часов.
 # ./monitor.sh test — отправить пробное оповещение во все настроенные каналы.
 # ./monitor.sh status — текущее состояние всех проверок без оповещений.
+# ./monitor.sh notify "текст" — отправить своё оповещение (так сообщают о сбоях update.sh и backup.sh).
 set -uo pipefail
 cd "$(dirname "$0")"
 set -a; . ./.env; set +a
@@ -132,6 +133,12 @@ run() {
   fi
   echo "$fails $alerted $at" > "$file"
 }
+
+# ./monitor.sh notify "текст" — разовое оповещение во все каналы (для update.sh и backup.sh).
+if [[ "$MODE" == notify ]]; then
+  notify "${2:-оповещение без текста}"
+  exit 0
+fi
 
 if [[ "$MODE" == test ]]; then
   notify "Пробное оповещение: каналы настроены. Время сервера $(date '+%d.%m.%Y %H:%M')."

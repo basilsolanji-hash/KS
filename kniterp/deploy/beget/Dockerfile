@@ -6,6 +6,10 @@ COPY . .
 RUN dotnet publish src/KnitErp.Web -c Release -o /app --nologo
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
+# Коммит исходников в метаданных образа (аудит 10.10.2026, п. 9): docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}'.
+ARG SOURCE_COMMIT=unknown
+LABEL org.opencontainers.image.revision=$SOURCE_COMMIT org.opencontainers.image.title=knitERP
+ENV KNITERP_COMMIT=$SOURCE_COMMIT
 WORKDIR /app
 COPY --from=build /app .
 # Приложение слушает HTTP внутри сети Docker; HTTPS снаружи даёт Caddy на сервере.

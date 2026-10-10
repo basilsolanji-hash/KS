@@ -20,6 +20,7 @@ fail() {
   local code=$?
   [[ -n "$PART" ]] && rm -f "$PART"
   echo "$(date -u +%FT%TZ) ${KIND:-?} ошибка на этапе «$STEP» (код $code)" | tee "$STATUS_DIR/last-error" >&2
+  ./monitor.sh notify "Резервная копия не создана: $(cat "$STATUS_DIR/last-error")" >/dev/null 2>&1 || true
   exit "$code"
 }
 trap fail ERR
