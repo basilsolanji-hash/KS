@@ -1,0 +1,124 @@
+@page "/vat-invoices/issued"
+@using KnitErp.Application.Taxes
+@inject VatInvoiceService VatInvoices
+
+<PageTitle>@L("Счета-фактуры выданные") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_rows is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <h1>@L("Счета-фактуры выданные")</h1>
+    <p class="muted">@L("Счёт-фактура выдаётся в составе УПД по проведённой отгрузке по заказу покупателя; номер — номер отгрузки. Сторнированная отгрузка — аннулированный счёт-фактура, в итоги не входит.")</p>
+
+    @if (_error is not null)
+    {
+        <div class="error" role="alert">@_error</div>
+    }
+
+    <form class="inline-form" @onsubmit="ReloadAsync">
+        <label>@L("С") <input type="date" @bind="_from" /></label>
+        <label>@L("По") <input type="date" @bind="_to" /></label>
+        <label>@L("Поиск") <input @bind="_search" placeholder="@L("номер, покупатель, ИНН, заказ")" /></label>
+        <label class="inline"><input type="checkbox" @bind="_annulled" /> @L("Показать аннулированные")</label>
+        <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
+        <a class="button secondary" href="@ExportHref" download data-enhance-nav="false" title="@L("Выгрузить с текущими фильтрами")">Excel</a>
+    </form>
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>@L("Номер")</th><th>@L("Дата")</th><th>@L("Покупатель")</th><th class="opt">@L("ИНН/КПП")</th><th class="opt">@L("Заказ")</th><th class="num">@L("Без НДС")</th><th class="num">@L("НДС")</th><th class="num">@L("Всего")</th><th></th></tr></thead>
+            <tbody>
+                @if (_rows.Count == 0)
+                {
+                    <tr><td colspan="9" class="muted">@L("За период счетов-фактур нет.")</td></tr>
+                }
+                @foreach (var r in _rows)
+                {
+                    <tr class="@(r.Annulled ? "archived" : null)">
+                        <td><a href="stock-documents/@r.DocumentId">@r.Number</a> @if (r.Annulled) { <span class="tag">@L("аннулирован")</span> }</td>
+                        <td>@r.Date.ToString("dd.MM.yyyy")</td>
+                        <td>@r.Customer</td>
+                        <td>@r.Inn@(r.Kpp is null ? "" : "/" + r.Kpp)</td>
+                        <td>@r.OrderNumber</td>
+                        <td class="num">@Amounts.Format(r.AmountWithoutVat)</td>
+                        <td class="num">@Amounts.Format(r.VatAmount)</td>
+                        <td class="num"><b>@Amounts.Format(r.Amount)</b></td>
+                        <td>@if (!r.Annulled) { <a href="print/upd/@r.DocumentId" target="_blank" rel="noopener">@L("УПД")</a> }</td>
+                    </tr>
+                }
+            </tbody>
+            @if (_rows.Count > 0)
+            {
+                var valid = _rows.Where(r => !r.Annulled).ToList();
+                <tfoot><tr><td colspan="5"><b>@L("Итого")</b></td><td class="num">@Amounts.Format(valid.Sum(r => r.AmountWithoutVat))</td><td class="num"><b>@Amounts.Format(valid.Sum(r => r.VatAmount))</b></td><td class="num"><b>@Amounts.Format(valid.Sum(r => r.Amount))</b></td><td></td></tr></tfoot>
+            }
+        </table>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private IReadOnlyList<IssuedVatInvoiceDto>? _rows;
+    private bool _busy;
+    private string? _denied;
+    private string? _error;
+    private DateTime _from;
+    private DateTime _to;
+    private string? _search;
+    private bool _annulled;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // По умолчанию — текущий квартал: НДС считается поквартально.
+        var today = TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId).Date;
+        _from = new DateTime(today.Year, (today.Month - 1) / 3 * 3 + 1, 1);
+        _to = _from.AddMonths(3).AddDays(-1);
+        try
+        {
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private VatJournalFilter Filter => new(DateOnly.FromDateTime(_from), DateOnly.FromDateTime(_to), _search, _annulled);
+
+    private string ExportHref => KnitErp.Web.Exports.ExportLink.Build("vat-invoices/issued.xlsx",
+        ("from", KnitErp.Web.Exports.ExportLink.Date(_from)), ("to", KnitErp.Web.Exports.ExportLink.Date(_to)), ("search", _search));
+
+    private async Task LoadAsync() => _rows = await VatInvoices.IssuedAsync(Filter);
+
+    private async Task ReloadAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await LoadAsync();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

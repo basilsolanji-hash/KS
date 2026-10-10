@@ -281,6 +281,70 @@ public sealed class SalesTests(SqlTestHost host) : IClassFixture<SqlTestHost>
         }
     }
 
+    [SqlFact]
+    public async Task Vat_invoice_journals_issued_from_shipments_and_received_registered_to_receipts()
+    {
+        var f = await SetUpAsync();
+        var period = new KnitErp.Application.Taxes.VatJournalFilter(Day.AddDays(-5), Day.AddDays(5));
+        long registered;
+        await using (var s = host.As(f.Org.OwnerUserId, f.Org.OrganizationId))
+        {
+            // Полученный: приёмка 10 свитеров по 500 с НДС 22% → 5 000, НДС 901,64.
+            var supplier = await s.Counterparties.CreateAsync(new CounterpartyCommand("ООО «Пряжа»", null, null, true, false, null));
+            var po = await s.Purchases.CreateOrderAsync(new KnitErp.Domain.Purchasing.PurchaseOrderHeader(Day, supplier, f.Store, null, "№ 77", true, null));
+            await s.Purchases.SetOrderLineAsync(po, f.Sweater, 10, 500m, 22m, (await s.Purchases.GetOrderAsync(po)).RowVersion);
+            await s.Purchases.ConfirmOrderAsync(po, (await s.Purchases.GetOrderAsync(po)).RowVersion);
+            var receipt = await s.Purchases.CreateReceiptAsync(po);
+            Assert.Empty(await s.VatInvoices.ReceiptsToRegisterAsync());
+            await s.Documents.PostAsync(receipt, (await s.Documents.GetAsync(receipt)).RowVersion);
+            var todo = (await s.VatInvoices.ReceiptsToRegisterAsync()).Single();
+            Assert.Equal((receipt, 5_000m, 901.64m, "№ 77"), (todo.Id, todo.Amount, todo.VatAmount, todo.SupplierInvoice));
+
+            Assert.Equal("purchase.vat_invoice.amount", (await Assert.ThrowsAsync<BusinessRuleException>(() => s.VatInvoices.RegisterAsync(
+                new KnitErp.Application.Taxes.RegisterVatInvoiceCommand(receipt, "77", Day, 900m, 901.64m, null)))).Code);
+            Assert.Equal("field.required", (await Assert.ThrowsAsync<BusinessRuleException>(() => s.VatInvoices.RegisterAsync(
+                new KnitErp.Application.Taxes.RegisterVatInvoiceCommand(receipt, " ", Day, 5_000m, 901.64m, null)))).Code);
+            registered = await s.VatInvoices.RegisterAsync(new KnitErp.Application.Taxes.RegisterVatInvoiceCommand(receipt, "77", Day, 5_000m, 901.64m, null));
+            Assert.Equal("purchase.vat_invoice.exists", (await Assert.ThrowsAsync<BusinessRuleException>(() => s.VatInvoices.RegisterAsync(
+                new KnitErp.Application.Taxes.RegisterVatInvoiceCommand(receipt, "78", Day, 5_000m, 901.64m, null)))).Code);
+            Assert.Empty(await s.VatInvoices.ReceiptsToRegisterAsync());
+            var row = (await s.VatInvoices.ReceivedAsync(period)).Single();
+            Assert.Equal(("77", 4_098.36m, 0m, "ООО «Пряжа»"), (row.SupplierNumber, row.AmountWithoutVat, row.Difference, row.Supplier));
+
+            // Отмена с причиной — счёт-фактуру можно зарегистрировать заново.
+            await s.VatInvoices.CancelAsync(registered, "ошибка в номере", row.RowVersion);
+            Assert.Empty(await s.VatInvoices.ReceivedAsync(period));
+            Assert.Single(await s.VatInvoices.ReceivedAsync(period with { IncludeCancelled = true }));
+            registered = await s.VatInvoices.RegisterAsync(new KnitErp.Application.Taxes.RegisterVatInvoiceCommand(receipt, "77/1", Day, 5_100m, 919.67m, "доставка"));
+            Assert.Equal(100m, (await s.VatInvoices.ReceivedAsync(period)).Single().Difference);
+
+            // Выданный: отгрузка 4 свитеров по 2 000 + НДС 22%; после сторно — «аннулирован», в журнал по умолчанию не входит.
+            var order = await s.Sales.CreateOrderAsync(new SalesOrderHeader(Day, f.Customer, f.Store, null, null, false, null));
+            await s.Sales.SetOrderLineAsync(order, f.Sweater, 4, 2000m, 22m, (await s.Sales.GetOrderAsync(order)).RowVersion);
+            await s.Sales.ConfirmOrderAsync(order, (await s.Sales.GetOrderAsync(order)).RowVersion);
+            var ship = await s.Sales.CreateShipmentAsync(order);
+            await s.Documents.PostAsync(ship, (await s.Documents.GetAsync(ship)).RowVersion);
+            var issued = (await s.VatInvoices.IssuedAsync(period)).Single();
+            Assert.Equal((8_000m, 1_760m, 9_760m, false), (issued.AmountWithoutVat, issued.VatAmount, issued.Amount, issued.Annulled));
+            Assert.Empty(await s.VatInvoices.IssuedAsync(period with { Search = "нет такого" }));
+            await s.Documents.ReverseAsync(ship, "ошибочная отгрузка", (await s.Documents.GetAsync(ship)).RowVersion);
+            Assert.Empty(await s.VatInvoices.IssuedAsync(period));
+            Assert.True((await s.VatInvoices.IssuedAsync(period with { IncludeCancelled = true })).Single().Annulled);
+        }
+
+        await using (var s = host.As(f.Senior, f.Org.OrganizationId))
+        {
+            await Assert.ThrowsAsync<AccessDeniedException>(() => s.VatInvoices.ReceivedAsync(period));
+        }
+
+        var other = await CreateOrgAsync();
+        await using (var s = host.As(other.OwnerUserId, other.OrganizationId))
+        {
+            Assert.Empty(await s.VatInvoices.ReceivedAsync(period));
+            await Assert.ThrowsAsync<NotFoundException>(() => s.VatInvoices.CancelAsync(registered, "чужой", [0]));
+        }
+    }
+
     private sealed record Fixture(CreatedOrganization Org, long Store, long Sweater, long Customer, long Senior);
 
     private async Task<Fixture> SetUpAsync()

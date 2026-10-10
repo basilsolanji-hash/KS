@@ -1,6 +1,7 @@
 using KnitErp.Domain.Catalog;
 using KnitErp.Domain.Common;
 using KnitErp.Domain.Organizations;
+using KnitErp.Domain.Purchasing;
 using KnitErp.Domain.Sales;
 
 namespace KnitErp.UnitTests;
@@ -89,5 +90,24 @@ public sealed class InvoiceAndPrintTests
         invoice.Cancel(1, "другой срок", DateTime.UtcNow);
         Assert.Equal(CustomerInvoiceStatus.Cancelled, invoice.Status);
         Assert.Equal("sales.invoice.cancelled", Assert.Throws<BusinessRuleException>(() => invoice.Cancel(1, "ещё раз", DateTime.UtcNow)).Code);
+    }
+
+    [Theory]
+    [InlineData("77", 0, 0, "purchase.vat_invoice.amount")]
+    [InlineData("77", 100, 100, "purchase.vat_invoice.amount")]
+    [InlineData("77", 100.001, 0, "purchase.vat_invoice.amount")]
+    [InlineData("77", 100, -1, "purchase.vat_invoice.amount")]
+    [InlineData("", 100, 18, "field.required")]
+    public void Received_vat_invoice_is_validated(string number, decimal amount, decimal vat, string code) =>
+        Assert.Equal(code, Assert.Throws<BusinessRuleException>(() =>
+            ReceivedVatInvoice.Register(1, 2, 3, number, Day, amount, vat, null, 1, DateTime.UtcNow)).Code);
+
+    [Fact]
+    public void Received_vat_invoice_cancels_once_with_reason()
+    {
+        var invoice = ReceivedVatInvoice.Register(1, 2, 3, " 77 ", Day, 122m, 22m, null, 1, DateTime.UtcNow);
+        Assert.Equal(("77", 100m, ReceivedVatInvoiceStatus.Registered), (invoice.SupplierNumber, invoice.AmountWithoutVat, invoice.Status));
+        invoice.Cancel(1, "ошибка", DateTime.UtcNow);
+        Assert.Equal("purchase.vat_invoice.cancelled", Assert.Throws<BusinessRuleException>(() => invoice.Cancel(1, "ещё", DateTime.UtcNow)).Code);
     }
 }

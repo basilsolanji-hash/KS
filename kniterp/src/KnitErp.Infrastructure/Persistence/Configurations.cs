@@ -812,6 +812,45 @@ internal sealed class CustomerInvoiceLineConfiguration : IEntityTypeConfiguratio
     }
 }
 
+internal sealed class ReceivedVatInvoiceConfiguration : IEntityTypeConfiguration<ReceivedVatInvoice>
+{
+    public void Configure(EntityTypeBuilder<ReceivedVatInvoice> b)
+    {
+        b.ToTable("received_vat_invoices", t =>
+        {
+            t.HasCheckConstraint("ck_received_vat_invoices_status", "[Status] IN (2, 9)");
+            t.HasCheckConstraint("ck_received_vat_invoices_amount", "[Amount] > 0 AND [VatAmount] >= 0 AND [VatAmount] < [Amount]");
+            t.HasCheckConstraint("ck_received_vat_invoices_cancelled",
+                "([Status] = 9 AND [CancelledByUserId] IS NOT NULL AND [CancelReason] IS NOT NULL) OR ([Status] = 2 AND [CancelledByUserId] IS NULL)");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.SupplierNumber).HasMaxLength(ReceivedVatInvoice.NumberMaxLength).IsRequired();
+        b.Property(x => x.Status).HasConversion<byte>();
+        b.Property(x => x.Amount).HasColumnType("decimal(19,4)");
+        b.Property(x => x.VatAmount).HasColumnType("decimal(19,4)");
+        b.Property(x => x.Comment).HasMaxLength(ReceivedVatInvoice.CommentMaxLength);
+        b.Property(x => x.CancelReason).HasMaxLength(ReceivedVatInvoice.CommentMaxLength);
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.Ignore(x => x.AmountWithoutVat);
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<Counterparty>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.SupplierId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_received_vat_invoices_supplier");
+        b.HasOne<StockDocument>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.ReceiptDocumentId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_received_vat_invoices_receipt");
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.CancelledByUserId).OnDelete(DeleteBehavior.Restrict);
+        // К приёмке — один действующий счёт-фактура; один и тот же документ поставщика не регистрируется дважды.
+        b.HasIndex(x => new { x.OrganizationId, x.ReceiptDocumentId }).IsUnique().HasFilter("[Status] = 2")
+            .HasDatabaseName("ux_received_vat_invoices_receipt_registered");
+        b.HasIndex(x => new { x.OrganizationId, x.SupplierId, x.SupplierNumber, x.InvoiceDate }).IsUnique().HasFilter("[Status] = 2")
+            .HasDatabaseName("ux_received_vat_invoices_supplier_number");
+        b.HasIndex(x => new { x.OrganizationId, x.InvoiceDate }).HasDatabaseName("ix_received_vat_invoices_org_date");
+    }
+}
+
 internal sealed class StockDocumentConfiguration : IEntityTypeConfiguration<StockDocument>
 {
     public void Configure(EntityTypeBuilder<StockDocument> b)

@@ -3,6 +3,7 @@ using KnitErp.Application.Access;
 using KnitErp.Application.Audit;
 using KnitErp.Application.Common;
 using KnitErp.Application.Sales;
+using KnitErp.Application.Taxes;
 using KnitErp.Application.Warehousing;
 using KnitErp.Web.Components.Shared;
 
@@ -14,7 +15,8 @@ namespace KnitErp.Web.Exports;
 /// </summary>
 public sealed class ReportExports(
     StockService stock, StockReportService reports, AuditQueryService audit, UserAccessService access, ISpreadsheetFormat spreadsheet,
-    StockDocumentService documents, InventoryService inventory, OpeningBalanceService openingBalances, SalesAnalyticsService analytics)
+    StockDocumentService documents, InventoryService inventory, OpeningBalanceService openingBalances, SalesAnalyticsService analytics,
+    VatInvoiceService vatInvoices)
 {
     public const string ContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
@@ -126,6 +128,27 @@ public sealed class ReportExports(
             data.Rows.Select(r => Row(r.Name, r.Code ?? "", r.Quantity is { } q ? Number(q) : "", Number(r.Revenue), Number(r.Cost),
                 r.CostComplete ? "да" : "нет", r.Profit is { } p ? Number(p) : "", r.MarginPercent is { } m ? Number(m) : "",
                 source.GetValueOrDefault(r.Source, ""), "")).ToList(), Numeric(2, 3, 4, 6, 7))]);
+    }
+
+    /// <summary>Журнал выданных счетов-фактур: только действующие (аннулированные — нет).</summary>
+    public async Task<byte[]> IssuedVatInvoicesAsync(VatJournalFilter filter, CancellationToken ct)
+    {
+        var rows = await vatInvoices.IssuedAsync(filter with { IncludeCancelled = false }, ct);
+        var title = $"Счета-фактуры выданные {filter.From:dd.MM.yyyy}–{filter.To:dd.MM.yyyy}";
+        return spreadsheet.Write([new SheetData("Выданные", ["Номер", "Дата", "Покупатель", "ИНН", "КПП", "Заказ", "Без НДС", "НДС", "Всего", title],
+            rows.Select(r => Row(r.Number, r.Date.ToString("dd.MM.yyyy"), r.Customer, r.Inn ?? "", r.Kpp ?? "", r.OrderNumber, Number(r.AmountWithoutVat),
+                Number(r.VatAmount), Number(r.Amount), "")).ToList(), Numeric(6, 7, 8))]);
+    }
+
+    public async Task<byte[]> ReceivedVatInvoicesAsync(VatJournalFilter filter, CancellationToken ct)
+    {
+        var rows = await vatInvoices.ReceivedAsync(filter with { IncludeCancelled = false }, ct);
+        var title = $"Счета-фактуры полученные {filter.From:dd.MM.yyyy}–{filter.To:dd.MM.yyyy}";
+        return spreadsheet.Write([new SheetData("Полученные", ["Номер", "Дата", "Поставщик", "ИНН", "КПП", "Приёмка", "Дата приёмки", "Без НДС", "НДС",
+                "Всего", "Расхождение с приёмкой", title],
+            rows.Select(r => Row(r.SupplierNumber, r.Date.ToString("dd.MM.yyyy"), r.Supplier, r.Inn ?? "", r.Kpp ?? "", r.ReceiptNumber,
+                r.ReceiptDate.ToString("dd.MM.yyyy"), Number(r.AmountWithoutVat), Number(r.VatAmount), Number(r.Amount), Number(r.Difference), "")).ToList(),
+            Numeric(7, 8, 9, 10))]);
     }
 
     /// <summary>Начало местных суток организации в UTC — граница фильтра по дате.</summary>
