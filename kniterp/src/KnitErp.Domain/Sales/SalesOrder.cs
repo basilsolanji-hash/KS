@@ -53,6 +53,16 @@ public sealed class SalesOrder
     /// </summary>
     public bool Reserve { get; private set; }
 
+    /// <summary>Время заказа (местное) — к дате, как «09.10.2026 16:43» в МойСклад (D77).</summary>
+    public TimeOnly? OrderTime { get; private set; }
+
+    public long? ProjectId { get; private set; }
+    public long? ChannelId { get; private set; }
+    public string? DeliveryAddress { get; private set; }
+
+    /// <summary>Ответственный сотрудник (пользователь организации); по умолчанию — автор.</summary>
+    public long? ResponsibleUserId { get; private set; }
+
     /// <summary>Этап работы с заказом из справочника организации (D75); null — этап не выбран.</summary>
     public long? StageId { get; private set; }
 
@@ -76,6 +86,7 @@ public sealed class SalesOrder
             Status = SalesOrderStatus.Draft,
             CreatedByUserId = userId,
             CreatedAtUtc = nowUtc,
+            ResponsibleUserId = userId,
         };
         order.ApplyHeader(header);
         return order;
@@ -164,6 +175,26 @@ public sealed class SalesOrder
         var line = _lines.FirstOrDefault(l => l.ItemId == itemId)
                    ?? throw new BusinessRuleException("sales.line_missing", "Такой строки в заказе нет.");
         _lines.Remove(line);
+    }
+
+    public const int AddressMaxLength = 500;
+
+    /// <summary>
+    /// Детали заказа (D77): время, проект, канал, адрес доставки, ответственный. На учёт не влияют, поэтому меняются
+    /// в любом состоянии, кроме отменённого (ссылки проверяет сервис).
+    /// </summary>
+    public void SetDetails(SalesOrderDetails details)
+    {
+        if (Status == SalesOrderStatus.Cancelled)
+        {
+            throw new BusinessRuleException("sales.order.cancelled", "Заказ отменён — изменить нельзя.");
+        }
+
+        OrderTime = details.OrderTime is { } t ? new TimeOnly(t.Hour, t.Minute) : null;
+        ProjectId = details.ProjectId;
+        ChannelId = details.ChannelId;
+        DeliveryAddress = DomainText.Optional(details.DeliveryAddress, AddressMaxLength, "Адрес доставки");
+        ResponsibleUserId = details.ResponsibleUserId;
     }
 
     /// <summary>Этап меняется в любом состоянии, кроме отменённого: это метка работы, а не учёт.</summary>
@@ -260,6 +291,8 @@ public sealed class SalesOrder
         }
     }
 }
+
+public sealed record SalesOrderDetails(TimeOnly? OrderTime, long? ProjectId, long? ChannelId, string? DeliveryAddress, long? ResponsibleUserId);
 
 public sealed record SalesOrderHeader(
     DateOnly OrderDate, long CustomerId, long WarehouseId, DateOnly? ShipDate, string? CustomerReference, bool PricesIncludeVat, string? Comment);

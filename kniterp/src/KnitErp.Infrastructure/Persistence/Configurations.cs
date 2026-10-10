@@ -694,12 +694,79 @@ internal sealed class SalesOrderConfiguration : IEntityTypeConfiguration<SalesOr
             .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("fk_sales_orders_stage");
         b.HasIndex(x => new { x.OrganizationId, x.StageId }).HasDatabaseName("ix_sales_orders_org_stage");
+        b.Property(x => x.OrderTime).HasColumnType("time(0)");
+        b.Property(x => x.DeliveryAddress).HasMaxLength(SalesOrder.AddressMaxLength);
+        b.HasOne<Lookup>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.ProjectId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_sales_orders_project");
+        b.HasOne<Lookup>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.ChannelId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_sales_orders_channel");
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.ResponsibleUserId).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_sales_orders_responsible");
+        b.HasIndex(x => new { x.OrganizationId, x.ProjectId }).HasDatabaseName("ix_sales_orders_org_project");
+        b.HasIndex(x => new { x.OrganizationId, x.ChannelId }).HasDatabaseName("ix_sales_orders_org_channel");
         b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.ConfirmedByUserId).OnDelete(DeleteBehavior.Restrict);
         b.HasIndex(x => new { x.OrganizationId, x.Number }).IsUnique().HasDatabaseName("ux_sales_orders_org_number");
         b.HasIndex(x => new { x.OrganizationId, x.CustomerId, x.OrderDate }).HasDatabaseName("ix_sales_orders_org_customer_date");
         b.HasMany(x => x.Lines).WithOne().HasForeignKey(x => x.OrderId).OnDelete(DeleteBehavior.Cascade);
         b.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field).HasField("_lines");
+    }
+}
+
+internal sealed class LookupConfiguration : IEntityTypeConfiguration<Lookup>
+{
+    public void Configure(EntityTypeBuilder<Lookup> b)
+    {
+        b.ToTable("lookups", t => t.HasCheckConstraint("ck_lookups_kind", "[Kind] IN (1, 2)"));
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Kind).HasConversion<byte>();
+        b.Property(x => x.Name).HasMaxLength(Lookup.NameMaxLength).IsRequired();
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_lookups_org_id");
+        b.HasIndex(x => new { x.OrganizationId, x.Kind, x.Name }).IsUnique().HasFilter("[IsArchived] = 0")
+            .HasDatabaseName("ux_lookups_org_kind_name_active");
+    }
+}
+
+internal sealed class CustomFieldDefinitionConfiguration : IEntityTypeConfiguration<CustomFieldDefinition>
+{
+    public void Configure(EntityTypeBuilder<CustomFieldDefinition> b)
+    {
+        b.ToTable("custom_field_definitions", t =>
+        {
+            t.HasCheckConstraint("ck_custom_field_definitions_target", "[Target] IN (1)");
+            t.HasCheckConstraint("ck_custom_field_definitions_type", "[Type] IN (1, 2, 3, 4)");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Target).HasConversion<byte>();
+        b.Property(x => x.Type).HasConversion<byte>();
+        b.Property(x => x.Name).HasMaxLength(CustomFieldDefinition.NameMaxLength).IsRequired();
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_custom_field_definitions_org_id");
+        b.HasIndex(x => new { x.OrganizationId, x.Target, x.Name }).IsUnique().HasFilter("[IsArchived] = 0")
+            .HasDatabaseName("ux_custom_field_definitions_org_target_name_active");
+    }
+}
+
+internal sealed class CustomFieldValueConfiguration : IEntityTypeConfiguration<CustomFieldValue>
+{
+    public void Configure(EntityTypeBuilder<CustomFieldValue> b)
+    {
+        b.ToTable("custom_field_values");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Value).HasMaxLength(CustomFieldDefinition.ValueMaxLength).IsRequired();
+        b.HasOne<CustomFieldDefinition>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.FieldId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_custom_field_values_field");
+        b.HasIndex(x => new { x.FieldId, x.TargetId }).IsUnique().HasDatabaseName("ux_custom_field_values_field_target");
+        b.HasIndex(x => new { x.OrganizationId, x.TargetId }).HasDatabaseName("ix_custom_field_values_org_target");
     }
 }
 

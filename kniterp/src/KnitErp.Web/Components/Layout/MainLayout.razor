@@ -140,6 +140,7 @@
             new("customer-payments", "Оплаты покупателей", a => a.Has(Permissions.SalesView) && a.Has(Permissions.PriceView)),
             new("reports/customer-balances", "Расчёты с покупателями", a => a.Has(Permissions.SalesView) && a.Has(Permissions.PriceView)),
             new("sales-order-stages", "Этапы заказов", a => a.Has(Permissions.SalesView)),
+            new("sales-settings", "Проекты, каналы, доп. поля", a => a.Has(Permissions.SalesView)),
             new("learn/sales", "Обучение", a => true),
         ]),
         new("purchases", "Закупки",

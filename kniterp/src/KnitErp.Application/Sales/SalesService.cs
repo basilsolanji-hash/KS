@@ -73,7 +73,7 @@ public sealed record SalesOrderDto(
     string? ConfirmedBy, DateTime? ConfirmedAtUtc, IReadOnlyList<SalesOrderLineDto> Lines, IReadOnlyList<SalesLinkedDocumentDto> Documents,
     IReadOnlyList<CustomerPaymentDto> Payments, decimal? Total, decimal? VatTotal, decimal? ShippedValue, decimal? ReturnedValue, decimal? Paid,
     bool CanEdit, bool CanSeePrices, bool CanCreateDocuments, byte[] RowVersion, SalesStageRefDto? Stage = null, bool Reserve = false,
-    decimal? DiscountTotal = null)
+    decimal? DiscountTotal = null, SalesOrderDetailsDto? Details = null)
 {
     public string StatusName => SalesOrder.StatusName(Status);
     public decimal? Debt => ShippedValue is { } r && ReturnedValue is { } ret && Paid is { } p ? r - ret - p : null;
@@ -89,6 +89,19 @@ public sealed record SalesOptionsDto(
     IReadOnlyList<SalesVatOptionDto> VatRates, string CurrencyCode);
 
 /// <summary>Расчёты с покупателем: отгружено, возвращено, оплачено и долг (плюс — покупатель должен, минус — его аванс).</summary>
+/// <summary>
+/// Детали заказа (D77). CustomerBalance — расчёты с покупателем по всем заказам: больше нуля — он должен нам, меньше — аванс;
+/// null без права видеть цены.
+/// </summary>
+public sealed record SalesOrderDetailsDto(
+    TimeOnly? OrderTime, long? ProjectId, string? Project, long? ChannelId, string? Channel, string? DeliveryAddress,
+    long? ResponsibleUserId, string? Responsible, IReadOnlyList<SalesOrderCustomValueDto> CustomFields, decimal? CustomerBalance);
+
+public sealed record SalesOrderCustomValueDto(long FieldId, string Name, CustomFieldType Type, bool IsArchived, string? Value);
+
+/// <summary>Списки для деталей заказа: действующие проекты, каналы и сотрудники организации.</summary>
+public sealed record SalesOrderDetailOptionsDto(IReadOnlyList<LookupDto> Projects, IReadOnlyList<LookupDto> Channels, IReadOnlyList<LookupDto> Users);
+
 public sealed record CustomerBalanceDto(long CustomerId, string Customer, decimal Shipped, decimal Returned, decimal Paid)
 {
     public decimal Debt => Shipped - Returned - Paid;
@@ -226,8 +239,140 @@ public sealed class SalesService(
             prices ? payments.Where(p => p.Status == CustomerPaymentStatus.Posted).Sum(p => p.Amount) : null,
             canEdit, prices, canDocs, order.RowVersion,
             order.StageId is { } sid && (await StagesAsync(ctx, ct)).TryGetValue(sid, out var stage) ? stage : null,
-            order.Reserve, prices ? order.DiscountTotal : null);
+            order.Reserve, prices ? order.DiscountTotal : null, await DetailsAsync(ctx, order, prices, ct));
     }
+
+    private async Task<SalesOrderDetailsDto> DetailsAsync(AccessContext ctx, SalesOrder order, bool prices, CancellationToken ct)
+    {
+        long?[] lookupIds = [order.ProjectId, order.ChannelId];
+        var lookups = await db.Lookups.AsNoTracking().Where(l => l.OrganizationId == ctx.OrganizationId && lookupIds.Contains(l.Id))
+            .ToDictionaryAsync(l => l.Id, l => l.Name, ct);
+        var responsible = order.ResponsibleUserId is { } rid
+            ? await db.Users.AsNoTracking().Where(u => u.Id == rid).Select(u => u.DisplayName).SingleOrDefaultAsync(ct)
+            : null;
+        var values = await db.CustomFieldValues.AsNoTracking()
+            .Where(v => v.OrganizationId == ctx.OrganizationId && v.TargetId == order.Id)
+            .ToDictionaryAsync(v => v.FieldId, v => v.Value, ct);
+        var fields = await db.CustomFieldDefinitions.AsNoTracking()
+            .Where(f => f.OrganizationId == ctx.OrganizationId && f.Target == CustomFieldTarget.SalesOrder)
+            .OrderBy(f => f.IsArchived).ThenBy(f => f.SortOrder).ThenBy(f => f.Id).ToListAsync(ct);
+        var custom = fields.Where(f => !f.IsArchived || values.ContainsKey(f.Id))
+            .Select(f => new SalesOrderCustomValueDto(f.Id, f.Name, f.Type, f.IsArchived, values.GetValueOrDefault(f.Id))).ToList();
+        decimal? balance = prices
+            ? (await ComputeBalancesAsync(ctx.OrganizationId, null, order.CustomerId, ct)).SingleOrDefault()?.Debt ?? 0m
+            : null;
+        return new SalesOrderDetailsDto(order.OrderTime,
+            order.ProjectId, order.ProjectId is { } p ? lookups.GetValueOrDefault(p) : null,
+            order.ChannelId, order.ChannelId is { } c ? lookups.GetValueOrDefault(c) : null,
+            order.DeliveryAddress, order.ResponsibleUserId, responsible, custom, balance);
+    }
+
+    /// <summary>Действующие проекты, каналы продаж и сотрудники организации — для деталей заказа (D77).</summary>
+    public async Task<SalesOrderDetailOptionsDto> DetailOptionsAsync(CancellationToken ct = default)
+    {
+        var ctx = await guard.DemandAsync(Permissions.SalesView, ct);
+        var lookups = await db.Lookups.AsNoTracking().Where(l => l.OrganizationId == ctx.OrganizationId && !l.IsArchived)
+            .OrderBy(l => l.Name).Select(l => new { l.Kind, Dto = new LookupDto(l.Id, l.Name) }).ToListAsync(ct);
+        var users = await db.OrganizationMembers.AsNoTracking()
+            .Where(m => m.OrganizationId == ctx.OrganizationId && m.Status == MembershipStatus.Active)
+            .Join(db.Users.AsNoTracking(), m => m.UserId, u => u.Id, (m, u) => u)
+            .OrderBy(u => u.DisplayName).Select(u => new LookupDto(u.Id, u.DisplayName)).ToListAsync(ct);
+        return new SalesOrderDetailOptionsDto(
+            lookups.Where(l => l.Kind == LookupKind.Project).Select(l => l.Dto).ToList(),
+            lookups.Where(l => l.Kind == LookupKind.SalesChannel).Select(l => l.Dto).ToList(), users);
+    }
+
+    /// <summary>
+    /// Детали и дополнительные поля заказа (D77). На учёт не влияют: меняются в любом состоянии, кроме отменённого; цены не нужны.
+    /// Проект и канал — действующие записи своей организации, ответственный — её активный сотрудник (прежний, уже
+    /// заблокированный, можно оставить). Поля из архива не меняются.
+    /// </summary>
+    public async Task SetOrderDetailsAsync(long id, SalesOrderDetails details, IReadOnlyDictionary<long, string?> customFields, byte[] rowVersion,
+        CancellationToken ct = default)
+    {
+        var ctx = await guard.DemandAsync(Permissions.SalesEdit, ct);
+        var order = await LoadOrderAsync(ctx, id, ct);
+        order.EnsureVersion(order.RowVersion, rowVersion);
+        await EnsureLookupAsync(ctx, details.ProjectId, order.ProjectId, LookupKind.Project, ct);
+        await EnsureLookupAsync(ctx, details.ChannelId, order.ChannelId, LookupKind.SalesChannel, ct);
+        if (details.ResponsibleUserId is { } uid && uid != order.ResponsibleUserId
+            && !await db.OrganizationMembers.AnyAsync(m => m.OrganizationId == ctx.OrganizationId && m.UserId == uid
+                                                          && m.Status == MembershipStatus.Active, ct))
+        {
+            throw new NotFoundException("Сотрудник");
+        }
+
+        var before = DescribeDetails(order);
+        order.SetDetails(details);
+
+        var fields = await db.CustomFieldDefinitions
+            .Where(f => f.OrganizationId == ctx.OrganizationId && f.Target == CustomFieldTarget.SalesOrder).ToDictionaryAsync(f => f.Id, ct);
+        var existing = await db.CustomFieldValues.Where(v => v.OrganizationId == ctx.OrganizationId && v.TargetId == id)
+            .ToDictionaryAsync(v => v.FieldId, ct);
+        var changes = new List<string>();
+        foreach (var (fieldId, input) in customFields)
+        {
+            var field = fields.GetValueOrDefault(fieldId) ?? throw new NotFoundException("Дополнительное поле");
+            if (field.IsArchived)
+            {
+                continue;
+            }
+
+            var value = field.Normalize(input);
+            var current = existing.GetValueOrDefault(fieldId);
+            if (value == current?.Value)
+            {
+                continue;
+            }
+
+            if (value is null)
+            {
+                db.CustomFieldValues.Remove(current!);
+            }
+            else if (current is null)
+            {
+                db.CustomFieldValues.Add(CustomFieldValue.Create(ctx.OrganizationId, fieldId, id, value));
+            }
+            else
+            {
+                current.Set(value);
+            }
+
+            changes.Add($"{field.Name}: {current?.Value ?? "—"} → {value ?? "—"}");
+        }
+
+        var after = DescribeDetails(order);
+        if (before != after || changes.Count > 0)
+        {
+            Audit(ctx, AuditActions.SalesOrderChanged, nameof(SalesOrder), id, before,
+                changes.Count == 0 ? after : $"{after}; {string.Join("; ", changes)}", $"{order.Number}: детали");
+        }
+
+        await db.SaveOrConflictAsync(ct);
+    }
+
+    private async Task EnsureLookupAsync(AccessContext ctx, long? id, long? current, LookupKind kind, CancellationToken ct)
+    {
+        if (id is not { } lid || lid == current)
+        {
+            return;
+        }
+
+        var lookup = await db.Lookups.AsNoTracking().SingleOrDefaultAsync(l => l.Id == lid && l.OrganizationId == ctx.OrganizationId, ct);
+        if (lookup is null || lookup.Kind != kind)
+        {
+            throw new NotFoundException(Lookup.KindName(kind));
+        }
+
+        if (lookup.IsArchived)
+        {
+            throw new BusinessRuleException("catalog.archived", $"«{lookup.Name}» в архиве.");
+        }
+    }
+
+    private static string DescribeDetails(SalesOrder o) =>
+        $"время {o.OrderTime?.ToString("HH:mm") ?? "—"}, проект {o.ProjectId?.ToString() ?? "—"}, канал {o.ChannelId?.ToString() ?? "—"}, "
+        + $"адрес {o.DeliveryAddress ?? "—"}, ответственный {o.ResponsibleUserId?.ToString() ?? "—"}";
 
     /// <summary>Скидка на весь заказ (D76): один процент всем строкам черновика.</summary>
     public async Task SetOrderDiscountAsync(long id, decimal discountPercent, byte[] rowVersion, CancellationToken ct = default)
@@ -510,16 +655,22 @@ public sealed class SalesService(
     {
         var ctx = await guard.DemandAsync(Permissions.SalesView, ct);
         await guard.DemandAsync(Permissions.PriceView, ct);
-        var org = ctx.OrganizationId;
+        return await ComputeBalancesAsync(ctx.OrganizationId, asOf, null, ct);
+    }
+
+    private async Task<IReadOnlyList<CustomerBalanceDto>> ComputeBalancesAsync(long org, DateOnly? asOf, long? customerId, CancellationToken ct)
+    {
         var docs = await db.StockDocuments.AsNoTracking()
             .Where(d => d.OrganizationId == org && d.SalesOrderId != null && d.Status == StockDocumentStatus.Posted
-                        && (asOf == null || d.DocumentDate <= asOf))
+                        && (asOf == null || d.DocumentDate <= asOf)
+                        && (customerId == null || db.SalesOrders.Any(o => o.Id == d.SalesOrderId && o.CustomerId == customerId)))
             .SelectMany(d => d.Lines.Select(l => new { d.Kind, OrderId = d.SalesOrderId!.Value, l.ItemId, l.Quantity }))
             .ToListAsync(ct);
         var orderIds = docs.Select(d => d.OrderId).Distinct().ToList();
         var orders = await db.SalesOrders.AsNoTracking().Include(o => o.Lines).Where(o => orderIds.Contains(o.Id)).ToDictionaryAsync(o => o.Id, ct);
         var paid = await db.CustomerPayments.AsNoTracking()
-            .Where(p => p.OrganizationId == org && p.Status == CustomerPaymentStatus.Posted && (asOf == null || p.PaymentDate <= asOf))
+            .Where(p => p.OrganizationId == org && p.Status == CustomerPaymentStatus.Posted && (asOf == null || p.PaymentDate <= asOf)
+                        && (customerId == null || p.CustomerId == customerId))
             .GroupBy(p => p.CustomerId).Select(g => new { g.Key, Sum = g.Sum(p => p.Amount) }).ToDictionaryAsync(x => x.Key, x => x.Sum, ct);
 
         var moved = docs.GroupBy(d => orders[d.OrderId].CustomerId).ToDictionary(g => g.Key, g => (

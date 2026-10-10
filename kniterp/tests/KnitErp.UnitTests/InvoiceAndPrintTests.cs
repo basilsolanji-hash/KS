@@ -150,4 +150,46 @@ public sealed class InvoiceAndPrintTests
         order.Close();
         Assert.Equal("sales.reserve.status", Assert.Throws<BusinessRuleException>(() => order.SetReserve(true)).Code);
     }
+
+    [Fact]
+    public void Order_details_change_in_any_status_except_cancelled()
+    {
+        var order = SalesOrder.Create(1, "ЗК-000001", new SalesOrderHeader(Day, 5, 7, null, null, false, null), 42, DateTime.UtcNow);
+        Assert.Equal(42, order.ResponsibleUserId);
+        order.SetLine(10, 1, 1m, null);
+        order.Confirm(1, DateTime.UtcNow);
+        order.SetDetails(new SalesOrderDetails(new TimeOnly(9, 15, 59), 3, 4, "  ул. Ткацкая, 5 ", null));
+        Assert.Equal((new TimeOnly(9, 15), 3L, 4L, "ул. Ткацкая, 5", (long?)null),
+            (order.OrderTime!.Value, order.ProjectId!.Value, order.ChannelId!.Value, order.DeliveryAddress, order.ResponsibleUserId));
+        Assert.Throws<BusinessRuleException>(() => order.SetDetails(new SalesOrderDetails(null, null, null, new string('а', 501), null)));
+        order.Cancel();
+        Assert.Equal("sales.order.cancelled", Assert.Throws<BusinessRuleException>(() =>
+            order.SetDetails(new SalesOrderDetails(null, null, null, null, null))).Code);
+    }
+
+    [Theory]
+    [InlineData(CustomFieldType.Number, " 1 200,50 ", "1200.50")]
+    [InlineData(CustomFieldType.Number, "-3.5", "-3.5")]
+    [InlineData(CustomFieldType.Date, "17.10.2026", "2026-10-17")]
+    [InlineData(CustomFieldType.Date, "2026-10-17", "2026-10-17")]
+    [InlineData(CustomFieldType.Flag, "true", "true")]
+    [InlineData(CustomFieldType.Flag, "false", null)]
+    [InlineData(CustomFieldType.Text, "  Синий меланж ", "Синий меланж")]
+    [InlineData(CustomFieldType.Text, "   ", null)]
+    public void Custom_field_values_are_stored_in_one_format(CustomFieldType type, string input, string? expected)
+    {
+        var field = CustomFieldDefinition.Create(1, CustomFieldTarget.SalesOrder, "Поле", type, 10);
+        Assert.Equal(expected, field.Normalize(input));
+    }
+
+    [Theory]
+    [InlineData(CustomFieldType.Number, "много", "custom_field.number")]
+    [InlineData(CustomFieldType.Date, "32.13.2026", "custom_field.date")]
+    public void Custom_field_rejects_wrong_value_with_field_name(CustomFieldType type, string input, string code)
+    {
+        var field = CustomFieldDefinition.Create(1, CustomFieldTarget.SalesOrder, "Время вязания", type, 10);
+        var ex = Assert.Throws<BusinessRuleException>(() => field.Normalize(input));
+        Assert.Equal(code, ex.Code);
+        Assert.Contains("Время вязания", ex.Message);
+    }
 }

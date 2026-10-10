@@ -434,6 +434,107 @@ public sealed class SalesTests(SqlTestHost host) : IClassFixture<SqlTestHost>
             await s.Sales.SetOrderReserveAsync(a, true, (await s.Sales.GetOrderAsync(a)).RowVersion))).Code);
     }
 
+    [SqlFact]
+    public async Task Order_details_custom_fields_and_customer_balance()
+    {
+        var f = await SetUpAsync();
+        long order, project, channel, pieces, knitHours, deadline, urgent;
+        await using (var s = host.As(f.Org.OwnerUserId, f.Org.OrganizationId))
+        {
+            order = await s.Sales.CreateOrderAsync(new SalesOrderHeader(Day, f.Customer, f.Store, null, null, true, null));
+            var dto = await s.Sales.GetOrderAsync(order);
+            // Ответственный по умолчанию — автор; баланс покупателя без отгрузок и оплат — ноль.
+            Assert.Equal((f.Org.OwnerUserId, 0m), (dto.Details!.ResponsibleUserId!.Value, dto.Details.CustomerBalance!.Value));
+            Assert.Empty(dto.Details.CustomFields);
+
+            project = await s.SalesSettings.CreateLookupAsync(LookupKind.Project, "Подвязы — поло воротники");
+            channel = await s.SalesSettings.CreateLookupAsync(LookupKind.SalesChannel, "Маркетплейс");
+            // То же название в другом справочнике можно, в том же — нет.
+            await s.SalesSettings.CreateLookupAsync(LookupKind.SalesChannel, "Подвязы — поло воротники");
+            Assert.Equal("catalog.duplicate", (await Assert.ThrowsAsync<BusinessRuleException>(() =>
+                s.SalesSettings.CreateLookupAsync(LookupKind.Project, "Подвязы — поло воротники"))).Code);
+            pieces = await s.SalesSettings.CreateFieldAsync("Количество, штук", CustomFieldType.Number);
+            knitHours = await s.SalesSettings.CreateFieldAsync("Время вязания", CustomFieldType.Number);
+            deadline = await s.SalesSettings.CreateFieldAsync("Срок у клиента", CustomFieldType.Date);
+            urgent = await s.SalesSettings.CreateFieldAsync("Срочный", CustomFieldType.Flag);
+            Assert.Equal("custom_field.duplicate", (await Assert.ThrowsAsync<BusinessRuleException>(() =>
+                s.SalesSettings.CreateFieldAsync("Срочный", CustomFieldType.Text))).Code);
+
+            // Проект нельзя подставить вместо канала.
+            await Assert.ThrowsAsync<NotFoundException>(async () => await s.Sales.SetOrderDetailsAsync(order,
+                new SalesOrderDetails(null, null, project, null, null), new Dictionary<long, string?>(), (await s.Sales.GetOrderAsync(order)).RowVersion));
+            Assert.Equal("custom_field.number", (await Assert.ThrowsAsync<BusinessRuleException>(async () => await s.Sales.SetOrderDetailsAsync(order,
+                new SalesOrderDetails(null, null, null, null, null), new Dictionary<long, string?> { [pieces] = "много" },
+                (await s.Sales.GetOrderAsync(order)).RowVersion))).Code);
+
+            await s.Sales.SetOrderDetailsAsync(order, new SalesOrderDetails(new TimeOnly(16, 43, 27), project, channel, " г. Москва, ул. Ткацкая, 5 ", f.Senior),
+                new Dictionary<long, string?> { [pieces] = "1 200,5", [knitHours] = "36", [deadline] = "17.10.2026", [urgent] = "true" },
+                (await s.Sales.GetOrderAsync(order)).RowVersion);
+            dto = await s.Sales.GetOrderAsync(order);
+            var d = dto.Details!;
+            Assert.Equal((new TimeOnly(16, 43), "Подвязы — поло воротники", "Маркетплейс", "г. Москва, ул. Ткацкая, 5", "Старший кладовщик"),
+                (d.OrderTime!.Value, d.Project, d.Channel, d.DeliveryAddress, d.Responsible));
+            Assert.Equal(["1200.5", "36", "2026-10-17", "true"], d.CustomFields.Select(c => c.Value));
+
+            // Пустое значение удаляет запись; поле в архиве не меняется и показывается, пока у заказа есть значение.
+            var knit = (await s.SalesSettings.FieldsAsync()).Single(x => x.Id == knitHours);
+            Assert.Equal(1, knit.Filled);
+            await s.SalesSettings.SetFieldArchivedAsync(knitHours, true, knit.RowVersion);
+            await s.Sales.SetOrderDetailsAsync(order, new SalesOrderDetails(null, project, channel, null, f.Senior),
+                new Dictionary<long, string?> { [urgent] = null, [knitHours] = "99" }, dto.RowVersion);
+            d = (await s.Sales.GetOrderAsync(order)).Details!;
+            Assert.Equal((null, null), (d.OrderTime, d.DeliveryAddress));
+            Assert.Equal(["1200.5", "2026-10-17", null, "36"], d.CustomFields.Select(c => c.Value));
+            Assert.True(d.CustomFields.Single(c => c.FieldId == knitHours).IsArchived);
+            Assert.Null(d.CustomFields.Single(c => c.FieldId == urgent).Value);
+            Assert.Equal(0, (await s.SalesSettings.FieldsAsync()).Single(x => x.Id == urgent).Filled);
+
+            // Архивный проект нельзя выбрать заново, но у заказа он остаётся.
+            var p = (await s.SalesSettings.LookupsAsync(LookupKind.Project)).Single();
+            Assert.Equal(1, p.Orders);
+            await s.SalesSettings.SetLookupArchivedAsync(project, true, p.RowVersion);
+            Assert.Empty((await s.Sales.DetailOptionsAsync()).Projects);
+            Assert.Equal("Подвязы — поло воротники", (await s.Sales.GetOrderAsync(order)).Details!.Project);
+            var second = await s.Sales.CreateOrderAsync(new SalesOrderHeader(Day, f.Customer, f.Store, null, null, true, null));
+            Assert.Equal("catalog.archived", (await Assert.ThrowsAsync<BusinessRuleException>(async () => await s.Sales.SetOrderDetailsAsync(second,
+                new SalesOrderDetails(null, project, null, null, null), new Dictionary<long, string?>(), (await s.Sales.GetOrderAsync(second)).RowVersion))).Code);
+
+            // Баланс покупателя: аванс 5 000 без отгрузок — минус (переплата).
+            await s.Sales.CreatePaymentAsync(Day, f.Customer, null, 5_000m, "п/п 1");
+            Assert.Equal(-5_000m, (await s.Sales.GetOrderAsync(order)).Details!.CustomerBalance);
+
+            // Отменённый заказ не меняется.
+            await s.Sales.CancelOrderAsync(second, (await s.Sales.GetOrderAsync(second)).RowVersion);
+            Assert.Equal("sales.order.cancelled", (await Assert.ThrowsAsync<BusinessRuleException>(async () => await s.Sales.SetOrderDetailsAsync(second,
+                new SalesOrderDetails(null, null, null, null, null), new Dictionary<long, string?>(), (await s.Sales.GetOrderAsync(second)).RowVersion))).Code);
+        }
+
+        await using (var s = host.As(f.Senior, f.Org.OrganizationId))
+        {
+            // Без права на цены баланс не показывается; без права на продажи детали не меняются.
+            Assert.Null((await s.Sales.GetOrderAsync(order)).Details!.CustomerBalance);
+            await Assert.ThrowsAsync<AccessDeniedException>(async () => await s.Sales.SetOrderDetailsAsync(order,
+                new SalesOrderDetails(null, null, null, null, null), new Dictionary<long, string?>(), (await s.Sales.GetOrderAsync(order)).RowVersion));
+            await Assert.ThrowsAsync<AccessDeniedException>(() => s.SalesSettings.CreateFieldAsync("Чужое", CustomFieldType.Text));
+        }
+
+        var other = await CreateOrgAsync();
+        await using (var s = host.As(other.OwnerUserId, other.OrganizationId))
+        {
+            // Чужие проекты, поля и сотрудники — «не найдено».
+            var mine = await s.Sales.CreateOrderAsync(new SalesOrderHeader(Day, await s.Counterparties.CreateAsync(
+                new CounterpartyCommand("ООО «Другой»", null, null, false, true, null)), await s.Warehouses.CreateWarehouseAsync("Склад", null), null, null, true, null));
+            var rv = (await s.Sales.GetOrderAsync(mine)).RowVersion;
+            await Assert.ThrowsAsync<NotFoundException>(() => s.Sales.SetOrderDetailsAsync(mine,
+                new SalesOrderDetails(null, null, channel, null, null), new Dictionary<long, string?>(), rv));
+            await Assert.ThrowsAsync<NotFoundException>(() => s.Sales.SetOrderDetailsAsync(mine,
+                new SalesOrderDetails(null, null, null, null, f.Senior), new Dictionary<long, string?>(), rv));
+            await Assert.ThrowsAsync<NotFoundException>(() => s.Sales.SetOrderDetailsAsync(mine,
+                new SalesOrderDetails(null, null, null, null, null), new Dictionary<long, string?> { [pieces] = "1" }, rv));
+            await Assert.ThrowsAsync<NotFoundException>(() => s.SalesSettings.RenameLookupAsync(channel, "Моё", rv));
+        }
+    }
+
     private sealed record Fixture(CreatedOrganization Org, long Store, long Sweater, long Customer, long Senior);
 
     private async Task<Fixture> SetUpAsync()

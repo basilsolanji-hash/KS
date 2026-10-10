@@ -2,6 +2,7 @@
 @using KnitErp.Application.Sales
 @using KnitErp.Domain.Sales
 @using KnitErp.Domain.Warehousing
+@using KnitErp.Domain.Common
 @inject SalesService Sales
 @inject SalesStageService StageList
 @inject CustomerInvoiceService Invoices
@@ -96,8 +97,14 @@ else
     {
         <dl class="facts">
             <dt>@L("Покупатель")</dt><dd>@_order.Customer</dd>
-            <dt>@L("Дата")</dt><dd>@_order.OrderDate.ToString("dd.MM.yyyy")@(_order.ShipDate is { } e ? $" · {L("отгрузка")} {e:dd.MM.yyyy}" : "")</dd>
+            <dt>@L("Дата")</dt><dd>@_order.OrderDate.ToString("dd.MM.yyyy")@(_order.Details?.OrderTime is { } ot ? $" {ot:HH\\:mm}" : "")@(_order.ShipDate is { } e ? $" · {L("отгрузка")} {e:dd.MM.yyyy}" : "")</dd>
             <dt>@L("Склад отгрузки")</dt><dd>@_order.Warehouse</dd>
+            @if (_order.Details?.CustomerBalance is { } bal)
+            {
+                <dt>@L("Баланс покупателя")</dt>
+                <dd><a href="reports/customer-balances" class="@(bal > 0 ? "money-debt" : bal < 0 ? "money-advance" : null)">
+                    @(bal > 0 ? L("должен нам {0}", Amounts.Format(bal)) : bal < 0 ? L("аванс {0}", Amounts.Format(-bal)) : L("расчёты закрыты"))</a></dd>
+            }
             @if (_order.CustomerReference is not null)
             {
                 <dt>@L("Договор покупателя")</dt><dd>@_order.CustomerReference</dd>
@@ -119,6 +126,112 @@ else
         @if (editable)
         {
             <button type="button" class="secondary" @onclick="EditHeaderAsync" disabled="@_busy">@L("Изменить шапку")</button>
+        }
+    }
+
+    @if (_order.Details is { } det)
+    {
+        <h2 style="margin-top: 16px">@L("Детали")</h2>
+        @if (_details is not null)
+        {
+            <div class="panel details-panel">
+                <form @onsubmit="SaveDetailsAsync">
+                    <div class="grid">
+                        <label>@L("Время заказа") <input type="time" @bind="_details.Time" /></label>
+                        <label>
+                            @L("Проект")
+                            <select @bind="_details.Project">
+                                <option value="">—</option>
+                                @foreach (var p in _detailOptions!.Projects)
+                                {
+                                    <option value="@p.Id">@p.Name</option>
+                                }
+                                @if (det.ProjectId is { } pid && _detailOptions.Projects.All(p => p.Id != pid))
+                                {
+                                    <option value="@pid">@det.Project (@L("в архиве"))</option>
+                                }
+                            </select>
+                        </label>
+                        <label>
+                            @L("Канал продаж")
+                            <select @bind="_details.Channel">
+                                <option value="">—</option>
+                                @foreach (var c in _detailOptions.Channels)
+                                {
+                                    <option value="@c.Id">@c.Name</option>
+                                }
+                                @if (det.ChannelId is { } cid && _detailOptions.Channels.All(c => c.Id != cid))
+                                {
+                                    <option value="@cid">@det.Channel (@L("в архиве"))</option>
+                                }
+                            </select>
+                        </label>
+                        <label>
+                            @L("Ответственный")
+                            <select @bind="_details.Responsible">
+                                <option value="">—</option>
+                                @foreach (var u in _detailOptions.Users)
+                                {
+                                    <option value="@u.Id">@u.Name</option>
+                                }
+                                @if (det.ResponsibleUserId is { } rid && _detailOptions.Users.All(u => u.Id != rid))
+                                {
+                                    <option value="@rid">@det.Responsible</option>
+                                }
+                            </select>
+                        </label>
+                        <label class="wide">@L("Адрес доставки") <input @bind="_details.Address" maxlength="@SalesOrder.AddressMaxLength" /></label>
+                        @foreach (var f in det.CustomFields.Where(f => !f.IsArchived))
+                        {
+                            var field = f;
+                            @switch (field.Type)
+                            {
+                                case CustomFieldType.Flag:
+                                    <label class="inline"><input type="checkbox" checked="@IsFlagSet(field.FieldId)"
+                                                                 @onchange="e => SetFlag(field.FieldId, e)" /> @field.Name</label>
+                                    break;
+                                case CustomFieldType.Date:
+                                    <label>@field.Name <input type="date" value="@_details.Values.GetValueOrDefault(field.FieldId)"
+                                                              @onchange="e => _details.Values[field.FieldId] = e.Value?.ToString()" /></label>
+                                    break;
+                                case CustomFieldType.Number:
+                                    <label>@field.Name <input inputmode="decimal" value="@_details.Values.GetValueOrDefault(field.FieldId)"
+                                                              @onchange="e => _details.Values[field.FieldId] = e.Value?.ToString()" /></label>
+                                    break;
+                                default:
+                                    <label>@field.Name <input maxlength="@CustomFieldDefinition.ValueMaxLength" value="@_details.Values.GetValueOrDefault(field.FieldId)"
+                                                              @onchange="e => _details.Values[field.FieldId] = e.Value?.ToString()" /></label>
+                                    break;
+                            }
+                        }
+                    </div>
+                    <div class="actions">
+                        <button type="submit" disabled="@_busy">@L("Сохранить")</button>
+                        <button type="button" class="secondary" @onclick="() => _details = null">@L("Отмена")</button>
+                        @if (CurrentAccess.Has(Permissions.SalesEdit))
+                        {
+                            <a href="sales-settings" class="muted">@L("Проекты, каналы и доп. поля")</a>
+                        }
+                    </div>
+                </form>
+            </div>
+        }
+        else
+        {
+            <dl class="facts">
+                <dt>@L("Проект")</dt><dd>@(det.Project ?? "—")</dd>
+                <dt>@L("Канал продаж")</dt><dd>@(det.Channel ?? "—")</dd>
+                <dt>@L("Ответственный")</dt><dd>@(det.Responsible ?? "—")</dd>
+                <dt>@L("Адрес доставки")</dt><dd>@(det.DeliveryAddress ?? "—")</dd>
+                @foreach (var f in det.CustomFields)
+                {
+                    <dt>@f.Name@(f.IsArchived ? $" ({L("в архиве")})" : "")</dt><dd>@CustomValue(f)</dd>
+                }
+            </dl>
+            @if (CurrentAccess.Has(Permissions.SalesEdit) && _order.Status != SalesOrderStatus.Cancelled)
+            {
+                <button type="button" class="secondary" @onclick="EditDetailsAsync" disabled="@_busy">@L("Изменить детали")</button>
+            }
         }
     }
 
@@ -375,6 +488,19 @@ else
     private IReadOnlyList<SalesStageDto> _stages = [];
     private DateTime? _dueDate;
 
+    private DetailsForm? _details;
+    private SalesOrderDetailOptionsDto? _detailOptions;
+
+    private sealed class DetailsForm
+    {
+        public TimeOnly? Time { get; set; }
+        public string Project { get; set; } = string.Empty;
+        public string Channel { get; set; } = string.Empty;
+        public string Responsible { get; set; } = string.Empty;
+        public string? Address { get; set; }
+        public Dictionary<long, string?> Values { get; } = [];
+    }
+
     private sealed class HeaderForm
     {
         public string Customer { get; set; } = string.Empty;
@@ -461,6 +587,50 @@ else
         };
         return Task.CompletedTask;
     }, null);
+
+    private Task EditDetailsAsync() => RunAsync(async () =>
+    {
+        _detailOptions ??= await Sales.DetailOptionsAsync();
+        var d = _order!.Details!;
+        _details = new DetailsForm
+        {
+            Time = d.OrderTime, Project = d.ProjectId?.ToString() ?? string.Empty, Channel = d.ChannelId?.ToString() ?? string.Empty,
+            Responsible = d.ResponsibleUserId?.ToString() ?? string.Empty, Address = d.DeliveryAddress,
+        };
+        foreach (var f in d.CustomFields.Where(f => !f.IsArchived))
+        {
+            _details.Values[f.FieldId] = f.Value;
+        }
+    }, null);
+
+    private Task SaveDetailsAsync() => RunAsync(async () =>
+    {
+        var d = _details!;
+        static long? ParseId(string v) => long.TryParse(v, out var id) ? id : null;
+        await Sales.SetOrderDetailsAsync(Id, new SalesOrderDetails(d.Time, ParseId(d.Project), ParseId(d.Channel), d.Address, ParseId(d.Responsible)),
+            d.Values, _order!.RowVersion);
+        _details = null;
+    }, L("Детали заказа сохранены."));
+
+    private bool IsFlagSet(long fieldId) => _details?.Values.GetValueOrDefault(fieldId) == "true";
+
+    private void SetFlag(long fieldId, ChangeEventArgs e) => _details!.Values[fieldId] = e.Value is true ? "true" : null;
+
+    /// <summary>Значение доп. поля для чтения: число и дата — по-русски, флажок — «да».</summary>
+    private string CustomValue(SalesOrderCustomValueDto f)
+    {
+        var ru = System.Globalization.CultureInfo.GetCultureInfo("ru-RU");
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        return f.Value switch
+        {
+            null => "—",
+            var v when f.Type == CustomFieldType.Number && decimal.TryParse(v, inv, out var n) => n.ToString("#,0.######", ru),
+            var v when f.Type == CustomFieldType.Date && DateOnly.TryParseExact(v, "yyyy-MM-dd", inv, System.Globalization.DateTimeStyles.None, out var dt)
+                => dt.ToString("dd.MM.yyyy"),
+            _ when f.Type == CustomFieldType.Flag => L("да"),
+            var v => v,
+        };
+    }
 
     private Task SaveHeaderAsync() => RunAsync(async () =>
     {
