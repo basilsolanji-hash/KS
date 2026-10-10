@@ -131,6 +131,8 @@ public sealed class AuditQueryService(IKnitErpDbContext db, IAccessGuard guard)
         "TechCard" => $"Техкарта №{e.EntityId}",
         "PurchaseOrder" => $"Заказ поставщику №{e.EntityId}",
         "SupplierPayment" => $"Оплата поставщику №{e.EntityId}",
+        "SalesOrder" => $"Заказ покупателя №{e.EntityId}",
+        "CustomerPayment" => $"Оплата от покупателя №{e.EntityId}",
         "PeriodClosure" => "Закрытый период",
         "SupportTicket" => $"Обращение №{e.EntityId}",
         "Integrity" => "Журнал аудита и движения склада",

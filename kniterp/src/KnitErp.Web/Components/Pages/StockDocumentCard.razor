@@ -50,14 +50,18 @@ else
     {
         <dl class="facts">
             <dt>@L("Дата")</dt><dd>@_doc.DocumentDate.ToString("dd.MM.yyyy")</dd>
-            <dt>@(_doc.Kind == StockOperationKind.Receipt ? L("Склад-получатель") : L("Склад-отправитель"))</dt><dd>@_doc.WarehouseName</dd>
+            <dt>@(StockDocument.IsOutgoing(_doc.Kind) ? L("Склад-отправитель") : L("Склад-получатель"))</dt><dd>@_doc.WarehouseName</dd>
             @if (_doc.TargetWarehouseName is not null)
             {
                 <dt>@L("Куда")</dt><dd>@_doc.TargetWarehouseName</dd>
             }
-            @if (_doc.Kind is StockOperationKind.Receipt or StockOperationKind.ReturnToSupplier)
+            @if (StockDocument.WithSupplier(_doc.Kind) || StockDocument.WithCustomer(_doc.Kind))
             {
-                <dt>@L("Поставщик")</dt><dd>@(_doc.CounterpartyName ?? "—")</dd>
+                <dt>@(StockDocument.WithCustomer(_doc.Kind) ? L("Покупатель") : L("Поставщик"))</dt><dd>@(_doc.CounterpartyName ?? "—")</dd>
+            }
+            @if (_doc.SalesOrderId is { } salesOrderId)
+            {
+                <dt>@L("Заказ покупателя")</dt><dd><a href="sales-orders/@salesOrderId">@_doc.SalesOrderNumber</a></dd>
             }
             @if (_doc.PurchaseOrderId is { } orderId)
             {

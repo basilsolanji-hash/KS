@@ -123,6 +123,12 @@ public static class AuditActions
     public const string PurchaseOrderCancelled = "purchase.order.cancelled";
     public const string SupplierPaymentCreated = "purchase.payment.created";
     public const string SupplierPaymentCancelled = "purchase.payment.cancelled";
+    public const string SalesOrderCreated = "sales.order.created";
+    public const string SalesOrderChanged = "sales.order.changed";
+    public const string SalesOrderConfirmed = "sales.order.confirmed";
+    public const string SalesOrderCancelled = "sales.order.cancelled";
+    public const string CustomerPaymentCreated = "sales.payment.created";
+    public const string CustomerPaymentCancelled = "sales.payment.cancelled";
     public const string PeriodClosed = "period.closed";
     public const string PeriodReopened = "period.reopened";
     public const string SupportTicketCreated = "support.ticket.created";

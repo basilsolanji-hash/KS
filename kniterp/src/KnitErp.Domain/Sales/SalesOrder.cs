@@ -1,8 +1,8 @@
 using KnitErp.Domain.Common;
 
-namespace KnitErp.Domain.Purchasing;
+namespace KnitErp.Domain.Sales;
 
-public enum PurchaseOrderStatus : byte
+public enum SalesOrderStatus : byte
 {
     Draft = 1,
     Confirmed = 2,
@@ -11,20 +11,20 @@ public enum PurchaseOrderStatus : byte
 }
 
 /// <summary>
-/// Заказ поставщику (D64): что, сколько и почём покупаем. Черновик правится; «Подтвердить» фиксирует условия —
-/// по подтверждённому заказу оформляются поступления и возвраты, их суммы считаются по ценам заказа, и из них
-/// складывается долг поставщику. Цены — в валюте организации; НДС — по проценту строки.
+/// Заказ покупателя (D65): что, сколько и почём продаём. Черновик правится; «Подтвердить» фиксирует условия —
+/// по подтверждённому заказу оформляются отгрузки и возвраты, их суммы считаются по ценам заказа, и из них
+/// складывается долг покупателя. Цены — в валюте организации; НДС — по проценту строки.
 /// </summary>
-public sealed class PurchaseOrder
+public sealed class SalesOrder
 {
-    public const string NumberPrefix = "ЗП";
+    public const string NumberPrefix = "ЗК";
     public const int CommentMaxLength = 1000;
     public const int InvoiceMaxLength = 100;
     public const int MaxLines = 500;
 
-    private readonly List<PurchaseOrderLine> _lines = [];
+    private readonly List<SalesOrderLine> _lines = [];
 
-    private PurchaseOrder()
+    private SalesOrder()
     {
     }
 
@@ -32,38 +32,38 @@ public sealed class PurchaseOrder
     public long OrganizationId { get; private set; }
     public string Number { get; private set; } = string.Empty;
     public DateOnly OrderDate { get; private set; }
-    public long SupplierId { get; private set; }
+    public long CustomerId { get; private set; }
 
-    /// <summary>Склад, куда поступит товар.</summary>
+    /// <summary>Склад, с которого отгружается товар.</summary>
     public long WarehouseId { get; private set; }
 
-    public DateOnly? ExpectedDate { get; private set; }
+    public DateOnly? ShipDate { get; private set; }
 
-    /// <summary>Счёт поставщика: номер и дата, как в его документе («№ 15 от 05.10.2026»).</summary>
-    public string? SupplierInvoice { get; private set; }
+    /// <summary>Договор или заказ покупателя: номер и дата, как в его документе («Договор № 7 от 01.10.2026»).</summary>
+    public string? CustomerReference { get; private set; }
 
     /// <summary>Цены строк с НДС (НДС выделяется из суммы) или без (НДС начисляется сверху).</summary>
     public bool PricesIncludeVat { get; private set; }
 
-    public PurchaseOrderStatus Status { get; private set; }
+    public SalesOrderStatus Status { get; private set; }
     public string? Comment { get; private set; }
     public long CreatedByUserId { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
     public long? ConfirmedByUserId { get; private set; }
     public DateTime? ConfirmedAtUtc { get; private set; }
     public byte[] RowVersion { get; private set; } = [];
-    public IReadOnlyList<PurchaseOrderLine> Lines => _lines;
+    public IReadOnlyList<SalesOrderLine> Lines => _lines;
 
     public decimal Total => _lines.Sum(l => l.Amount);
     public decimal VatTotal => _lines.Sum(l => l.VatAmount);
 
-    public static PurchaseOrder Create(long organizationId, string number, PurchaseOrderHeader header, long userId, DateTime nowUtc)
+    public static SalesOrder Create(long organizationId, string number, SalesOrderHeader header, long userId, DateTime nowUtc)
     {
-        var order = new PurchaseOrder
+        var order = new SalesOrder
         {
             OrganizationId = organizationId,
             Number = number,
-            Status = PurchaseOrderStatus.Draft,
+            Status = SalesOrderStatus.Draft,
             CreatedByUserId = userId,
             CreatedAtUtc = nowUtc,
         };
@@ -71,7 +71,7 @@ public sealed class PurchaseOrder
         return order;
     }
 
-    public void UpdateHeader(PurchaseOrderHeader header)
+    public void UpdateHeader(SalesOrderHeader header)
     {
         EnsureDraft();
         var vatModeChanged = header.PricesIncludeVat != PricesIncludeVat;
@@ -92,12 +92,12 @@ public sealed class PurchaseOrder
         Quantities.EnsurePositive(quantity);
         if (price < 0 || decimal.Round(price, 4) != price)
         {
-            throw new BusinessRuleException("purchase.price", "Цена — не меньше нуля, не больше четырёх знаков после запятой.");
+            throw new BusinessRuleException("sales.price", "Цена — не меньше нуля, не больше четырёх знаков после запятой.");
         }
 
         if (vatPercent is { } p && (p < 0 || p > 100 || decimal.Round(p, 2) != p))
         {
-            throw new BusinessRuleException("purchase.vat", "Ставка НДС — от 0 до 100%.");
+            throw new BusinessRuleException("sales.vat", "Ставка НДС — от 0 до 100%.");
         }
 
         var line = _lines.FirstOrDefault(l => l.ItemId == itemId);
@@ -105,10 +105,10 @@ public sealed class PurchaseOrder
         {
             if (_lines.Count >= MaxLines)
             {
-                throw new BusinessRuleException("purchase.too_many_lines", $"В заказе не больше {MaxLines} строк.");
+                throw new BusinessRuleException("sales.too_many_lines", $"В заказе не больше {MaxLines} строк.");
             }
 
-            line = new PurchaseOrderLine(itemId);
+            line = new SalesOrderLine(itemId);
             _lines.Add(line);
         }
 
@@ -119,7 +119,7 @@ public sealed class PurchaseOrder
     {
         EnsureDraft();
         var line = _lines.FirstOrDefault(l => l.ItemId == itemId)
-                   ?? throw new BusinessRuleException("purchase.line_missing", "Такой строки в заказе нет.");
+                   ?? throw new BusinessRuleException("sales.line_missing", "Такой строки в заказе нет.");
         _lines.Remove(line);
     }
 
@@ -128,96 +128,96 @@ public sealed class PurchaseOrder
         EnsureDraft();
         if (_lines.Count == 0)
         {
-            throw new BusinessRuleException("purchase.empty", "В заказе нет строк.");
+            throw new BusinessRuleException("sales.empty", "В заказе нет строк.");
         }
 
-        Status = PurchaseOrderStatus.Confirmed;
+        Status = SalesOrderStatus.Confirmed;
         ConfirmedByUserId = userId;
         ConfirmedAtUtc = nowUtc;
     }
 
-    /// <summary>Закрыть: больше поступлений по заказу не ждём (получен полностью или остаток не нужен).</summary>
+    /// <summary>Закрыть: больше отгрузок по заказу не будет (отгружен полностью или остаток не нужен).</summary>
     public void Close()
     {
-        if (Status != PurchaseOrderStatus.Confirmed)
+        if (Status != SalesOrderStatus.Confirmed)
         {
-            throw new BusinessRuleException("purchase.status", "Закрыть можно только подтверждённый заказ.");
+            throw new BusinessRuleException("sales.status", "Закрыть можно только подтверждённый заказ.");
         }
 
-        Status = PurchaseOrderStatus.Closed;
+        Status = SalesOrderStatus.Closed;
     }
 
-    /// <summary>Вернуть закрытый заказ в работу — например, поставщик довёз остаток.</summary>
+    /// <summary>Вернуть закрытый заказ в работу — например, покупатель всё-таки забирает остаток.</summary>
     public void Reopen()
     {
-        if (Status != PurchaseOrderStatus.Closed)
+        if (Status != SalesOrderStatus.Closed)
         {
-            throw new BusinessRuleException("purchase.status", "Вернуть в работу можно только закрытый заказ.");
+            throw new BusinessRuleException("sales.status", "Вернуть в работу можно только закрытый заказ.");
         }
 
-        Status = PurchaseOrderStatus.Confirmed;
+        Status = SalesOrderStatus.Confirmed;
     }
 
     /// <summary>Отмена. По подтверждённому заказу — только если по нему нет проведённых документов и оплат (проверяет сервис).</summary>
     public void Cancel()
     {
-        if (Status is not (PurchaseOrderStatus.Draft or PurchaseOrderStatus.Confirmed))
+        if (Status is not (SalesOrderStatus.Draft or SalesOrderStatus.Confirmed))
         {
-            throw new BusinessRuleException("purchase.status", "Отменить можно черновик или подтверждённый заказ.");
+            throw new BusinessRuleException("sales.status", "Отменить можно черновик или подтверждённый заказ.");
         }
 
-        Status = PurchaseOrderStatus.Cancelled;
+        Status = SalesOrderStatus.Cancelled;
     }
 
-    /// <summary>Цена единицы с НДС — по ней оценивается поступление и возврат по заказу.</summary>
+    /// <summary>Цена единицы с НДС — по ней оценивается отгрузка и возврат по заказу.</summary>
     public decimal UnitCostWithVat(long itemId) =>
         _lines.FirstOrDefault(l => l.ItemId == itemId) is { } l && l.Quantity != 0 ? l.Amount / l.Quantity : 0m;
 
-    public static string StatusName(PurchaseOrderStatus status) => status switch
+    public static string StatusName(SalesOrderStatus status) => status switch
     {
-        PurchaseOrderStatus.Draft => "Черновик",
-        PurchaseOrderStatus.Confirmed => "Подтверждён",
-        PurchaseOrderStatus.Closed => "Закрыт",
-        PurchaseOrderStatus.Cancelled => "Отменён",
+        SalesOrderStatus.Draft => "Черновик",
+        SalesOrderStatus.Confirmed => "Подтверждён",
+        SalesOrderStatus.Closed => "Закрыт",
+        SalesOrderStatus.Cancelled => "Отменён",
         _ => status.ToString(),
     };
 
-    private void ApplyHeader(PurchaseOrderHeader h)
+    private void ApplyHeader(SalesOrderHeader h)
     {
-        if (h.ExpectedDate is { } expected && expected < h.OrderDate)
+        if (h.ShipDate is { } expected && expected < h.OrderDate)
         {
-            throw new BusinessRuleException("purchase.expected_date", "Ожидаемая дата поступления раньше даты заказа.");
+            throw new BusinessRuleException("sales.expected_date", "Дата отгрузки раньше даты заказа.");
         }
 
         OrderDate = h.OrderDate;
-        SupplierId = h.SupplierId;
+        CustomerId = h.CustomerId;
         WarehouseId = h.WarehouseId;
-        ExpectedDate = h.ExpectedDate;
-        SupplierInvoice = DomainText.Optional(h.SupplierInvoice, InvoiceMaxLength, "Счёт поставщика");
+        ShipDate = h.ShipDate;
+        CustomerReference = DomainText.Optional(h.CustomerReference, InvoiceMaxLength, "Договор покупателя");
         PricesIncludeVat = h.PricesIncludeVat;
         Comment = DomainText.Optional(h.Comment, CommentMaxLength, "Комментарий");
     }
 
     private void EnsureDraft()
     {
-        if (Status != PurchaseOrderStatus.Draft)
+        if (Status != SalesOrderStatus.Draft)
         {
-            throw new BusinessRuleException("purchase.not_draft", "Заказ уже подтверждён — менять его нельзя. Нужны другие условия — отмените и оформите новый.");
+            throw new BusinessRuleException("sales.not_draft", "Заказ уже подтверждён — менять его нельзя. Нужны другие условия — отмените и оформите новый.");
         }
     }
 }
 
-public sealed record PurchaseOrderHeader(
-    DateOnly OrderDate, long SupplierId, long WarehouseId, DateOnly? ExpectedDate, string? SupplierInvoice, bool PricesIncludeVat, string? Comment);
+public sealed record SalesOrderHeader(
+    DateOnly OrderDate, long CustomerId, long WarehouseId, DateOnly? ShipDate, string? CustomerReference, bool PricesIncludeVat, string? Comment);
 
 /// <summary>Строка заказа: количество, цена, процент НДС; сумма и НДС считаются и хранятся с округлением до копеек.</summary>
-public sealed class PurchaseOrderLine
+public sealed class SalesOrderLine
 {
-    private PurchaseOrderLine()
+    private SalesOrderLine()
     {
     }
 
-    internal PurchaseOrderLine(long itemId) => ItemId = itemId;
+    internal SalesOrderLine(long itemId) => ItemId = itemId;
 
     public long Id { get; private set; }
     public long OrderId { get; private set; }
@@ -245,22 +245,22 @@ public sealed class PurchaseOrderLine
         (Amount, VatAmount) = Money.LineAmounts(Quantity, Price, VatPercent, pricesIncludeVat);
 }
 
-public enum SupplierPaymentStatus : byte
+public enum CustomerPaymentStatus : byte
 {
     Posted = 2,
     Cancelled = 9,
 }
 
 /// <summary>
-/// Оплата поставщику (D64): дата, поставщик, сумма, при желании — заказ. Уменьшает долг поставщику сразу.
+/// Оплата от покупателя (D65): дата, покупатель, сумма, при желании — заказ. Уменьшает долг покупателя сразу.
 /// Ошибочная оплата не удаляется, а отменяется с причиной — в истории остаются обе записи.
 /// </summary>
-public sealed class SupplierPayment
+public sealed class CustomerPayment
 {
-    public const string NumberPrefix = "ОП";
+    public const string NumberPrefix = "ПО";
     public const int CommentMaxLength = 500;
 
-    private SupplierPayment()
+    private CustomerPayment()
     {
     }
 
@@ -268,11 +268,11 @@ public sealed class SupplierPayment
     public long OrganizationId { get; private set; }
     public string Number { get; private set; } = string.Empty;
     public DateOnly PaymentDate { get; private set; }
-    public long SupplierId { get; private set; }
-    public long? PurchaseOrderId { get; private set; }
+    public long CustomerId { get; private set; }
+    public long? SalesOrderId { get; private set; }
     public decimal Amount { get; private set; }
     public string? Comment { get; private set; }
-    public SupplierPaymentStatus Status { get; private set; }
+    public CustomerPaymentStatus Status { get; private set; }
     public long CreatedByUserId { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
     public long? CancelledByUserId { get; private set; }
@@ -280,24 +280,24 @@ public sealed class SupplierPayment
     public string? CancelReason { get; private set; }
     public byte[] RowVersion { get; private set; } = [];
 
-    public static SupplierPayment Create(
-        long organizationId, string number, DateOnly date, long supplierId, long? orderId, decimal amount, string? comment, long userId, DateTime nowUtc)
+    public static CustomerPayment Create(
+        long organizationId, string number, DateOnly date, long customerId, long? orderId, decimal amount, string? comment, long userId, DateTime nowUtc)
     {
         if (amount <= 0 || Money.Round(amount) != amount)
         {
-            throw new BusinessRuleException("purchase.payment.amount", "Сумма оплаты — больше нуля, до копеек.");
+            throw new BusinessRuleException("sales.payment.amount", "Сумма оплаты — больше нуля, до копеек.");
         }
 
-        return new SupplierPayment
+        return new CustomerPayment
         {
             OrganizationId = organizationId,
             Number = number,
             PaymentDate = date,
-            SupplierId = supplierId,
-            PurchaseOrderId = orderId,
+            CustomerId = customerId,
+            SalesOrderId = orderId,
             Amount = amount,
             Comment = DomainText.Optional(comment, CommentMaxLength, "Комментарий"),
-            Status = SupplierPaymentStatus.Posted,
+            Status = CustomerPaymentStatus.Posted,
             CreatedByUserId = userId,
             CreatedAtUtc = nowUtc,
         };
@@ -305,13 +305,13 @@ public sealed class SupplierPayment
 
     public void Cancel(long userId, string? reason, DateTime nowUtc)
     {
-        if (Status != SupplierPaymentStatus.Posted)
+        if (Status != CustomerPaymentStatus.Posted)
         {
-            throw new BusinessRuleException("purchase.payment.cancelled", "Оплата уже отменена.");
+            throw new BusinessRuleException("sales.payment.cancelled", "Оплата уже отменена.");
         }
 
         CancelReason = DomainText.Require(reason, CommentMaxLength, "Причина отмены");
-        Status = SupplierPaymentStatus.Cancelled;
+        Status = CustomerPaymentStatus.Cancelled;
         CancelledByUserId = userId;
         CancelledAtUtc = nowUtc;
     }

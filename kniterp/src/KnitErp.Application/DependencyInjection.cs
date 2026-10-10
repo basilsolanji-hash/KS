@@ -33,6 +33,7 @@ public static class DependencyInjection
         services.AddScoped<VatRateService>();
         services.AddScoped<Production.TechCardService>();
         services.AddScoped<Purchasing.PurchaseService>();
+        services.AddScoped<Sales.SalesService>();
         services.AddScoped<RecoveryCodeService>();
         services.AddScoped<Structure.EmployeeExchangeService>();
         services.AddScoped<Organizations.LaunchReadinessService>();

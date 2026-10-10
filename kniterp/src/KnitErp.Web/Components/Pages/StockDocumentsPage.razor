@@ -18,11 +18,11 @@ else if (_rows is null)
 else
 {
     <div class="page-head">
-        <h1>@(KindQuery switch { "1" => L("Поступления"), "5" => L("Возвраты поставщикам"), _ => L("Складские документы") })</h1>
+        <h1>@(KindQuery switch { "1" => L("Поступления"), "5" => L("Возвраты поставщикам"), "6" => L("Отгрузки"), "7" => L("Возвраты от покупателей"), _ => L("Складские документы") })</h1>
         @if (CurrentAccess.Has(Permissions.WarehouseDocumentCreate) && _form is null)
         {
             <div class="actions">
-                @foreach (var kind in StockDocument.Kinds.Where(k => KindQuery is null || ((byte)k).ToString() == KindQuery))
+                @foreach (var kind in StockDocument.Kinds.Where(k => KindQuery is null ? (byte)k <= 3 : ((byte)k).ToString() == KindQuery))
                 {
                     <button type="button" @onclick="() => OpenCreateAsync(kind)" disabled="@_busy">@NewLabel(kind)</button>
                 }
@@ -242,6 +242,8 @@ else
         StockOperationKind.Transfer => L("Новое перемещение"),
         StockOperationKind.WriteOff => L("Новое списание"),
         StockOperationKind.ReturnToSupplier => L("Новый возврат поставщику"),
+        StockOperationKind.Shipment => L("Новая отгрузка"),
+        StockOperationKind.CustomerReturn => L("Новый возврат от покупателя"),
         _ => L("Новый документ"),
     };
 

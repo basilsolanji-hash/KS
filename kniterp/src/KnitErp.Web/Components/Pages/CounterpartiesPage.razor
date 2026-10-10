@@ -17,7 +17,7 @@ else if (_list is null)
 else
 {
     <div class="page-head">
-        <h1>@L("Контрагенты")</h1>
+        <h1>@(RoleQuery switch { "customer" => L("Покупатели"), "supplier" => L("Поставщики"), _ => L("Контрагенты") })</h1>
         @if (_list.CanEdit && _mode == Mode.None)
         {
             <button type="button" @onclick="OpenCreate" disabled="@_busy">@L("Добавить контрагента")</button>

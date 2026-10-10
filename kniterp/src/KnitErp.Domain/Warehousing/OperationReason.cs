@@ -12,13 +12,19 @@ public enum StockOperationKind : byte
 
     /// <summary>Возврат поставщику: расход со склада с поставщиком, обычно по заказу поставщику (D64).</summary>
     ReturnToSupplier = 5,
+
+    /// <summary>Отгрузка покупателю: расход со склада по заказу покупателя (D65).</summary>
+    Shipment = 6,
+
+    /// <summary>Возврат от покупателя: приход на склад, не больше отгруженного по заказу (D65).</summary>
+    CustomerReturn = 7,
 }
 
 public static class StockOperationKinds
 {
     public static readonly IReadOnlyList<StockOperationKind> All =
         [StockOperationKind.Receipt, StockOperationKind.WriteOff, StockOperationKind.Transfer, StockOperationKind.Inventory,
-         StockOperationKind.ReturnToSupplier];
+         StockOperationKind.ReturnToSupplier, StockOperationKind.Shipment, StockOperationKind.CustomerReturn];
 
     public static string Name(StockOperationKind kind) => kind switch
     {
@@ -27,6 +33,8 @@ public static class StockOperationKinds
         StockOperationKind.Transfer => "Перемещение",
         StockOperationKind.Inventory => "Инвентаризация",
         StockOperationKind.ReturnToSupplier => "Возврат поставщику",
+        StockOperationKind.Shipment => "Отгрузка покупателю",
+        StockOperationKind.CustomerReturn => "Возврат от покупателя",
         _ => kind.ToString(),
     };
 }
@@ -64,6 +72,8 @@ public sealed class OperationReason
         (StockOperationKind.Inventory, "Излишек по инвентаризации", false),
         (StockOperationKind.Inventory, "Недостача по инвентаризации", true),
         (StockOperationKind.ReturnToSupplier, "Возврат поставщику", false),
+        (StockOperationKind.Shipment, "Продажа покупателю", false),
+        (StockOperationKind.CustomerReturn, "Возврат от покупателя", false),
     ];
 
     public static OperationReason Create(long organizationId, StockOperationKind kind, string name, bool requiresComment)

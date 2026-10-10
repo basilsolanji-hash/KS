@@ -3,6 +3,7 @@ using KnitErp.Domain.Access;
 using KnitErp.Domain.Audit;
 using KnitErp.Domain.Organizations;
 using KnitErp.Domain.Purchasing;
+using KnitErp.Domain.Sales;
 using KnitErp.Domain.Catalog;
 using KnitErp.Domain.Common;
 using KnitErp.Domain.Structure;
@@ -460,7 +461,7 @@ internal sealed class OperationReasonConfiguration : IEntityTypeConfiguration<Op
 {
     public void Configure(EntityTypeBuilder<OperationReason> b)
     {
-        b.ToTable("operation_reasons", t => t.HasCheckConstraint("ck_operation_reasons_kind", "[Kind] IN (1, 2, 3, 4, 5)"));
+        b.ToTable("operation_reasons", t => t.HasCheckConstraint("ck_operation_reasons_kind", "[Kind] IN (1, 2, 3, 4, 5, 6, 7)"));
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).UseIdentityColumn();
         b.Property(x => x.Kind).HasConversion<byte>();
@@ -650,19 +651,112 @@ internal sealed class SupplierPaymentConfiguration : IEntityTypeConfiguration<Su
     }
 }
 
+internal sealed class SalesOrderConfiguration : IEntityTypeConfiguration<SalesOrder>
+{
+    public void Configure(EntityTypeBuilder<SalesOrder> b)
+    {
+        b.ToTable("sales_orders", t =>
+        {
+            t.HasCheckConstraint("ck_sales_orders_status", "[Status] IN (1, 2, 3, 9)");
+            t.HasCheckConstraint("ck_sales_orders_confirmed",
+                "([Status] = 1 AND [ConfirmedByUserId] IS NULL) OR ([Status] IN (2, 3) AND [ConfirmedByUserId] IS NOT NULL AND [ConfirmedAtUtc] IS NOT NULL)"
+                + " OR [Status] = 9");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Number).HasMaxLength(30).IsRequired();
+        b.Property(x => x.Status).HasConversion<byte>();
+        b.Property(x => x.CustomerReference).HasMaxLength(SalesOrder.InvoiceMaxLength);
+        b.Property(x => x.Comment).HasMaxLength(SalesOrder.CommentMaxLength);
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.Ignore(x => x.Total);
+        b.Ignore(x => x.VatTotal);
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_sales_orders_org_id");
+        b.HasOne<Counterparty>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.CustomerId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_sales_orders_customer");
+        b.HasOne<Warehouse>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.WarehouseId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_sales_orders_warehouse");
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.ConfirmedByUserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasIndex(x => new { x.OrganizationId, x.Number }).IsUnique().HasDatabaseName("ux_sales_orders_org_number");
+        b.HasIndex(x => new { x.OrganizationId, x.CustomerId, x.OrderDate }).HasDatabaseName("ix_sales_orders_org_customer_date");
+        b.HasMany(x => x.Lines).WithOne().HasForeignKey(x => x.OrderId).OnDelete(DeleteBehavior.Cascade);
+        b.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field).HasField("_lines");
+    }
+}
+
+internal sealed class SalesOrderLineConfiguration : IEntityTypeConfiguration<SalesOrderLine>
+{
+    public void Configure(EntityTypeBuilder<SalesOrderLine> b)
+    {
+        b.ToTable("sales_order_lines", t =>
+        {
+            t.HasCheckConstraint("ck_sales_order_lines_quantity", "[Quantity] > 0");
+            t.HasCheckConstraint("ck_sales_order_lines_price", "[Price] >= 0 AND [Amount] >= 0 AND [VatAmount] >= 0");
+            t.HasCheckConstraint("ck_sales_order_lines_vat", "[VatPercent] IS NULL OR [VatPercent] BETWEEN 0 AND 100");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Quantity).HasColumnType("decimal(18,6)");
+        b.Property(x => x.Price).HasColumnType("decimal(19,4)");
+        b.Property(x => x.Amount).HasColumnType("decimal(19,4)");
+        b.Property(x => x.VatAmount).HasColumnType("decimal(19,4)");
+        b.Property(x => x.VatPercent).HasColumnType("decimal(5,2)");
+        b.HasOne<Item>().WithMany().HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Restrict);
+        b.HasIndex(x => new { x.OrderId, x.ItemId }).IsUnique().HasDatabaseName("ux_sales_order_lines_order_item");
+    }
+}
+
+internal sealed class CustomerPaymentConfiguration : IEntityTypeConfiguration<CustomerPayment>
+{
+    public void Configure(EntityTypeBuilder<CustomerPayment> b)
+    {
+        b.ToTable("customer_payments", t =>
+        {
+            t.HasCheckConstraint("ck_customer_payments_status", "[Status] IN (2, 9)");
+            t.HasCheckConstraint("ck_customer_payments_amount", "[Amount] > 0");
+            t.HasCheckConstraint("ck_customer_payments_cancelled",
+                "([Status] = 9 AND [CancelledByUserId] IS NOT NULL AND [CancelReason] IS NOT NULL) OR ([Status] = 2 AND [CancelledByUserId] IS NULL)");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Number).HasMaxLength(30).IsRequired();
+        b.Property(x => x.Status).HasConversion<byte>();
+        b.Property(x => x.Amount).HasColumnType("decimal(19,4)");
+        b.Property(x => x.Comment).HasMaxLength(CustomerPayment.CommentMaxLength);
+        b.Property(x => x.CancelReason).HasMaxLength(CustomerPayment.CommentMaxLength);
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<Counterparty>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.CustomerId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_customer_payments_customer");
+        b.HasOne<SalesOrder>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.SalesOrderId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_customer_payments_order");
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.CancelledByUserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasIndex(x => new { x.OrganizationId, x.Number }).IsUnique().HasDatabaseName("ux_customer_payments_org_number");
+        b.HasIndex(x => new { x.OrganizationId, x.CustomerId, x.PaymentDate }).HasDatabaseName("ix_customer_payments_org_customer_date");
+    }
+}
+
 internal sealed class StockDocumentConfiguration : IEntityTypeConfiguration<StockDocument>
 {
     public void Configure(EntityTypeBuilder<StockDocument> b)
     {
         b.ToTable("stock_documents", t =>
         {
-            t.HasCheckConstraint("ck_stock_documents_kind", "[Kind] IN (1, 2, 3, 5)");
+            t.HasCheckConstraint("ck_stock_documents_kind", "[Kind] IN (1, 2, 3, 5, 6, 7)");
             t.HasCheckConstraint("ck_stock_documents_status", "[Status] IN (1, 2, 3, 9)");
             t.HasCheckConstraint("ck_stock_documents_target",
                 "([Kind] = 3 AND [TargetWarehouseId] IS NOT NULL AND [TargetWarehouseId] <> [WarehouseId])"
                 + " OR ([Kind] <> 3 AND [TargetWarehouseId] IS NULL)");
             t.HasCheckConstraint("ck_stock_documents_counterparty",
-                "([Kind] = 1) OR ([Kind] = 5 AND [CounterpartyId] IS NOT NULL) OR ([Kind] NOT IN (1, 5) AND [CounterpartyId] IS NULL)");
+                "([Kind] = 1) OR ([Kind] IN (5, 6, 7) AND [CounterpartyId] IS NOT NULL) OR ([Kind] NOT IN (1, 5, 6, 7) AND [CounterpartyId] IS NULL)");
+            t.HasCheckConstraint("ck_stock_documents_sales_order", "[SalesOrderId] IS NULL OR [Kind] IN (6, 7)");
             t.HasCheckConstraint("ck_stock_documents_purchase_order", "[PurchaseOrderId] IS NULL OR [Kind] IN (1, 5)");
             t.HasCheckConstraint("ck_stock_documents_posted",
                 "([Status] IN (2, 3) AND [PostedByUserId] IS NOT NULL AND [PostedAtUtc] IS NOT NULL AND [ReasonId] IS NOT NULL)"
@@ -696,6 +790,9 @@ internal sealed class StockDocumentConfiguration : IEntityTypeConfiguration<Stoc
         b.HasOne<PurchaseOrder>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.PurchaseOrderId })
             .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("fk_stock_documents_purchase_order");
+        b.HasOne<SalesOrder>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.SalesOrderId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_stock_documents_sales_order");
         b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.PostedByUserId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.ReversedByUserId).OnDelete(DeleteBehavior.Restrict);

@@ -71,6 +71,9 @@ public static class RoleMatrixP0
         // Цены и суммы в них видны только с правом «Цены и суммы». Администратору права нужны и для выдачи роли Бухгалтера.
         (Permissions.PurchaseView,            [Full, Full, None, Full, None, Full, Full, None]),
         (Permissions.PurchaseEdit,            [Full, Full, None, None, None, Full, None, None]),
+        // Допущение D65: продажи — так же, как закупки.
+        (Permissions.SalesView,               [Full, Full, None, Full, None, Full, Full, None]),
+        (Permissions.SalesEdit,               [Full, Full, None, None, None, Full, None, None]),
     ];
 
     public static IReadOnlyList<string> PermissionCodes { get; } = Rows.Select(r => r.Code).ToArray();

@@ -29,6 +29,8 @@ public static class Permissions
     public const string CatalogImport = "catalog.import.run";
     public const string PurchaseView = "purchase.document.view";
     public const string PurchaseEdit = "purchase.document.edit";
+    public const string SalesView = "sales.document.view";
+    public const string SalesEdit = "sales.document.edit";
 
     private static readonly Dictionary<string, string> Labels = new(StringComparer.Ordinal)
     {
@@ -56,6 +58,8 @@ public static class Permissions
         [CatalogImport] = "Шаблонный импорт справочников",
         [PurchaseView] = "Закупки: просмотр",
         [PurchaseEdit] = "Закупки: заказы поставщикам и оплаты",
+        [SalesView] = "Продажи: просмотр",
+        [SalesEdit] = "Продажи: заказы покупателей и оплаты",
     };
 
     public static IReadOnlyCollection<string> All => Labels.Keys;

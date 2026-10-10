@@ -22,7 +22,17 @@ public sealed class StockDocument
 
     /// <summary>Виды операций, которые оформляются этим документом. Инвентаризация — отдельный документ.</summary>
     public static readonly IReadOnlyList<StockOperationKind> Kinds =
-        [StockOperationKind.Receipt, StockOperationKind.Transfer, StockOperationKind.WriteOff, StockOperationKind.ReturnToSupplier];
+        [StockOperationKind.Receipt, StockOperationKind.Transfer, StockOperationKind.WriteOff, StockOperationKind.ReturnToSupplier,
+         StockOperationKind.Shipment, StockOperationKind.CustomerReturn];
+
+    /// <summary>Документы с контрагентом: поставщиком (поступление, возврат поставщику) или покупателем (отгрузка, возврат).</summary>
+    public static bool WithSupplier(StockOperationKind kind) => kind is StockOperationKind.Receipt or StockOperationKind.ReturnToSupplier;
+
+    public static bool WithCustomer(StockOperationKind kind) => kind is StockOperationKind.Shipment or StockOperationKind.CustomerReturn;
+
+    /// <summary>Расходные виды: товар уходит со склада документа.</summary>
+    public static bool IsOutgoing(StockOperationKind kind) =>
+        kind is StockOperationKind.WriteOff or StockOperationKind.Transfer or StockOperationKind.ReturnToSupplier or StockOperationKind.Shipment;
 
     private readonly List<StockDocumentLine> _lines = [];
 
@@ -47,6 +57,9 @@ public sealed class StockDocument
     /// <summary>Заказ поставщику, по которому оформлено поступление или возврат (D64): по нему считаются суммы и долг.</summary>
     public long? PurchaseOrderId { get; private set; }
 
+    /// <summary>Заказ покупателя, по которому оформлена отгрузка или возврат от покупателя (D65).</summary>
+    public long? SalesOrderId { get; private set; }
+
     public long? ReasonId { get; private set; }
     public DateOnly DocumentDate { get; private set; }
     public StockDocumentStatus Status { get; private set; }
@@ -67,6 +80,8 @@ public sealed class StockDocument
         StockOperationKind.WriteOff => "СП",
         StockOperationKind.Transfer => "ПМ",
         StockOperationKind.ReturnToSupplier => "ВП",
+        StockOperationKind.Shipment => "ОТ",
+        StockOperationKind.CustomerReturn => "ВК",
         _ => throw new BusinessRuleException("stock.document.kind", "Выберите вид документа."),
     };
 
@@ -191,10 +206,12 @@ public sealed class StockDocument
             switch (Kind)
             {
                 case StockOperationKind.Receipt:
+                case StockOperationKind.CustomerReturn:
                     result.Add((WarehouseId, line.ItemId, line.Quantity));
                     break;
                 case StockOperationKind.WriteOff:
                 case StockOperationKind.ReturnToSupplier:
+                case StockOperationKind.Shipment:
                     result.Add((WarehouseId, line.ItemId, -line.Quantity));
                     break;
                 case StockOperationKind.Transfer:
@@ -237,10 +254,20 @@ public sealed class StockDocument
             throw new BusinessRuleException("stock.document.target_not_allowed", "Склад-получатель указывается только в перемещении.");
         }
 
-        var withSupplier = Kind is StockOperationKind.Receipt or StockOperationKind.ReturnToSupplier;
-        if (!withSupplier && h.CounterpartyId is not null)
+        var withSupplier = WithSupplier(Kind);
+        if (!withSupplier && !WithCustomer(Kind) && h.CounterpartyId is not null)
         {
-            throw new BusinessRuleException("stock.document.counterparty_not_allowed", "Поставщик указывается только в поступлении и возврате.");
+            throw new BusinessRuleException("stock.document.counterparty_not_allowed", "Контрагент указывается только в поступлении, отгрузке и возвратах.");
+        }
+
+        if (WithCustomer(Kind) && h.CounterpartyId is null)
+        {
+            throw new BusinessRuleException("stock.document.customer_required", "Укажите покупателя.");
+        }
+
+        if (!WithCustomer(Kind) && h.SalesOrderId is not null)
+        {
+            throw new BusinessRuleException("stock.document.sales_order_not_allowed", "Заказ покупателя указывается только в отгрузке и возврате от покупателя.");
         }
 
         if (Kind == StockOperationKind.ReturnToSupplier && h.CounterpartyId is null)
@@ -257,6 +284,7 @@ public sealed class StockDocument
         TargetWarehouseId = h.TargetWarehouseId;
         CounterpartyId = h.CounterpartyId;
         PurchaseOrderId = h.PurchaseOrderId;
+        SalesOrderId = h.SalesOrderId;
         ReasonId = h.ReasonId;
         DocumentDate = h.DocumentDate;
         Comment = DomainText.Optional(h.Comment, CommentMaxLength, "Комментарий");
@@ -276,7 +304,7 @@ public sealed class StockDocument
 /// <summary>Шапка документа. Справочники (склады, поставщик, причина) проверяет сервис — домен проверяет сочетания.</summary>
 public sealed record StockDocumentHeader(
     long WarehouseId, long? TargetWarehouseId, long? CounterpartyId, long? ReasonId, DateOnly DocumentDate, string? Comment,
-    long? PurchaseOrderId = null);
+    long? PurchaseOrderId = null, long? SalesOrderId = null);
 
 public sealed class StockDocumentLine
 {

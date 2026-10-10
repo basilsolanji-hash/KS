@@ -113,11 +113,21 @@
             new("stock-documents?kind=5", "Возвраты поставщикам", Docs),
             new("supplier-payments", "Оплаты поставщикам", a => a.Has(Permissions.PurchaseView) && a.Has(Permissions.PriceView)),
             new("reports/supplier-balances", "Расчёты с поставщиками", a => a.Has(Permissions.PurchaseView) && a.Has(Permissions.PriceView)),
-            new("counterparties?role=supplier", "Поставщики", a => a.Has(Permissions.CatalogView)),
         ]),
         new("sales", "Продажи",
         [
+            new("sales-orders", "Заказы покупателей", a => a.Has(Permissions.SalesView)),
+            new("stock-documents?kind=6", "Отгрузки", Docs),
+            new("stock-documents?kind=7", "Возвраты от покупателей", Docs),
+            new("customer-payments", "Оплаты покупателей", a => a.Has(Permissions.SalesView) && a.Has(Permissions.PriceView)),
+            new("reports/customer-balances", "Расчёты с покупателями", a => a.Has(Permissions.SalesView) && a.Has(Permissions.PriceView)),
+        ]),
+        // Замечание пользователя: поставщики и покупатели — в отдельном разделе CRM.
+        new("crm", "CRM",
+        [
             new("counterparties?role=customer", "Покупатели", a => a.Has(Permissions.CatalogView)),
+            new("counterparties?role=supplier", "Поставщики", a => a.Has(Permissions.CatalogView)),
+            new("counterparties", "Все контрагенты", a => a.Has(Permissions.CatalogView)),
         ]),
         new("warehouse", "Склад",
         [
@@ -145,7 +155,6 @@
             new("catalog", "Номенклатура", a => a.Has(Permissions.CatalogView)),
             new("units", "Единицы измерения", a => a.Has(Permissions.CatalogView)),
             new("warehouses", "Склады", a => a.Has(Permissions.CatalogView)),
-            new("counterparties", "Контрагенты", a => a.Has(Permissions.CatalogView)),
             new("vat-rates", "Ставки НДС", a => a.Has(Permissions.CatalogView)),
             new("structure", "Структура", a => a.Has(Permissions.DepartmentView)),
             new("employees", "Сотрудники", a => a.HasOwnOnly(Permissions.EmployeeView)),
