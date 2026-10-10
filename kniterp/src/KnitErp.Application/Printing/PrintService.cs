@@ -12,10 +12,14 @@ namespace KnitErp.Application.Printing;
 /// <summary>Сторона документа в печатной форме. Kpp — только сверенный (D15).</summary>
 public sealed record PrintPartyDto(string Name, string? Inn, string? Kpp, string? Address);
 
-/// <summary>Строка печатной формы: цена и стоимость без НДС, НДС, стоимость с НДС.</summary>
+/// <summary>
+/// Строка печатной формы: цена и стоимость без НДС, НДС, стоимость с НДС. Для УПД (D79): TnVedCode — графа 1б,
+/// страна происхождения ввезённого товара и номер декларации — графы 10, 10а, 11 (у российского товара — прочерк).
+/// </summary>
 public sealed record PrintLineDto(
     int No, string Code, string Name, string UnitSymbol, string UnitCode, decimal Quantity, decimal Price, decimal? VatPercent,
-    decimal AmountWithoutVat, decimal VatAmount, decimal Amount);
+    decimal AmountWithoutVat, decimal VatAmount, decimal Amount, string? TnVedCode = null, string? OriginCountryCode = null,
+    string? OriginCountryName = null, string? CustomsDeclaration = null);
 
 public sealed record InvoicePrintDto(
     string Number, DateOnly Date, DateOnly? DueDate, PrintPartyDto Seller, PrintRequisites Requisites, PrintPartyDto Buyer, string Basis,
@@ -88,7 +92,8 @@ public sealed class PrintService(IKnitErpDbContext db, IAccessGuard guard)
             })
             .OrderBy(l => l.Item.Code)
             .Select((l, i) => new PrintLineDto(i + 1, l.Item.Code, l.Item.Name, l.Item.Symbol, l.Item.UnitCode, l.Quantity,
-                Money.Round((l.Amount - l.Vat) / l.Quantity), l.VatPercent, l.Amount - l.Vat, l.Vat, l.Amount))
+                Money.Round((l.Amount - l.Vat) / l.Quantity), l.VatPercent, l.Amount - l.Vat, l.Vat, l.Amount, l.Item.TnVed,
+                l.Item.Imported ? l.Item.CountryCode : null, l.Item.Imported ? l.Item.CountryName : null, l.Item.Imported ? l.Item.Declaration : null))
             .ToList();
         var total = lines.Sum(l => l.Amount);
         var country = Countries.Get(org.CountryCode);
@@ -119,6 +124,11 @@ public sealed class PrintService(IKnitErpDbContext db, IAccessGuard guard)
         if (seller.Address is null)
         {
             warnings.Add($"Не указан адрес продавца (строка 2а) — заполните юридический адрес «{entity.ShortName}» в разделе «Юрлица и счета».");
+        }
+
+        if (lines.Any(l => l.OriginCountryCode is not null && l.CustomsDeclaration is null))
+        {
+            warnings.Add("У ввезённого товара не указан номер декларации на товары (графа 11) — заполните его в карточке номенклатуры.");
         }
 
         if (entity.IsSoleProprietor && entity.Ogrn is null)
@@ -208,13 +218,22 @@ public sealed class PrintService(IKnitErpDbContext db, IAccessGuard guard)
     private static string Basis(SalesOrder order) =>
         (order.CustomerReference is { } reference ? reference + "; " : string.Empty) + $"заказ {order.Number} от {order.OrderDate:dd.MM.yyyy}";
 
-    private sealed record PrintItem(string Code, string Name, string Symbol, string UnitCode);
+    private sealed record PrintItem(
+        string Code, string Name, string Symbol, string UnitCode, string? TnVed = null, string? CountryCode = null, string? CountryName = null,
+        string? Declaration = null)
+    {
+        /// <summary>Ввезённый товар: страна происхождения указана и это не Россия (643).</summary>
+        public bool Imported => CountryCode is not null && CountryCode != KnitErp.Domain.Catalog.ItemDetailRules.RussiaCode;
+    }
 
     private async Task<Dictionary<long, PrintItem>> ItemsAsync(IEnumerable<long> ids, CancellationToken ct)
     {
         var list = ids.Distinct().ToList();
         return await db.Items.AsNoTracking().Where(i => list.Contains(i.Id))
-            .Join(db.Units.AsNoTracking(), i => i.UnitId, u => u.Id, (i, u) => new { i.Id, Item = new PrintItem(i.Code, i.Name, u.Symbol, u.Code) })
+            .Join(db.Units.AsNoTracking(), i => i.UnitId, u => u.Id, (i, u) => new
+            {
+                i.Id, Item = new PrintItem(i.Code, i.Name, u.Symbol, u.Code, i.TnVedCode, i.OriginCountryCode, i.OriginCountryName, i.CustomsDeclaration),
+            })
             .ToDictionaryAsync(x => x.Id, x => x.Item, ct);
     }
 }

@@ -101,7 +101,7 @@ else
                         <td>@l.Code</td>
                         <td class="c">@l.No</td>
                         <td>@l.Name</td>
-                        <td class="c">--</td>
+                        <td class="c">@(l.TnVedCode ?? "--")</td>
                         <td class="c">@l.UnitCode</td>
                         <td class="c">@l.UnitSymbol</td>
                         <td class="n">@Quantities.Format(l.Quantity)</td>
@@ -111,7 +111,8 @@ else
                         <td class="c">@Amounts.Vat(l.VatPercent)</td>
                         <td class="n">@(l.VatPercent is null ? (r.VatExempt ? "Без налога (НДС)" : "без НДС") : Amounts.Format(l.VatAmount))</td>
                         <td class="n">@Amounts.Format(l.Amount)</td>
-                        <td class="c">--</td><td class="c">--</td><td class="c">--</td><td class="c">--</td><td class="c">--</td><td class="c">--</td><td class="c">--</td>
+                        <td class="c">@(l.OriginCountryCode ?? "--")</td><td class="c">@(l.OriginCountryName ?? "--")</td>
+                        <td class="c">@(l.CustomsDeclaration ?? "--")</td><td class="c">--</td><td class="c">--</td><td class="c">--</td><td class="c">--</td>
                     </tr>
                 }
                 <tr>

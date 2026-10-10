@@ -1,0 +1,346 @@
+@page "/catalog/items/{Id:long}"
+@using KnitErp.Application.Catalog
+@using KnitErp.Application.Common
+@using KnitErp.Domain.Catalog
+@using KnitErp.Domain.Common
+@inject NomenclatureService Nomenclature
+
+<PageTitle>@(_item?.Name ?? L("Позиция")) — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_notFound)
+{
+    <h1>@L("Позиция не найдена")</h1>
+    <p><a href="catalog">@L("К номенклатуре")</a></p>
+}
+else if (_item is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    var editable = _item.CanEdit && !_item.IsArchived;
+    <p><a href="catalog">@L("← Номенклатура")</a></p>
+    <div class="page-head">
+        <h1>@_item.Name <span class="tag">@L(_item.TypeName)</span> @if (_item.IsArchived) { <span class="tag">@L("архив")</span> }</h1>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="@(_isError ? "flash error" : "flash")" role="@(_isError ? "alert" : "status")">@_message</div>
+    }
+
+    <dl class="facts">
+        <dt>@L("Код")</dt><dd>@_item.Code</dd>
+        <dt>@L("Группа")</dt><dd>@(_item.GroupPath ?? L("без группы"))</dd>
+        <dt>@L("Единица")</dt><dd>@_item.UnitSymbol</dd>
+        <dt>@L("Остаток на всех складах")</dt><dd>@Quantities.Format(_item.Stock) @_item.UnitSymbol
+            @if (_item.Details.MinStock is { } min && _item.Stock < min) { <span class="tag bad">@L("ниже неснижаемого {0}", Quantities.Format(min))</span> }</dd>
+        @if (_item.Description is not null)
+        {
+            <dt>@L("Описание")</dt><dd>@_item.Description</dd>
+        }
+    </dl>
+    <p class="muted">@L("Код, наименование, тип, единица и НДС меняются в списке номенклатуры кнопкой «Изменить».")</p>
+
+    <h2>@L("Сведения")</h2>
+    <div class="panel">
+        <form @onsubmit="SaveDetailsAsync">
+            <div class="grid">
+                <label>
+                    @L("Группа")
+                    <select @bind="_form.Group" disabled="@(!editable)">
+                        <option value="">@L("без группы")</option>
+                        @foreach (var g in _groups)
+                        {
+                            <option value="@g.Id">@g.Path</option>
+                        }
+                    </select>
+                </label>
+                <label>@L("Артикул") <input @bind="_form.Article" maxlength="@ItemDetailRules.ArticleMaxLength" disabled="@(!editable)" /></label>
+                <label>@L("Страна происхождения (код ОКСМ)")
+                    <input @bind="_form.Country" list="countries" maxlength="3" inputmode="numeric" placeholder="643" disabled="@(!editable)" />
+                    <datalist id="countries">
+                        @foreach (var c in ItemDetailRules.CommonCountries)
+                        {
+                            <option value="@c.Code">@c.Name</option>
+                        }
+                    </datalist>
+                </label>
+                <label>@L("Страна — краткое наименование") <input @bind="_form.CountryName" maxlength="@ItemDetailRules.CountryNameMaxLength" placeholder="@L("подставится по коду")" disabled="@(!editable)" /></label>
+                <label>@L("Номер декларации на товары") <input @bind="_form.Declaration" maxlength="@ItemDetailRules.DeclarationMaxLength" placeholder="10702010/101026/0012345" disabled="@(!editable)" /></label>
+                <label>@L("Код ТН ВЭД ЕАЭС") <input @bind="_form.TnVed" maxlength="13" inputmode="numeric" disabled="@(!editable)" /></label>
+                <label>@L("Вес, кг (на единицу)") <input @bind="_form.Weight" inputmode="decimal" disabled="@(!editable)" /></label>
+                <label>@L("Объём, м³ (на единицу)") <input @bind="_form.Volume" inputmode="decimal" disabled="@(!editable)" /></label>
+                <label>@L("Неснижаемый остаток") <input @bind="_form.MinStock" inputmode="decimal" disabled="@(!editable)" /></label>
+                @if (_item.CanSeePrices)
+                {
+                    <label>@L("Закупочная цена, без НДС") <input @bind="_form.PurchasePrice" inputmode="decimal" disabled="@(!editable)" /></label>
+                }
+                @foreach (var f in _item.CustomFields.Where(f => !f.IsArchived))
+                {
+                    var field = f;
+                    @switch (field.Type)
+                    {
+                        case CustomFieldType.Flag:
+                            <label class="inline"><input type="checkbox" checked="@(_form.Values.GetValueOrDefault(field.FieldId) == "true")"
+                                                         @onchange="e => SetFlag(field.FieldId, e)" disabled="@(!editable)" /> @field.Name</label>
+                            break;
+                        case CustomFieldType.Catalog:
+                            <label>
+                                @field.Name
+                                <select value="@_form.Values.GetValueOrDefault(field.FieldId)" @onchange="e => _form.Values[field.FieldId] = e.Value?.ToString()" disabled="@(!editable)">
+                                    <option value="">—</option>
+                                    @foreach (var entry in _entries.GetValueOrDefault(field.CatalogId ?? 0) ?? [])
+                                    {
+                                        <option value="@entry.Id">@entry.Display</option>
+                                    }
+                                    @if (field.Value is not null && field.Display is not null && (_entries.GetValueOrDefault(field.CatalogId ?? 0) ?? []).All(x => x.Id.ToString() != field.Value))
+                                    {
+                                        <option value="@field.Value">@field.Display (@L("в архиве"))</option>
+                                    }
+                                </select>
+                            </label>
+                            break;
+                        case CustomFieldType.Date:
+                            <label>@field.Name <input type="date" value="@_form.Values.GetValueOrDefault(field.FieldId)" @onchange="e => _form.Values[field.FieldId] = e.Value?.ToString()" disabled="@(!editable)" /></label>
+                            break;
+                        case CustomFieldType.Number:
+                            <label>@field.Name <input inputmode="decimal" value="@_form.Values.GetValueOrDefault(field.FieldId)" @onchange="e => _form.Values[field.FieldId] = e.Value?.ToString()" disabled="@(!editable)" /></label>
+                            break;
+                        default:
+                            <label>@field.Name <input maxlength="@CustomFieldDefinition.ValueMaxLength" value="@_form.Values.GetValueOrDefault(field.FieldId)" @onchange="e => _form.Values[field.FieldId] = e.Value?.ToString()" disabled="@(!editable)" /></label>
+                            break;
+                    }
+                }
+            </div>
+            @if (editable)
+            {
+                <div class="actions">
+                    <button type="submit" disabled="@_busy">@L("Сохранить сведения")</button>
+                    <a href="catalog/settings" class="muted">@L("Доп. поля и свои справочники")</a>
+                </div>
+            }
+        </form>
+    </div>
+
+    @if (_item.CustomFields.Any(f => f.IsArchived))
+    {
+        <dl class="facts">
+            @foreach (var f in _item.CustomFields.Where(f => f.IsArchived))
+            {
+                <dt>@f.Name (@L("в архиве"))</dt><dd>@(f.Display ?? f.Value)</dd>
+            }
+        </dl>
+    }
+
+    <h2 style="margin-top: 20px">@L("Штрихкоды")</h2>
+    <div class="scroll">
+        <table>
+            <thead><tr><th>@L("Тип")</th><th>@L("Штрихкод")</th>@if (editable) { <th></th> }</tr></thead>
+            <tbody>
+                @if (_item.Barcodes.Count == 0)
+                {
+                    <tr><td colspan="3" class="muted">@L("Штрихкодов нет.")</td></tr>
+                }
+                @foreach (var b in _item.Barcodes)
+                {
+                    <tr>
+                        <td>@b.TypeName</td>
+                        <td class="barcode">@b.Code</td>
+                        @if (editable)
+                        {
+                            <td><button type="button" class="secondary" @onclick="() => RemoveBarcodeAsync(b)" disabled="@_busy">@L("Удалить")</button></td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    @if (editable)
+    {
+        <form class="inline-form" @onsubmit="AddBarcodeAsync">
+            <label>@L("Штрихкод") <input @bind="_barcode" maxlength="@ItemBarcode.CodeMaxLength" placeholder="@L("EAN-13 или отсканируйте")" /></label>
+            <label>
+                @L("Тип")
+                <select @bind="_barcodeType">
+                    <option value="">@L("определить по коду")</option>
+                    @foreach (var t in Enum.GetValues<BarcodeType>())
+                    {
+                        <option value="@t">@ItemBarcode.TypeName(t)</option>
+                    }
+                </select>
+            </label>
+            <button type="submit" disabled="@_busy">@L("Добавить")</button>
+        </form>
+    }
+
+    @if (_item.CanSeePrices)
+    {
+        <h2 style="margin-top: 20px">@L("Цены")</h2>
+        <form @onsubmit="SavePricesAsync">
+            <div class="scroll">
+                <table>
+                    <thead><tr><th>@L("Вид цены")</th><th>@L("НДС")</th><th class="num">@L("Цена")</th></tr></thead>
+                    <tbody>
+                        @foreach (var p in _item.Prices)
+                        {
+                            var price = p;
+                            <tr>
+                                <td>@p.PriceType @if (p.IsDefault) { <span class="tag ok">@L("основная")</span> }</td>
+                                <td>@(p.IncludesVat ? L("с НДС") : L("без НДС"))</td>
+                                <td class="num">
+                                    @if (editable)
+                                    {
+                                        <input value="@_prices.GetValueOrDefault(price.PriceTypeId)" @onchange="e => _prices[price.PriceTypeId] = e.Value?.ToString()"
+                                               inputmode="decimal" size="12" aria-label="@p.PriceType" />
+                                    }
+                                    else
+                                    {
+                                        @(p.Price is { } v ? Amounts.Format(v) : "—")
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            @if (editable)
+            {
+                <div class="actions">
+                    <button type="submit" disabled="@_busy">@L("Сохранить цены")</button>
+                    <a href="catalog/settings" class="muted">@L("Виды цен")</a>
+                </div>
+            }
+        </form>
+    }
+}
+
+@code {
+    [Parameter]
+    public long Id { get; set; }
+
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private ItemCardDto? _item;
+    private IReadOnlyList<ItemGroupDto> _groups = [];
+    private IReadOnlyDictionary<long, IReadOnlyList<UserCatalogEntryDto>> _entries = new Dictionary<long, IReadOnlyList<UserCatalogEntryDto>>();
+    private DetailsForm _form = new();
+    private Dictionary<long, string?> _prices = [];
+    private string? _barcode;
+    private string _barcodeType = string.Empty;
+    private bool _busy;
+    private bool _notFound;
+    private string? _denied;
+    private string? _message;
+    private bool _isError;
+
+    private sealed class DetailsForm
+    {
+        public string Group { get; set; } = string.Empty;
+        public string? Article { get; set; }
+        public string? Country { get; set; }
+        public string? CountryName { get; set; }
+        public string? Declaration { get; set; }
+        public string? TnVed { get; set; }
+        public string? Weight { get; set; }
+        public string? Volume { get; set; }
+        public string? MinStock { get; set; }
+        public string? PurchasePrice { get; set; }
+        public Dictionary<long, string?> Values { get; } = [];
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+        catch (NotFoundException)
+        {
+            _notFound = true;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _item = await Nomenclature.GetItemAsync(Id);
+        _groups = await Nomenclature.GroupsAsync();
+        _entries = await Nomenclature.EntriesByCatalogAsync();
+        var d = _item.Details;
+        static string? N(decimal? v) => v is { } x ? Amounts.Input(x) : null;
+        _form = new DetailsForm
+        {
+            Group = d.GroupId?.ToString() ?? string.Empty, Article = d.Article, Country = d.OriginCountryCode, CountryName = d.OriginCountryName,
+            Declaration = d.CustomsDeclaration, TnVed = d.TnVedCode, Weight = N(d.WeightKg), Volume = N(d.VolumeM3), MinStock = N(d.MinStock),
+            PurchasePrice = N(d.PurchasePrice),
+        };
+        foreach (var f in _item.CustomFields.Where(f => !f.IsArchived))
+        {
+            _form.Values[f.FieldId] = f.Value;
+        }
+
+        _prices = _item.Prices.ToDictionary(p => p.PriceTypeId, p => p.Price is { } v ? Amounts.Input(v) : null);
+    }
+
+    private void SetFlag(long fieldId, ChangeEventArgs e) => _form.Values[fieldId] = e.Value is true ? "true" : null;
+
+    private Task SaveDetailsAsync() => RunAsync(async () =>
+    {
+        var f = _form;
+        var details = new ItemDetails(long.TryParse(f.Group, out var g) ? g : null, f.Article, f.Country, f.CountryName, f.Declaration, f.TnVed,
+            Decimals.Parse(f.Weight, L("Вес")), Decimals.Parse(f.Volume, L("Объём")), Decimals.Parse(f.MinStock, L("Неснижаемый остаток")),
+            Decimals.Parse(f.PurchasePrice, L("Закупочная цена")));
+        await Nomenclature.SaveItemDetailsAsync(Id, details, f.Values, _item!.RowVersion);
+    }, L("Сведения сохранены."));
+
+    private Task AddBarcodeAsync() => RunAsync(async () =>
+    {
+        await Nomenclature.AddBarcodeAsync(Id, _barcode, Enum.TryParse<BarcodeType>(_barcodeType, out var t) ? t : null);
+        _barcode = null;
+    }, L("Штрихкод добавлен."));
+
+    private Task RemoveBarcodeAsync(ItemBarcodeDto b) => RunAsync(() => Nomenclature.RemoveBarcodeAsync(b.Id), L("Штрихкод удалён."));
+
+    private Task SavePricesAsync() => RunAsync(async () =>
+    {
+        var prices = _prices.ToDictionary(p => p.Key, p => Decimals.Parse(p.Value, L("Цена")));
+        await Nomenclature.SetPricesAsync(Id, prices);
+    }, L("Цены сохранены."));
+
+    /// <summary>Одна операция за раз, затем свежая карточка: у вкладки один DbContext.</summary>
+    private async Task RunAsync(Func<Task> action, string? success)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _isError = false;
+        try
+        {
+            await action();
+            _message = success;
+            await LoadAsync();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+            _isError = true;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

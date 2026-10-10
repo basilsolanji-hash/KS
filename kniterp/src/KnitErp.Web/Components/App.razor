@@ -359,6 +359,13 @@
         .cell-short { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad-text); font-weight: 600; }
         .money-debt { color: var(--bad-text); font-weight: 600; }
         .inn-fill { display: flex; gap: 6px; align-items: center; }
+        .catalog-layout { display: grid; grid-template-columns: 1fr; gap: 16px; }
+        @@media (min-width: 900px) { .catalog-layout { grid-template-columns: 230px minmax(0, 1fr); } }
+        .group-tree { display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--line); border-radius: 8px; padding: 6px; align-self: start;
+                      max-height: 70vh; overflow-y: auto; background: var(--surface, transparent); }
+        .group-tree .link { text-align: left; padding: 5px 8px; border-radius: 6px; color: var(--text); text-decoration: none; }
+        .group-tree .link.active { background: color-mix(in srgb, var(--sec-catalogs) 18%, transparent); font-weight: 600; }
+        .barcode { font-family: ui-monospace, monospace; letter-spacing: .5px; }
         .inn-fill input { flex: 1; min-width: 0; }
         .inn-fill button { white-space: nowrap; }
         section.legal-entity { margin-bottom: 16px; }

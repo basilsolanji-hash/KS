@@ -69,6 +69,12 @@ public interface IKnitErpDbContext : IAsyncDisposable
     DbSet<KnitErp.Domain.Sales.SalesOrderStage> SalesOrderStages { get; }
     DbSet<KnitErp.Domain.Catalog.Lookup> Lookups { get; }
     DbSet<KnitErp.Domain.Organizations.LegalEntity> LegalEntities { get; }
+    DbSet<KnitErp.Domain.Catalog.ItemGroup> ItemGroups { get; }
+    DbSet<KnitErp.Domain.Catalog.ItemBarcode> ItemBarcodes { get; }
+    DbSet<KnitErp.Domain.Catalog.PriceType> PriceTypes { get; }
+    DbSet<KnitErp.Domain.Catalog.ItemPrice> ItemPrices { get; }
+    DbSet<KnitErp.Domain.Catalog.UserCatalog> UserCatalogs { get; }
+    DbSet<KnitErp.Domain.Catalog.UserCatalogEntry> UserCatalogEntries { get; }
     DbSet<KnitErp.Domain.Organizations.LegalEntityAccount> LegalEntityAccounts { get; }
     DbSet<KnitErp.Domain.Common.CustomFieldDefinition> CustomFieldDefinitions { get; }
     DbSet<KnitErp.Domain.Common.CustomFieldValue> CustomFieldValues { get; }

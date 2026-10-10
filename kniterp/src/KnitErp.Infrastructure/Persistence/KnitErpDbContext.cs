@@ -42,6 +42,12 @@ public sealed class KnitErpDbContext(DbContextOptions<KnitErpDbContext> options)
     public DbSet<KnitErp.Domain.Sales.SalesOrderStage> SalesOrderStages => Set<KnitErp.Domain.Sales.SalesOrderStage>();
     public DbSet<Lookup> Lookups => Set<Lookup>();
     public DbSet<LegalEntity> LegalEntities => Set<LegalEntity>();
+    public DbSet<ItemGroup> ItemGroups => Set<ItemGroup>();
+    public DbSet<ItemBarcode> ItemBarcodes => Set<ItemBarcode>();
+    public DbSet<PriceType> PriceTypes => Set<PriceType>();
+    public DbSet<ItemPrice> ItemPrices => Set<ItemPrice>();
+    public DbSet<UserCatalog> UserCatalogs => Set<UserCatalog>();
+    public DbSet<UserCatalogEntry> UserCatalogEntries => Set<UserCatalogEntry>();
     public DbSet<LegalEntityAccount> LegalEntityAccounts => Set<LegalEntityAccount>();
     public DbSet<CustomFieldDefinition> CustomFieldDefinitions => Set<CustomFieldDefinition>();
     public DbSet<CustomFieldValue> CustomFieldValues => Set<CustomFieldValue>();

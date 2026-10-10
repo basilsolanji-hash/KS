@@ -5,6 +5,7 @@
 @inject CatalogService Catalog
 @inject ItemExchangeService Exchange
 @inject VatRateService VatRates
+@inject NomenclatureService Nomenclature
 
 <PageTitle>@L("Номенклатура") — knitERP</PageTitle>
 
@@ -20,10 +21,13 @@ else
 {
     <div class="page-head">
         <h1>@L("Номенклатура")</h1>
-        @if (_list.CanEdit && _mode == Mode.None)
-        {
-            <button type="button" @onclick="OpenCreate" disabled="@_busy">@L("Добавить позицию")</button>
-        }
+        <div class="actions">
+            <a class="button secondary" href="catalog/settings">@L("Группы, цены, доп. поля, справочники")</a>
+            @if (_list.CanEdit && _mode == Mode.None)
+            {
+                <button type="button" @onclick="OpenCreate" disabled="@_busy">@L("Добавить позицию")</button>
+            }
+        </div>
     </div>
 
     @if (_flash is not null)
@@ -69,6 +73,19 @@ else
                         </InputSelect>
                     </label>
                     <label>@L("Описание") <InputText @bind-Value="_form.Description" maxlength="1000" placeholder="@L("Состав, цвет, размер…")" /></label>
+                    @if (_mode == Mode.Create && _groups.Count > 0)
+                    {
+                        <label>
+                            @L("Группа")
+                            <InputSelect @bind-Value="_form.GroupId">
+                                <option value="">@L("без группы")</option>
+                                @foreach (var g in _groups)
+                                {
+                                    <option value="@g.Id">@g.Path</option>
+                                }
+                            </InputSelect>
+                        </label>
+                    }
                 </div>
                 @if (_formError is not null)
                 {
@@ -148,6 +165,21 @@ else
     </div>
     }
 
+    <div class="catalog-layout">
+    <nav class="group-tree" aria-label="@L("Группы номенклатуры")">
+        <button type="button" class="@(_groupId is null ? "link active" : "link")" @onclick="() => SelectGroupAsync(null)">@L("Все позиции")</button>
+        @foreach (var g in _groups)
+        {
+            var group = g;
+            <button type="button" class="@(_groupId == g.Id ? "link active" : "link")" style="padding-left: @(8 + g.Depth * 14)px"
+                    @onclick="() => SelectGroupAsync(group.Id)">📁 @g.Name <span class="muted">@(g.Items > 0 ? g.Items.ToString() : "")</span></button>
+        }
+        @if (_groups.Count > 0)
+        {
+            <button type="button" class="@(_groupId == 0 ? "link active" : "link")" @onclick="() => SelectGroupAsync(0)">@L("Без группы")</button>
+        }
+    </nav>
+    <div>
     <form class="inline-form" @onsubmit="ReloadAsync">
         <label>
             @L("Тип")
@@ -159,7 +191,7 @@ else
                 }
             </select>
         </label>
-        <label>@L("Поиск") <input @bind="_search" placeholder="@L("Код или наименование")" /></label>
+        <label>@L("Поиск") <input @bind="_search" placeholder="@L("Код, наименование, артикул или штрихкод")" /></label>
         <label class="inline"><input type="checkbox" @bind="_includeArchived" /> @L("Показать архив")</label>
         <button type="submit" class="secondary" disabled="@_busy">@L("Найти")</button>
     </form>
@@ -168,7 +200,11 @@ else
         <table>
             <thead>
                 <tr>
-                    <th>@L("Код")</th><th>@L("Наименование")</th><th class="opt">@L("Тип")</th><th>@L("Ед.")</th><th class="opt">@L("НДС")</th>
+                    <th>@L("Код")</th><th>@L("Наименование")</th><th class="opt">@L("Артикул")</th><th class="opt">@L("Тип")</th><th>@L("Ед.")</th><th class="opt">@L("НДС")</th>
+                    @if (CurrentAccess.Has(Permissions.PriceView))
+                    {
+                        <th class="num">@L("Цена продажи")</th>
+                    }
                     @if (_list.CanEdit || _list.CanArchive)
                     {
                         <th>@L("Действия")</th>
@@ -178,16 +214,21 @@ else
             <tbody>
                 @if (_list.Items.Count == 0)
                 {
-                    <tr><td colspan="6" class="muted">@L("Позиций не найдено.")</td></tr>
+                    <tr><td colspan="9" class="muted">@L("Позиций не найдено.")</td></tr>
                 }
                 @foreach (var i in _list.Items)
                 {
                     <tr class="@(i.IsArchived ? "archived" : null)">
                         <td>@i.Code</td>
-                        <td>@i.Name @if (i.IsArchived) { <span class="tag">@L("архив")</span> }@if (i.Description is not null) { <div class="muted">@i.Description</div> }</td>
+                        <td><a href="catalog/items/@i.Id">@i.Name</a> @if (i.IsArchived) { <span class="tag">@L("архив")</span> }@if (i.Description is not null) { <div class="muted">@i.Description</div> }</td>
+                        <td>@(i.Article ?? "—")</td>
                         <td>@L(i.TypeName)</td>
                         <td>@i.UnitSymbol</td>
                         <td>@(i.VatRateName is { } vat ? L(vat) : "—")</td>
+                        @if (CurrentAccess.Has(Permissions.PriceView))
+                        {
+                            <td class="num">@(i.SalePrice is { } sp ? Amounts.Format(sp) : "—")</td>
+                        }
                         @if (_list.CanEdit || _list.CanArchive)
                         {
                             <td>
@@ -219,6 +260,8 @@ else
     {
         <p class="muted">@L("Показано {0} из {1}. Уточните поиск или тип.", _list.Items.Count, _list.Total)</p>
     }
+    </div>
+    </div>
 
 }
 
@@ -244,6 +287,8 @@ else
     private string _typeFilter = string.Empty;
     private string _search = string.Empty;
     private bool _includeArchived;
+    private long? _groupId;
+    private IReadOnlyList<ItemGroupDto> _groups = [];
 
     /// <summary>Поиск из ссылки (быстрый поиск панели): /stock?search=ПР-1.</summary>
     [SupplyParameterFromQuery(Name = "search")]
@@ -265,12 +310,20 @@ else
     private async Task LoadAsync()
     {
         ItemType? type = byte.TryParse(_typeFilter, out var t) ? (ItemType)t : null;
-        _list = await Catalog.ListItemsAsync(new ItemFilter(type, _search, _includeArchived));
+        _list = await Catalog.ListItemsAsync(new ItemFilter(type, _search, _includeArchived, GroupId: _groupId));
+        _groups = await Nomenclature.GroupsAsync();
         _units = await Catalog.ListUnitsAsync(_includeArchived);
         _vatRates = await VatRates.ActiveAsync();
     }
 
     private Task ReloadAsync() => RunAsync(() => Task.CompletedTask, null);
+
+    /// <summary>Группа слева — фильтр списка (с подгруппами); null — все, 0 — без группы.</summary>
+    private Task SelectGroupAsync(long? groupId)
+    {
+        _groupId = groupId;
+        return ReloadAsync();
+    }
 
     private void OpenCreate()
     {
@@ -282,6 +335,7 @@ else
         {
             UnitId = _units.FirstOrDefault(u => u.Code == "796")?.Id ?? 0,
             VatRateId = _vatRates.FirstOrDefault(r => r.Kind == KnitErp.Domain.Catalog.VatRateKind.Standard)?.Id,
+            GroupId = _groupId is > 0 ? _groupId : null,
         };
         _mode = Mode.Create;
     }
@@ -305,7 +359,7 @@ else
 
     private Task SaveItemAsync() => RunAsync(async () =>
     {
-        var cmd = new ItemCommand(_form.Code, _form.Name, _form.Type, _form.UnitId, _form.Description, _form.VatRateId);
+        var cmd = new ItemCommand(_form.Code, _form.Name, _form.Type, _form.UnitId, _form.Description, _form.VatRateId, _form.GroupId);
         if (_mode == Mode.Create)
         {
             await Catalog.CreateItemAsync(cmd);
@@ -413,5 +467,6 @@ else
         public long UnitId { get; set; }
         public string? Description { get; set; }
         public long? VatRateId { get; set; }
+        public long? GroupId { get; set; }
     }
 }

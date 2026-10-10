@@ -6,6 +6,9 @@ namespace KnitErp.Domain.Common;
 public enum CustomFieldTarget : byte
 {
     SalesOrder = 1,
+
+    /// <summary>Позиция номенклатуры (D79).</summary>
+    Item = 2,
 }
 
 public enum CustomFieldType : byte
@@ -14,6 +17,9 @@ public enum CustomFieldType : byte
     Number = 2,
     Date = 3,
     Flag = 4,
+
+    /// <summary>Значение из своего справочника пользователя (D79); хранится номер записи.</summary>
+    Catalog = 5,
 }
 
 /// <summary>
@@ -37,19 +43,29 @@ public sealed class CustomFieldDefinition
     public string Name { get; private set; } = string.Empty;
     public CustomFieldType Type { get; private set; }
     public int SortOrder { get; private set; }
+
+    /// <summary>Свой справочник для поля типа «Справочник».</summary>
+    public long? CatalogId { get; private set; }
+
     public bool IsArchived { get; private set; }
     public byte[] RowVersion { get; private set; } = [];
 
-    public static CustomFieldDefinition Create(long organizationId, CustomFieldTarget target, string? name, CustomFieldType type, int sortOrder)
+    public static CustomFieldDefinition Create(long organizationId, CustomFieldTarget target, string? name, CustomFieldType type, int sortOrder,
+        long? catalogId = null)
     {
-        if (!Enum.IsDefined(type))
+        if (!Enum.IsDefined(type) || !Enum.IsDefined(target))
         {
-            throw new BusinessRuleException("custom_field.type", "Тип поля — текст, число, дата или флажок.");
+            throw new BusinessRuleException("custom_field.type", "Тип поля — текст, число, дата, флажок или справочник.");
+        }
+
+        if ((type == CustomFieldType.Catalog) != (catalogId is not null))
+        {
+            throw new BusinessRuleException("custom_field.catalog", "Для поля «Справочник» выберите свой справочник.");
         }
 
         return new CustomFieldDefinition
         {
-            OrganizationId = organizationId, Target = target, Type = type, SortOrder = sortOrder,
+            OrganizationId = organizationId, Target = target, Type = type, SortOrder = sortOrder, CatalogId = catalogId,
             Name = DomainText.Require(name, NameMaxLength, "Название поля"),
         };
     }
@@ -89,6 +105,11 @@ public sealed class CustomFieldDefinition
                 return date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             case CustomFieldType.Flag:
                 return text is "true" or "1" or "on" or "да" ? "true" : null;
+            case CustomFieldType.Catalog:
+                // Номер записи справочника; что запись из нужного справочника и не в архиве — проверяет сервис.
+                return long.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var entry) && entry > 0
+                    ? entry.ToString(CultureInfo.InvariantCulture)
+                    : throw new BusinessRuleException("custom_field.catalog", $"Поле «{Name}»: выберите значение из справочника.");
             default:
                 return DomainText.Optional(text, ValueMaxLength, Name);
         }
@@ -100,6 +121,7 @@ public sealed class CustomFieldDefinition
         CustomFieldType.Number => "Число",
         CustomFieldType.Date => "Дата",
         CustomFieldType.Flag => "Флажок",
+        CustomFieldType.Catalog => "Справочник",
         _ => type.ToString(),
     };
 }

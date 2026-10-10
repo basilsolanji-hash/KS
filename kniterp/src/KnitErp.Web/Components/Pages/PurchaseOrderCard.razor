@@ -112,7 +112,7 @@ else
                 <datalist id="po-items">
                     @foreach (var i in _options?.Items ?? [])
                     {
-                        <option value="@($"{i.Code} — {i.Name}")">@i.UnitSymbol</option>
+                        <option value="@($"{i.Code} — {i.Name}")">@(i.Article is null ? i.UnitSymbol : $"{i.Article} · {i.UnitSymbol}")</option>
                     }
                 </datalist>
             </label>
@@ -350,18 +350,28 @@ else
     }, L("Сохранено."));
 
     /// <summary>НДС по умолчанию — ставка позиции из номенклатуры.</summary>
+    /// <summary>По выбранной позиции: НДС — ставка из номенклатуры, цена — из карточки.</summary>
     private void SuggestVat()
     {
         if (FindItem() is { } item)
         {
+            _itemText = $"{item.Code} — {item.Name}";
             _vatText = item.VatPercent?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+            // Закупочная цена без НДС из карточки (D79) — если цену ещё не ввели.
+            if (item.Price is { } price && string.IsNullOrWhiteSpace(_priceText))
+            {
+                _priceText = Amounts.Input(Amounts.Reprice(price, false, _order!.PricesIncludeVat, item.VatPercent));
+            }
         }
     }
 
     private PurchaseItemOptionDto? FindItem()
     {
+        // По коду, артикулу или штрихкоду (сканер вводит штрихкод как текст).
         var code = _itemText.Split(" — ", 2)[0].Trim();
-        return _options?.Items.FirstOrDefault(i => string.Equals(i.Code, code, StringComparison.OrdinalIgnoreCase));
+        return _options?.Items.FirstOrDefault(i => string.Equals(i.Code, code, StringComparison.OrdinalIgnoreCase))
+               ?? _options?.Items.FirstOrDefault(i => i.Article is not null && string.Equals(i.Article, code, StringComparison.OrdinalIgnoreCase))
+               ?? _options?.Items.FirstOrDefault(i => i.Barcodes is not null && i.Barcodes.Split(' ').Contains(code));
     }
 
     private void EditLine(PurchaseOrderLineDto l)

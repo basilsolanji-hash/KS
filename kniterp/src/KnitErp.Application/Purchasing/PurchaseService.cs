@@ -69,7 +69,10 @@ public sealed record PurchaseOrderDto(
     public ReceiptState Received => PurchaseService.StateOf(Lines);
 }
 
-public sealed record PurchaseItemOptionDto(long Id, string Code, string Name, string UnitSymbol, byte Precision, decimal? VatPercent);
+/// <summary>Позиция для строки заказа поставщику. Price — закупочная цена без НДС из карточки (D79), только тем, кто видит цены.</summary>
+public sealed record PurchaseItemOptionDto(
+    long Id, string Code, string Name, string UnitSymbol, byte Precision, decimal? VatPercent, decimal? Price = null, string? Article = null,
+    string? Barcodes = null);
 
 public sealed record VatOptionDto(string Name, decimal? Percent);
 
@@ -237,12 +240,18 @@ public sealed class PurchaseService(
         var rates = await db.VatRates.AsNoTracking().Include(r => r.Periods)
             .Where(r => r.OrganizationId == ctx.OrganizationId && !r.IsArchived).ToListAsync(ct);
         var items = await db.Items.AsNoTracking().Where(i => i.OrganizationId == ctx.OrganizationId && !i.IsArchived).OrderBy(i => i.Code)
-            .Join(db.Units.AsNoTracking(), i => i.UnitId, u => u.Id, (i, u) => new { i.Id, i.Code, i.Name, u.Symbol, u.Precision, i.VatRateId })
+            .Join(db.Units.AsNoTracking(), i => i.UnitId, u => u.Id, (i, u) => new { i.Id, i.Code, i.Name, u.Symbol, u.Precision, i.VatRateId, i.Article,
+                i.PurchasePrice })
             .ToListAsync(ct);
         var standard = rates.FirstOrDefault(r => r.Kind == VatRateKind.Standard)?.PercentOn(date);
+        var seePrices = ctx.Permissions.Has(Permissions.PriceView);
+        var barcodes = (await db.ItemBarcodes.AsNoTracking().Where(b => b.OrganizationId == ctx.OrganizationId).Select(b => new { b.ItemId, b.Code })
+                .ToListAsync(ct))
+            .GroupBy(b => b.ItemId).ToDictionary(g => g.Key, g => string.Join(' ', g.Select(b => b.Code)));
         return new PurchaseOptionsDto(suppliers, warehouses,
             items.Select(i => new PurchaseItemOptionDto(i.Id, i.Code, i.Name, i.Symbol, i.Precision,
-                i.VatRateId is { } rid && rates.FirstOrDefault(r => r.Id == rid) is { } rate ? rate.PercentOn(date) : standard)).ToList(),
+                i.VatRateId is { } rid && rates.FirstOrDefault(r => r.Id == rid) is { } rate ? rate.PercentOn(date) : standard,
+                seePrices ? i.PurchasePrice : null, i.Article, barcodes.TryGetValue(i.Id, out var codes) ? codes : null)).ToList(),
             rates.OrderBy(r => r.Kind).ThenBy(r => r.Name).Select(r => new VatOptionDto(r.Name, r.PercentOn(date)))
                 .Where(r => r.Percent is not null || rates.Any(x => x.Kind == VatRateKind.Exempt && x.Name == r.Name))
                 .DistinctBy(r => r.Percent).ToList(),

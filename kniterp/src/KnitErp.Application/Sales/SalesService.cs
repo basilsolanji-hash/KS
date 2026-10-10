@@ -80,7 +80,13 @@ public sealed record SalesOrderDto(
     public ShipmentState Shipped => SalesService.StateOf(Lines);
 }
 
-public sealed record SalesItemOptionDto(long Id, string Code, string Name, string UnitSymbol, byte Precision, decimal? VatPercent);
+/// <summary>
+/// Позиция для строки заказа. Price — цена основного вида (D79), PriceIncludesVat — она с НДС; Article и Barcodes (через пробел) —
+/// чтобы найти позицию по артикулу или сканером.
+/// </summary>
+public sealed record SalesItemOptionDto(
+    long Id, string Code, string Name, string UnitSymbol, byte Precision, decimal? VatPercent, decimal? Price = null, bool PriceIncludesVat = true,
+    string? Article = null, string? Barcodes = null);
 
 public sealed record SalesVatOptionDto(string Name, decimal? Percent);
 
@@ -99,7 +105,8 @@ public sealed record SalesOrderDetailsDto(
     long? ResponsibleUserId, string? Responsible, IReadOnlyList<SalesOrderCustomValueDto> CustomFields, decimal? CustomerBalance,
     long LegalEntityId = 0, string? LegalEntity = null, bool VatExempt = false, long? BankAccountId = null, string? BankAccount = null);
 
-public sealed record SalesOrderCustomValueDto(long FieldId, string Name, CustomFieldType Type, bool IsArchived, string? Value);
+public sealed record SalesOrderCustomValueDto(
+    long FieldId, string Name, CustomFieldType Type, bool IsArchived, string? Value, long? CatalogId = null, string? Display = null);
 
 /// <summary>Списки для деталей заказа: действующие проекты, каналы и сотрудники организации.</summary>
 public sealed record SalesOrderDetailOptionsDto(
@@ -254,14 +261,8 @@ public sealed class SalesService(
         var responsible = order.ResponsibleUserId is { } rid
             ? await db.Users.AsNoTracking().Where(u => u.Id == rid).Select(u => u.DisplayName).SingleOrDefaultAsync(ct)
             : null;
-        var values = await db.CustomFieldValues.AsNoTracking()
-            .Where(v => v.OrganizationId == ctx.OrganizationId && v.TargetId == order.Id)
-            .ToDictionaryAsync(v => v.FieldId, v => v.Value, ct);
-        var fields = await db.CustomFieldDefinitions.AsNoTracking()
-            .Where(f => f.OrganizationId == ctx.OrganizationId && f.Target == CustomFieldTarget.SalesOrder)
-            .OrderBy(f => f.IsArchived).ThenBy(f => f.SortOrder).ThenBy(f => f.Id).ToListAsync(ct);
-        var custom = fields.Where(f => !f.IsArchived || values.ContainsKey(f.Id))
-            .Select(f => new SalesOrderCustomValueDto(f.Id, f.Name, f.Type, f.IsArchived, values.GetValueOrDefault(f.Id))).ToList();
+        var custom = (await new CustomFieldStore(db, currentUser, clock).ValuesAsync(ctx, CustomFieldTarget.SalesOrder, order.Id, ct))
+            .Select(v => new SalesOrderCustomValueDto(v.FieldId, v.Name, v.Type, v.IsArchived, v.Value, v.CatalogId, v.Display)).ToList();
         decimal? balance = prices
             ? (await ComputeBalancesAsync(ctx.OrganizationId, null, order.CustomerId, ct)).SingleOrDefault()?.Debt ?? 0m
             : null;
@@ -330,41 +331,7 @@ public sealed class SalesService(
         var before = DescribeDetails(order);
         order.SetDetails(details);
 
-        var fields = await db.CustomFieldDefinitions
-            .Where(f => f.OrganizationId == ctx.OrganizationId && f.Target == CustomFieldTarget.SalesOrder).ToDictionaryAsync(f => f.Id, ct);
-        var existing = await db.CustomFieldValues.Where(v => v.OrganizationId == ctx.OrganizationId && v.TargetId == id)
-            .ToDictionaryAsync(v => v.FieldId, ct);
-        var changes = new List<string>();
-        foreach (var (fieldId, input) in customFields)
-        {
-            var field = fields.GetValueOrDefault(fieldId) ?? throw new NotFoundException("Дополнительное поле");
-            if (field.IsArchived)
-            {
-                continue;
-            }
-
-            var value = field.Normalize(input);
-            var current = existing.GetValueOrDefault(fieldId);
-            if (value == current?.Value)
-            {
-                continue;
-            }
-
-            if (value is null)
-            {
-                db.CustomFieldValues.Remove(current!);
-            }
-            else if (current is null)
-            {
-                db.CustomFieldValues.Add(CustomFieldValue.Create(ctx.OrganizationId, fieldId, id, value));
-            }
-            else
-            {
-                current.Set(value);
-            }
-
-            changes.Add($"{field.Name}: {current?.Value ?? "—"} → {value ?? "—"}");
-        }
+        var changes = await new CustomFieldStore(db, currentUser, clock).SetValuesAsync(ctx, CustomFieldTarget.SalesOrder, id, customFields, ct);
 
         var after = DescribeDetails(order);
         if (before != after || changes.Count > 0)
@@ -468,12 +435,23 @@ public sealed class SalesService(
         var rates = await db.VatRates.AsNoTracking().Include(r => r.Periods)
             .Where(r => r.OrganizationId == ctx.OrganizationId && !r.IsArchived).ToListAsync(ct);
         var items = await db.Items.AsNoTracking().Where(i => i.OrganizationId == ctx.OrganizationId && !i.IsArchived).OrderBy(i => i.Code)
-            .Join(db.Units.AsNoTracking(), i => i.UnitId, u => u.Id, (i, u) => new { i.Id, i.Code, i.Name, u.Symbol, u.Precision, i.VatRateId })
+            .Join(db.Units.AsNoTracking(), i => i.UnitId, u => u.Id, (i, u) => new { i.Id, i.Code, i.Name, u.Symbol, u.Precision, i.VatRateId, i.Article })
             .ToListAsync(ct);
         var standard = rates.FirstOrDefault(r => r.Kind == VatRateKind.Standard)?.PercentOn(date);
+        // Цена основного вида — только тем, кто видит цены (D79); штрихкоды — для поиска сканером.
+        var priceType = await db.PriceTypes.AsNoTracking().FirstOrDefaultAsync(t => t.OrganizationId == ctx.OrganizationId && t.IsDefault, ct);
+        var prices = priceType is not null && ctx.Permissions.Has(Permissions.PriceView)
+            ? await db.ItemPrices.AsNoTracking().Where(p => p.OrganizationId == ctx.OrganizationId && p.PriceTypeId == priceType.Id)
+                .ToDictionaryAsync(p => p.ItemId, p => p.Price, ct)
+            : [];
+        var barcodes = (await db.ItemBarcodes.AsNoTracking().Where(b => b.OrganizationId == ctx.OrganizationId).Select(b => new { b.ItemId, b.Code })
+                .ToListAsync(ct))
+            .GroupBy(b => b.ItemId).ToDictionary(g => g.Key, g => string.Join(' ', g.Select(b => b.Code)));
         return new SalesOptionsDto(customers, warehouses,
             items.Select(i => new SalesItemOptionDto(i.Id, i.Code, i.Name, i.Symbol, i.Precision,
-                i.VatRateId is { } rid && rates.FirstOrDefault(r => r.Id == rid) is { } rate ? rate.PercentOn(date) : standard)).ToList(),
+                i.VatRateId is { } rid && rates.FirstOrDefault(r => r.Id == rid) is { } rate ? rate.PercentOn(date) : standard,
+                prices.TryGetValue(i.Id, out var price) ? price : null, priceType?.IncludesVat ?? true, i.Article,
+                barcodes.TryGetValue(i.Id, out var codes) ? codes : null)).ToList(),
             rates.OrderBy(r => r.Kind).ThenBy(r => r.Name).Select(r => new SalesVatOptionDto(r.Name, r.PercentOn(date)))
                 .Where(r => r.Percent is not null || rates.Any(x => x.Kind == VatRateKind.Exempt && x.Name == r.Name))
                 .DistinctBy(r => r.Percent).ToList(),

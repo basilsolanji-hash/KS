@@ -163,10 +163,60 @@ public sealed class Item
     /// <summary>Вид ставки НДС (D60); процент — по дате документа из справочника ставок. Пусто — не указана.</summary>
     public long? VatRateId { get; private set; }
 
+    /// <summary>Группа (папка) номенклатуры (D79); null — без группы.</summary>
+    public long? GroupId { get; private set; }
+
+    public string? Article { get; private set; }
+    public string? OriginCountryCode { get; private set; }
+    public string? OriginCountryName { get; private set; }
+    public string? CustomsDeclaration { get; private set; }
+    public string? TnVedCode { get; private set; }
+    public decimal? WeightKg { get; private set; }
+    public decimal? VolumeM3 { get; private set; }
+
+    /// <summary>Неснижаемый остаток: ниже — позиция в списке «Нужно закупить».</summary>
+    public decimal? MinStock { get; private set; }
+
+    /// <summary>Закупочная цена по умолчанию — подставляется в заказ поставщику.</summary>
+    public decimal? PurchasePrice { get; private set; }
+
     public bool IsArchived { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
     public DateTime? ArchivedAtUtc { get; private set; }
     public byte[] RowVersion { get; private set; } = [];
+
+    /// <summary>Сведения карточки (D79); ссылку на группу проверяет сервис. Возвращает изменения для журнала.</summary>
+    public IReadOnlyList<FieldChange> SetDetails(ItemDetails details)
+    {
+        if (IsArchived)
+        {
+            throw new BusinessRuleException("catalog.archived", "Позиция в архиве. Сначала верните её из архива.");
+        }
+
+        var d = ItemDetailRules.Normalize(details);
+        static string? N(decimal? v) => v?.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        (string Field, string? Before, string? After)[] pairs =
+        [
+            ("Группа", GroupId?.ToString(), d.GroupId?.ToString()), ("Артикул", Article, d.Article),
+            ("Страна происхождения", OriginCountryCode, d.OriginCountryCode), ("Номер декларации", CustomsDeclaration, d.CustomsDeclaration),
+            ("Код ТН ВЭД", TnVedCode, d.TnVedCode), ("Вес, кг", N(WeightKg), N(d.WeightKg)), ("Объём, м³", N(VolumeM3), N(d.VolumeM3)),
+            ("Неснижаемый остаток", N(MinStock), N(d.MinStock)), ("Закупочная цена", N(PurchasePrice), N(d.PurchasePrice)),
+        ];
+        GroupId = d.GroupId;
+        Article = d.Article;
+        OriginCountryCode = d.OriginCountryCode;
+        OriginCountryName = d.OriginCountryName;
+        CustomsDeclaration = d.CustomsDeclaration;
+        TnVedCode = d.TnVedCode;
+        WeightKg = d.WeightKg;
+        VolumeM3 = d.VolumeM3;
+        MinStock = d.MinStock;
+        PurchasePrice = d.PurchasePrice;
+        return pairs.Where(p => p.Before != p.After).Select(p => new FieldChange(p.Field, p.Before, p.After)).ToList();
+    }
+
+    public ItemDetails Details => new(GroupId, Article, OriginCountryCode, OriginCountryName, CustomsDeclaration, TnVedCode, WeightKg, VolumeM3,
+        MinStock, PurchasePrice);
 
     public static Item Create(long organizationId, string code, string name, ItemType type, long unitId, string? description, DateTime nowUtc)
     {

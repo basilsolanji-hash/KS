@@ -362,6 +362,125 @@ internal sealed class ItemConfiguration : IEntityTypeConfiguration<Item>
         b.HasOne<VatRate>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.VatRateId })
             .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("fk_items_vat_rate");
+        b.HasOne<ItemGroup>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.GroupId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_items_group");
+        b.HasIndex(x => new { x.OrganizationId, x.GroupId }).HasDatabaseName("ix_items_org_group");
+        b.HasIndex(x => new { x.OrganizationId, x.Article }).HasDatabaseName("ix_items_org_article");
+        b.Property(x => x.Article).HasMaxLength(ItemDetailRules.ArticleMaxLength);
+        b.Property(x => x.OriginCountryCode).HasColumnType("char(3)");
+        b.Property(x => x.OriginCountryName).HasMaxLength(ItemDetailRules.CountryNameMaxLength);
+        b.Property(x => x.CustomsDeclaration).HasMaxLength(ItemDetailRules.DeclarationMaxLength);
+        b.Property(x => x.TnVedCode).HasColumnType("varchar(10)");
+        b.Property(x => x.WeightKg).HasColumnType("decimal(18,6)");
+        b.Property(x => x.VolumeM3).HasColumnType("decimal(18,6)");
+        b.Property(x => x.MinStock).HasColumnType("decimal(18,6)");
+        b.Property(x => x.PurchasePrice).HasColumnType("decimal(19,4)");
+        b.Ignore(x => x.Details);
+    }
+}
+
+internal sealed class ItemGroupConfiguration : IEntityTypeConfiguration<ItemGroup>
+{
+    public void Configure(EntityTypeBuilder<ItemGroup> b)
+    {
+        b.ToTable("item_groups", t => t.HasCheckConstraint("ck_item_groups_parent", "[ParentId] IS NULL OR [ParentId] <> [Id]"));
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Name).HasMaxLength(ItemGroup.NameMaxLength).IsRequired();
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_item_groups_org_id");
+        b.HasOne<ItemGroup>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.ParentId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_item_groups_parent");
+        b.HasIndex(x => new { x.OrganizationId, x.ParentId, x.Name }).IsUnique().HasFilter("[IsArchived] = 0")
+            .HasDatabaseName("ux_item_groups_org_parent_name_active");
+    }
+}
+
+internal sealed class ItemBarcodeConfiguration : IEntityTypeConfiguration<ItemBarcode>
+{
+    public void Configure(EntityTypeBuilder<ItemBarcode> b)
+    {
+        b.ToTable("item_barcodes", t => t.HasCheckConstraint("ck_item_barcodes_type", "[Type] IN (1, 2, 3, 4)"));
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Type).HasConversion<byte>();
+        b.Property(x => x.Code).HasColumnType("varchar(64)").IsRequired();
+        b.HasOne<Item>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.ItemId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_item_barcodes_item");
+        // Сканер находит одну позицию: штрихкод уникален в организации.
+        b.HasIndex(x => new { x.OrganizationId, x.Code }).IsUnique().HasDatabaseName("ux_item_barcodes_org_code");
+        b.HasIndex(x => x.ItemId).HasDatabaseName("ix_item_barcodes_item");
+    }
+}
+
+internal sealed class PriceTypeConfiguration : IEntityTypeConfiguration<PriceType>
+{
+    public void Configure(EntityTypeBuilder<PriceType> b)
+    {
+        b.ToTable("price_types", t => t.HasCheckConstraint("ck_price_types_default", "[IsDefault] = 0 OR [IsArchived] = 0"));
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Name).HasMaxLength(PriceType.NameMaxLength).IsRequired();
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_price_types_org_id");
+        b.HasIndex(x => x.OrganizationId).IsUnique().HasFilter("[IsDefault] = 1").HasDatabaseName("ux_price_types_org_default");
+        b.HasIndex(x => new { x.OrganizationId, x.Name }).IsUnique().HasFilter("[IsArchived] = 0").HasDatabaseName("ux_price_types_org_name_active");
+    }
+}
+
+internal sealed class ItemPriceConfiguration : IEntityTypeConfiguration<ItemPrice>
+{
+    public void Configure(EntityTypeBuilder<ItemPrice> b)
+    {
+        b.ToTable("item_prices", t => t.HasCheckConstraint("ck_item_prices_price", "[Price] >= 0"));
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Price).HasColumnType("decimal(19,4)");
+        b.HasOne<Item>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.ItemId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_item_prices_item");
+        b.HasOne<PriceType>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.PriceTypeId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_item_prices_type");
+        b.HasIndex(x => new { x.ItemId, x.PriceTypeId }).IsUnique().HasDatabaseName("ux_item_prices_item_type");
+    }
+}
+
+internal sealed class UserCatalogConfiguration : IEntityTypeConfiguration<UserCatalog>
+{
+    public void Configure(EntityTypeBuilder<UserCatalog> b)
+    {
+        b.ToTable("user_catalogs");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Name).HasMaxLength(UserCatalog.NameMaxLength).IsRequired();
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_user_catalogs_org_id");
+        b.HasIndex(x => new { x.OrganizationId, x.Name }).IsUnique().HasFilter("[IsArchived] = 0").HasDatabaseName("ux_user_catalogs_org_name_active");
+    }
+}
+
+internal sealed class UserCatalogEntryConfiguration : IEntityTypeConfiguration<UserCatalogEntry>
+{
+    public void Configure(EntityTypeBuilder<UserCatalogEntry> b)
+    {
+        b.ToTable("user_catalog_entries");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Name).HasMaxLength(UserCatalogEntry.NameMaxLength).IsRequired();
+        b.Property(x => x.Code).HasMaxLength(UserCatalogEntry.CodeMaxLength);
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.Ignore(x => x.Display);
+        b.HasOne<UserCatalog>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.CatalogId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_user_catalog_entries_catalog");
+        b.HasIndex(x => new { x.CatalogId, x.Name }).IsUnique().HasFilter("[IsArchived] = 0").HasDatabaseName("ux_user_catalog_entries_catalog_name_active");
     }
 }
 
@@ -794,8 +913,9 @@ internal sealed class CustomFieldDefinitionConfiguration : IEntityTypeConfigurat
     {
         b.ToTable("custom_field_definitions", t =>
         {
-            t.HasCheckConstraint("ck_custom_field_definitions_target", "[Target] IN (1)");
-            t.HasCheckConstraint("ck_custom_field_definitions_type", "[Type] IN (1, 2, 3, 4)");
+            t.HasCheckConstraint("ck_custom_field_definitions_target", "[Target] IN (1, 2)");
+            t.HasCheckConstraint("ck_custom_field_definitions_type", "[Type] IN (1, 2, 3, 4, 5)");
+            t.HasCheckConstraint("ck_custom_field_definitions_catalog", "([Type] = 5 AND [CatalogId] IS NOT NULL) OR ([Type] <> 5 AND [CatalogId] IS NULL)");
         });
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).UseIdentityColumn();
@@ -805,6 +925,9 @@ internal sealed class CustomFieldDefinitionConfiguration : IEntityTypeConfigurat
         b.Property(x => x.RowVersion).IsRowVersion();
         b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
         b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_custom_field_definitions_org_id");
+        b.HasOne<UserCatalog>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.CatalogId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_custom_field_definitions_catalog");
         b.HasIndex(x => new { x.OrganizationId, x.Target, x.Name }).IsUnique().HasFilter("[IsArchived] = 0")
             .HasDatabaseName("ux_custom_field_definitions_org_target_name_active");
     }

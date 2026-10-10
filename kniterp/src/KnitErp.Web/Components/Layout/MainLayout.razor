@@ -196,6 +196,7 @@
         new("catalogs", "Справочники",
         [
             new("catalog", "Номенклатура", a => a.Has(Permissions.CatalogView)),
+            new("catalog/settings", "Группы, цены, доп. поля", a => a.Has(Permissions.CatalogView)),
             new("units", "Единицы измерения", a => a.Has(Permissions.CatalogView)),
             new("vat-rates", "Ставки НДС", a => a.Has(Permissions.CatalogView)),
             new("structure", "Структура", a => a.Has(Permissions.DepartmentView)),
