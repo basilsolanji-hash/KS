@@ -61,7 +61,12 @@ else
             }
             @if (_doc.SalesOrderId is { } salesOrderId)
             {
-                <dt>@L("Заказ покупателя")</dt><dd><a href="sales-orders/@salesOrderId">@_doc.SalesOrderNumber</a></dd>
+                <dt>@L("Заказ покупателя")</dt><dd><a href="sales-orders/@salesOrderId">@_doc.SalesOrderNumber</a>
+                    @if (_doc.Kind == StockOperationKind.Shipment && _doc.Status == StockDocumentStatus.Posted && CurrentAccess.Has(Permissions.PriceView))
+                    {
+                        <span> · <a href="print/upd/@_doc.Id" target="_blank" rel="noopener">@L("Печать УПД")</a></span>
+                    }
+                </dd>
             }
             @if (_doc.PurchaseOrderId is { } orderId)
             {

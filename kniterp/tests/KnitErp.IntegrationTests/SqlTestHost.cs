@@ -125,7 +125,9 @@ public sealed class SqlTestHost : IAsyncLifetime
             new KnitErp.Application.Production.TechCardService(db, guard, user, Clock),
             new DashboardService(db, guard, Clock, new LaunchReadinessService(db, guard, Clock)),
             new KnitErp.Application.Purchasing.PurchaseService(db, guard, user, Clock, new StockDocumentService(db, guard, Spreadsheet, user, Clock)),
-            new KnitErp.Application.Sales.SalesService(db, guard, user, Clock, new StockDocumentService(db, guard, Spreadsheet, user, Clock)));
+            new KnitErp.Application.Sales.SalesService(db, guard, user, Clock, new StockDocumentService(db, guard, Spreadsheet, user, Clock)),
+            new KnitErp.Application.Sales.CustomerInvoiceService(db, guard, user, Clock),
+            new KnitErp.Application.Printing.PrintService(db, guard));
     }
 
     private static readonly IPasswordHasher<UserAccount> Hasher = new PasswordHasher<UserAccount>();
@@ -190,7 +192,9 @@ public sealed record Services(
     KnitErp.Application.Production.TechCardService TechCards,
     DashboardService Dashboard,
     KnitErp.Application.Purchasing.PurchaseService Purchases,
-    KnitErp.Application.Sales.SalesService Sales) : IAsyncDisposable
+    KnitErp.Application.Sales.SalesService Sales,
+    KnitErp.Application.Sales.CustomerInvoiceService Invoices,
+    KnitErp.Application.Printing.PrintService Print) : IAsyncDisposable
 {
     public ValueTask DisposeAsync() => Db.DisposeAsync();
 }

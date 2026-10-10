@@ -119,7 +119,7 @@
         new("sales", "Продажи",
         [
             new("sales-orders", "Заказы покупателей", a => a.Has(Permissions.SalesView)),
-            Soon("sales-invoices", "Счета покупателям"),
+            new("customer-invoices", "Счета покупателям", a => a.Has(Permissions.SalesView) && a.Has(Permissions.PriceView)),
             new("stock-documents?kind=6", "Отгрузки", Docs),
             Soon("commission-reports", "Отчёты комиссионера"),
             new("stock-documents?kind=7", "Возвраты покупателей", Docs),
@@ -135,7 +135,7 @@
         new("purchases", "Закупки",
         [
             new("purchase-orders", "Заказы поставщикам", a => a.Has(Permissions.PurchaseView)),
-            Soon("supplier-invoices", "Счета поставщиков"),
+            new("supplier-invoices", "Счета поставщиков", a => a.Has(Permissions.PurchaseView) && a.Has(Permissions.PriceView)),
             new("stock-documents?kind=1&order=1", "Приёмка", Docs),
             new("stock-documents?kind=5", "Возвраты поставщикам", Docs),
             Soon("received-vat-invoices", "Счета-фактуры полученные"),

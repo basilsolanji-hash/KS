@@ -1,0 +1,125 @@
+@page "/customer-invoices"
+@using KnitErp.Application.Sales
+@using KnitErp.Domain.Sales
+@inject CustomerInvoiceService Invoices
+
+<PageTitle>@L("Счета покупателям") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_rows is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <h1>@L("Счета покупателям")</h1>
+    <p class="muted">@L("Счёт выставляется в карточке подтверждённого заказа покупателя. Оплаченность — по оплатам заказа.")</p>
+
+    <form class="inline-form" @onsubmit="ReloadAsync">
+        <label>@L("Поиск") <input @bind="_search" placeholder="@L("номер, покупатель, ИНН, заказ")" /></label>
+        <label>@L("С") <input type="date" @bind="_from" /></label>
+        <label>@L("По") <input type="date" @bind="_to" /></label>
+        <label class="inline"><input type="checkbox" @bind="_cancelled" /> @L("Показать отменённые")</label>
+        <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
+    </form>
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>@L("Счёт")</th><th>@L("Дата")</th><th>@L("Покупатель")</th><th class="opt">@L("Заказ")</th><th class="opt">@L("Оплатить до")</th><th class="num">@L("Сумма")</th><th class="num">@L("Оплачено")</th><th>@L("Оплата")</th></tr></thead>
+            <tbody>
+                @if (_rows.Count == 0)
+                {
+                    <tr><td colspan="8" class="muted">@L("Счетов пока нет.")</td></tr>
+                }
+                @foreach (var r in _rows)
+                {
+                    <tr class="@(r.Status == CustomerInvoiceStatus.Cancelled ? "archived" : null)">
+                        <td><a href="customer-invoices/@r.Id">@r.Number</a></td>
+                        <td>@r.Date.ToString("dd.MM.yyyy")</td>
+                        <td>@r.Customer</td>
+                        <td><a href="sales-orders/@r.OrderId">@r.OrderNumber</a></td>
+                        <td class="@(r.Overdue ? "warn-text" : null)">@r.DueDate?.ToString("dd.MM.yyyy")</td>
+                        <td class="num">@Amounts.Format(r.Total)</td>
+                        <td class="num">@Amounts.Format(r.Paid)</td>
+                        <td>
+                            @if (r.Status == CustomerInvoiceStatus.Cancelled)
+                            {
+                                <span class="tag">@L(r.StatusName)</span>
+                            }
+                            else
+                            {
+                                <span class="tag @StateClass(r.PaymentState)">@StateName(r.PaymentState)</span>
+                                @if (r.Overdue) { <span class="tag warn">@L("просрочен")</span> }
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+            @if (_rows.Count > 0)
+            {
+                <tfoot><tr><td colspan="5"><b>@L("Итого")</b></td><td class="num">@Amounts.Format(_rows.Where(r => r.Status == CustomerInvoiceStatus.Issued).Sum(r => r.Total))</td><td class="num">@Amounts.Format(_rows.Where(r => r.Status == CustomerInvoiceStatus.Issued).Sum(r => r.Paid))</td><td></td></tr></tfoot>
+            }
+        </table>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<CustomerInvoiceRowDto>? _rows;
+    private bool _busy;
+    private string? _denied;
+    private string? _search;
+    private DateTime? _from;
+    private DateTime? _to;
+    private bool _cancelled;
+
+    /// <summary>Оплаченность счёта — уже на языке пользователя.</summary>
+    public static string StateName(InvoicePaymentState state) => state switch
+    {
+        InvoicePaymentState.Paid => L("оплачен"),
+        InvoicePaymentState.Partial => L("оплачен частично"),
+        _ => L("не оплачен"),
+    };
+
+    public static string StateClass(InvoicePaymentState state) => state switch
+    {
+        InvoicePaymentState.Paid => "ok",
+        InvoicePaymentState.Partial => "warn",
+        _ => "",
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private async Task LoadAsync() => _rows = await Invoices.ListAsync(new CustomerInvoiceFilter(_search,
+        _from is { } f ? DateOnly.FromDateTime(f) : null, _to is { } t ? DateOnly.FromDateTime(t) : null, _cancelled));
+
+    private async Task ReloadAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

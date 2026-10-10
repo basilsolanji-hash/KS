@@ -1,0 +1,160 @@
+@page "/customer-invoices/{Id:long}"
+@using KnitErp.Application.Sales
+@using KnitErp.Domain.Sales
+@inject CustomerInvoiceService Invoices
+
+<PageTitle>@(_invoice?.Number ?? L("Счёт покупателю")) — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_notFound)
+{
+    <h1>@L("Счёт не найден")</h1>
+    <p><a href="customer-invoices">@L("К списку счетов")</a></p>
+}
+else if (_invoice is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    var issued = _invoice.Status == CustomerInvoiceStatus.Issued;
+    <p><a href="customer-invoices">@L("← Счета покупателям")</a></p>
+    <div class="page-head">
+        <h1>@L("Счёт покупателю") @_invoice.Number
+            @if (issued)
+            {
+                <span class="tag @CustomerInvoicesPage.StateClass(_invoice.PaymentState)">@CustomerInvoicesPage.StateName(_invoice.PaymentState)</span>
+            }
+            else
+            {
+                <span class="tag">@L(_invoice.StatusName)</span>
+            }
+        </h1>
+        <a class="button" href="print/invoice/@_invoice.Id" target="_blank" rel="noopener">@L("Печать")</a>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="@(_messageIsError ? "flash error" : "flash")" role="@(_messageIsError ? "alert" : "status")">@_message</div>
+    }
+
+    <dl class="facts">
+        <dt>@L("Покупатель")</dt><dd>@_invoice.Customer</dd>
+        <dt>@L("Дата")</dt><dd>@_invoice.Date.ToString("dd.MM.yyyy")@(_invoice.DueDate is { } due ? $" · {L("оплатить до")} {due:dd.MM.yyyy}" : "")</dd>
+        <dt>@L("Заказ покупателя")</dt><dd><a href="sales-orders/@_invoice.OrderId">@_invoice.OrderNumber</a></dd>
+        <dt>@L("Цены")</dt><dd>@(_invoice.PricesIncludeVat ? L("с НДС") : L("без НДС, НДС сверху"))</dd>
+        <dt>@L("Выставил")</dt><dd>@_invoice.CreatedBy, @TimeZones.ToLocal(_invoice.CreatedAtUtc, CurrentAccess.TimeZoneId).ToString("dd.MM.yyyy HH:mm")</dd>
+        @if (_invoice.CancelReason is not null)
+        {
+            <dt>@L("Причина отмены")</dt><dd>@_invoice.CancelReason</dd>
+        }
+    </dl>
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>@L("Код")</th><th>@L("Наименование")</th><th class="num">@L("Количество")</th><th>@L("Ед.")</th><th class="num">@L("Цена")</th><th class="num">@L("НДС")</th><th class="num">@L("Сумма")</th></tr></thead>
+            <tbody>
+                @foreach (var l in _invoice.Lines)
+                {
+                    <tr>
+                        <td>@l.Code</td>
+                        <td>@l.Name</td>
+                        <td class="num">@Quantities.Format(l.Quantity)</td>
+                        <td>@l.UnitSymbol</td>
+                        <td class="num">@l.Price.ToString("#,0.00##", System.Globalization.CultureInfo.GetCultureInfo("ru-RU"))</td>
+                        <td class="num">@Amounts.Vat(l.VatPercent)</td>
+                        <td class="num">@Amounts.Format(l.Amount)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="totals">
+        <span>@L("Сумма счёта:") <b>@Amounts.Format(_invoice.Total)</b></span>
+        <span>@L("в т. ч. НДС:") @Amounts.Format(_invoice.VatTotal)</span>
+        <span>@L("Оплачено:") @Amounts.Format(_invoice.Paid)</span>
+        <span class="@(_invoice.Total - _invoice.Paid > 0 && issued ? "bad" : "")">@L("К оплате:") <b>@Amounts.Format(_invoice.Total - _invoice.Paid)</b></span>
+    </div>
+
+    @if (_invoice.CanEdit)
+    {
+        <h2 style="margin-top: 20px">@L("Отменить счёт")</h2>
+        <p class="muted">@L("Счёт не меняется. Нужны другие условия — отмените его с причиной и выставьте новый в карточке заказа.")</p>
+        <form class="inline-form" @onsubmit="CancelAsync">
+            <label>@L("Причина") <input @bind="_reason" maxlength="@CustomerInvoice.CommentMaxLength" size="40" /></label>
+            <button type="submit" class="secondary" disabled="@_busy">@L("Отменить счёт")</button>
+        </form>
+    }
+}
+
+@code {
+    [Parameter]
+    public long Id { get; set; }
+
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private CustomerInvoiceDto? _invoice;
+    private bool _busy;
+    private bool _notFound;
+    private string? _denied;
+    private string? _message;
+    private bool _messageIsError;
+    private string? _reason;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _invoice = null;
+        _notFound = false;
+        try
+        {
+            _invoice = await Invoices.GetAsync(Id);
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+        catch (NotFoundException)
+        {
+            _notFound = true;
+        }
+    }
+
+    private async Task CancelAsync()
+    {
+        if (_busy || _invoice is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _messageIsError = false;
+        try
+        {
+            await Invoices.CancelAsync(_invoice.Id, _reason, _invoice.RowVersion);
+            _message = L("Счёт отменён.");
+            _reason = null;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+            _messageIsError = true;
+        }
+        finally
+        {
+            try
+            {
+                _invoice = await Invoices.GetAsync(Id);
+            }
+            finally
+            {
+                _busy = false;
+            }
+        }
+    }
+}

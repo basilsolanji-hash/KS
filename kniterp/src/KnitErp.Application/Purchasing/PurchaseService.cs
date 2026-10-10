@@ -47,6 +47,15 @@ public sealed record SupplierPaymentDto(
     long Id, string Number, DateOnly Date, long SupplierId, string Supplier, long? OrderId, string? OrderNumber, decimal Amount, string? Comment,
     SupplierPaymentStatus Status, string? CancelReason, string CreatedBy, byte[] RowVersion);
 
+/// <summary>Счёт поставщика (D68) — номер и дата из шапки заказа; сумма — по заказу, оплачено — оплаты по заказу.</summary>
+public sealed record SupplierInvoiceRowDto(
+    long OrderId, string OrderNumber, DateOnly OrderDate, string Invoice, long SupplierId, string Supplier, DateOnly? ExpectedDate,
+    PurchaseOrderStatus Status, decimal Total, decimal Paid)
+{
+    public string StatusName => PurchaseOrder.StatusName(Status);
+    public decimal ToPay => Math.Max(0, Total - Paid);
+}
+
 /// <summary>Суммы по заказу: поступило и возвращено — по ценам заказа с НДС; Debt — к оплате по заказу.</summary>
 public sealed record PurchaseOrderDto(
     long Id, string Number, DateOnly OrderDate, long SupplierId, string Supplier, long WarehouseId, string Warehouse, DateOnly? ExpectedDate,
@@ -84,6 +93,42 @@ public sealed class PurchaseService(
     IKnitErpDbContext db, IAccessGuard guard, ICurrentUser currentUser, IClock clock, StockDocumentService documents)
 {
     public const int MaxRows = 2000;
+
+    /// <summary>
+    /// Счета поставщиков: заказы с указанным счётом поставщика, кроме черновиков и отменённых; сколько оплачено и осталось.
+    /// Отдельного документа «счёт поставщика» нет (D64) — счёт записывается в шапку заказа.
+    /// </summary>
+    public async Task<IReadOnlyList<SupplierInvoiceRowDto>> ListSupplierInvoicesAsync(
+        string? search = null, bool unpaidOnly = false, CancellationToken ct = default)
+    {
+        var ctx = await guard.DemandAsync(Permissions.PurchaseView, ct);
+        await guard.DemandAsync(Permissions.PriceView, ct);
+        var rows = from o in db.PurchaseOrders.AsNoTracking()
+                   where o.OrganizationId == ctx.OrganizationId && o.SupplierInvoice != null
+                         && o.Status != PurchaseOrderStatus.Draft && o.Status != PurchaseOrderStatus.Cancelled
+                   join c in db.Counterparties.AsNoTracking() on o.SupplierId equals c.Id
+                   select new { o, Supplier = c.Name, c.Inn };
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var text = search.Trim();
+            rows = rows.Where(r => r.o.Number.Contains(text) || r.o.SupplierInvoice!.Contains(text) || r.Supplier.Contains(text) || r.Inn == text);
+        }
+
+        var list = await rows.OrderByDescending(r => r.o.OrderDate).ThenByDescending(r => r.o.Id).Take(MaxRows)
+            .Select(r => new { r.o.Id, r.o.Number, r.o.OrderDate, r.o.SupplierInvoice, r.o.SupplierId, r.Supplier, r.o.ExpectedDate, r.o.Status,
+                Total = r.o.Lines.Sum(l => l.Amount) })
+            .ToListAsync(ct);
+        var ids = list.Select(r => r.Id).ToList();
+        var paid = await db.SupplierPayments.AsNoTracking()
+            .Where(p => p.OrganizationId == ctx.OrganizationId && p.PurchaseOrderId != null && ids.Contains(p.PurchaseOrderId.Value)
+                        && p.Status == SupplierPaymentStatus.Posted)
+            .GroupBy(p => p.PurchaseOrderId!.Value).Select(g => new { g.Key, Sum = g.Sum(p => p.Amount) })
+            .ToDictionaryAsync(x => x.Key, x => x.Sum, ct);
+        return list.Select(r => new SupplierInvoiceRowDto(r.Id, r.Number, r.OrderDate, r.SupplierInvoice!, r.SupplierId, r.Supplier, r.ExpectedDate,
+                r.Status, r.Total, paid.GetValueOrDefault(r.Id)))
+            .Where(r => !unpaidOnly || r.ToPay > 0)
+            .ToList();
+    }
 
     public async Task<IReadOnlyList<PurchaseOrderRowDto>> ListOrdersAsync(PurchaseOrderFilter filter, CancellationToken ct = default)
     {

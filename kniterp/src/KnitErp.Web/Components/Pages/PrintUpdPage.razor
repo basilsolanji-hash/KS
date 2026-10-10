@@ -1,0 +1,138 @@
+@page "/print/upd/{Id:long}"
+@layout KnitErp.Web.Components.Layout.PrintLayout
+@using KnitErp.Application.Printing
+@inject PrintService Print
+
+@* УПД со статусом 1 (счёт-фактура и передаточный документ) по отгрузке — российская форма, печатается по-русски (D68). *@
+<PageTitle>@(_doc is null ? "УПД" : $"УПД {_doc.Number}") — knitERP</PageTitle>
+<style>@@media print { @@page { size: A4 landscape; margin: 8mm; } }</style>
+
+<div class="print-bar">
+    <button type="button" data-print>@L("Печать")</button>
+    <a href="stock-documents/@Id">@L("← К отгрузке")</a>
+    @if (_doc is not null && _doc.Requisites.DirectorName is null)
+    {
+        <span class="warn">@L("Не указан руководитель для подписи — раздел «Организация», «Реквизиты для печати».")</span>
+    }
+</div>
+
+@if (_error is not null)
+{
+    <div class="sheet"><p>@_error</p></div>
+}
+else if (_doc is null)
+{
+    <div class="sheet"><p>@L("Загрузка…")</p></div>
+}
+else
+{
+    var r = _doc.Requisites;
+    <div class="sheet">
+        @if (_doc.Reversed)
+        {
+            <div class="stamp">ОТГРУЗКА СТОРНИРОВАНА</div>
+        }
+        <div class="upd-head">
+            <div class="upd-status">
+                <b>Универсальный передаточный документ</b>
+                <p>Статус: <b style="border: 1px solid #000; padding: 0 6px">1</b></p>
+                <p class="small">1 — счёт-фактура и передаточный документ (акт)<br />2 — передаточный документ (акт)</p>
+            </div>
+            <div class="upd-fields">
+                <div><b>Счёт-фактура №</b> @_doc.Number от @PrintInvoicePage.Date(_doc.Date) <span class="code">(1)</span></div>
+                <div><b>Исправление №</b> — от — <span class="code">(1а)</span></div>
+                <div><b>Продавец:</b> @_doc.Seller.Name <span class="code">(2)</span></div>
+                <div><b>Адрес:</b> @_doc.Seller.Address <span class="code">(2а)</span></div>
+                <div><b>ИНН/КПП продавца:</b> @_doc.Seller.Inn@(_doc.Seller.Kpp is null ? "" : "/" + _doc.Seller.Kpp) <span class="code">(2б)</span></div>
+                <div><b>Грузоотправитель и его адрес:</b> он же <span class="code">(3)</span></div>
+                <div><b>Грузополучатель и его адрес:</b> @PrintInvoicePage.Party(_doc.Buyer with { Inn = null, Kpp = null }) <span class="code">(4)</span></div>
+                <div><b>К платёжно-расчётному документу №</b> — от — <span class="code">(5)</span></div>
+                <div><b>Документ об отгрузке</b> № п/п 1–@_doc.Lines.Count № @_doc.Number от @_doc.Date.ToString("dd.MM.yyyy") <span class="code">(5а)</span></div>
+                <div><b>Покупатель:</b> @_doc.Buyer.Name <span class="code">(6)</span></div>
+                <div><b>Адрес:</b> @_doc.Buyer.Address <span class="code">(6а)</span></div>
+                <div><b>ИНН/КПП покупателя:</b> @_doc.Buyer.Inn@(_doc.Buyer.Kpp is null ? "" : "/" + _doc.Buyer.Kpp) <span class="code">(6б)</span></div>
+                <div><b>Валюта: наименование, код</b> @_doc.Currency <span class="code">(7)</span></div>
+                <div><b>Идентификатор государственного контракта, договора (соглашения)</b> — <span class="code">(8)</span></div>
+            </div>
+        </div>
+
+        <table style="margin-top: 6px">
+            <thead>
+                <tr>
+                    <th rowspan="2">№ п/п</th><th rowspan="2">Код товара</th><th rowspan="2">Наименование товара</th>
+                    <th colspan="2">Единица измерения</th><th rowspan="2">Коли&shy;чество</th><th rowspan="2">Цена за единицу</th>
+                    <th rowspan="2">Стоимость без налога — всего</th><th rowspan="2">В том числе сумма акциза</th><th rowspan="2">Налоговая ставка</th>
+                    <th rowspan="2">Сумма налога, предъявляемая покупателю</th><th rowspan="2">Стоимость с налогом — всего</th>
+                </tr>
+                <tr><th>код</th><th>условное обозначение</th></tr>
+                <tr class="small"><th>А</th><th>Б</th><th>1</th><th>2</th><th>2а</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th><th>9</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var l in _doc.Lines)
+                {
+                    <tr>
+                        <td class="c">@l.No</td>
+                        <td>@l.Code</td>
+                        <td>@l.Name</td>
+                        <td class="c">@l.UnitCode</td>
+                        <td class="c">@l.UnitSymbol</td>
+                        <td class="n">@Quantities.Format(l.Quantity)</td>
+                        <td class="n">@Amounts.Format(l.Price)</td>
+                        <td class="n">@Amounts.Format(l.AmountWithoutVat)</td>
+                        <td class="c">без акциза</td>
+                        <td class="c">@Amounts.Vat(l.VatPercent)</td>
+                        <td class="n">@(l.VatPercent is null ? "без НДС" : Amounts.Format(l.VatAmount))</td>
+                        <td class="n">@Amounts.Format(l.Amount)</td>
+                    </tr>
+                }
+                <tr>
+                    <td colspan="7"><b>Всего к оплате (9)</b></td>
+                    <td class="n"><b>@Amounts.Format(_doc.TotalWithoutVat)</b></td>
+                    <td class="c">×</td>
+                    <td></td>
+                    <td class="n"><b>@Amounts.Format(_doc.VatTotal)</b></td>
+                    <td class="n"><b>@Amounts.Format(_doc.Total)</b></td>
+                </tr>
+            </tbody>
+        </table>
+        <p class="words">Всего к оплате: @_doc.TotalInWords</p>
+
+        <div class="sign">
+            <div>Руководитель организации или иное уполномоченное лицо <span class="line"></span> @r.DirectorName</div>
+            <div>Главный бухгалтер или иное уполномоченное лицо <span class="line"></span> @(r.AccountantName ?? r.DirectorName)</div>
+        </div>
+
+        <table class="plain" style="margin-top: 16px">
+            <tr><td style="width: 50%">Основание передачи (сдачи) / получения (приёмки): <b>@_doc.Basis</b> <span class="small">[8]</span></td>
+                <td>Данные о транспортировке и грузе: <span class="line"></span> <span class="small">[9]</span></td></tr>
+            <tr><td>Товар (груз) передал / услуги, результаты работ, права сдал <span class="small">[10]</span><br /><span class="line"></span> <span class="line"></span> @r.DirectorName</td>
+                <td>Товар (груз) получил / услуги, результаты работ, права принял <span class="small">[15]</span><br /><span class="line"></span> <span class="line"></span></td></tr>
+            <tr><td>Дата отгрузки, передачи (сдачи): <b>@PrintInvoicePage.Date(_doc.Date)</b> <span class="small">[11]</span></td>
+                <td>Дата получения (приёмки): «___» __________ 20__ г. <span class="small">[16]</span></td></tr>
+            <tr><td>Склад отгрузки: @_doc.Warehouse</td><td></td></tr>
+            <tr><td>Наименование экономического субъекта — составителя документа: @_doc.Seller.Name, ИНН/КПП @_doc.Seller.Inn@(_doc.Seller.Kpp is null ? "" : "/" + _doc.Seller.Kpp) <span class="small">[14]</span></td>
+                <td>Наименование экономического субъекта — составителя документа: @_doc.Buyer.Name@(_doc.Buyer.Inn is null ? "" : ", ИНН " + _doc.Buyer.Inn) <span class="small">[19]</span></td></tr>
+            <tr><td>М. П.</td><td>М. П.</td></tr>
+        </table>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public long Id { get; set; }
+
+    private UpdPrintDto? _doc;
+    private string? _error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            _doc = await Print.UpdAsync(Id);
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+    }
+}

@@ -20,10 +20,16 @@ public sealed record OrganizationDto(
     string? WebsiteUrl,
     bool CanEdit,
     byte[] RowVersion,
-    string CountryCode = KnitErp.Domain.Organizations.Countries.Russia)
+    string CountryCode = KnitErp.Domain.Organizations.Countries.Russia,
+    PrintRequisites? Print = null)
 {
+    /// <summary>Реквизиты печатных форм (D68); пустые, пока их не заполнили.</summary>
+    public PrintRequisites PrintRequisites => Print ?? new PrintRequisites(null, null, null, null, null, null, null);
+
     public KnitErp.Domain.Organizations.CountryInfo Country => KnitErp.Domain.Organizations.Countries.Get(CountryCode);
 }
+
+public sealed record UpdatePrintRequisitesCommand(PrintRequisites Requisites, byte[] RowVersion);
 
 public sealed record UpdateRequisitesCommand(string? ActualAddress, string TimeZoneId, byte[] RowVersion, string? WebsiteUrl = null);
 
@@ -92,6 +98,24 @@ public sealed class OrganizationService(IKnitErpDbContext db, IAccessGuard guard
         return await LoadAsync(ctx, org.Id, ct);
     }
 
+    /// <summary>Реквизиты для счёта и УПД: юридический адрес, банк, подписи (D68). Право — как у остальных реквизитов.</summary>
+    public async Task<OrganizationDto> UpdatePrintRequisitesAsync(UpdatePrintRequisitesCommand cmd, CancellationToken ct = default)
+    {
+        var ctx = await guard.DemandAsync(Permissions.OrganizationEdit, ct);
+        var org = await db.Organizations.SingleOrDefaultAsync(o => o.Id == ctx.OrganizationId, ct)
+                  ?? throw new NotFoundException("Организация");
+        org.EnsureVersion(org.RowVersion, cmd.RowVersion);
+        foreach (var c in org.UpdatePrintRequisites(cmd.Requisites))
+        {
+            db.AuditEntries.Add(AuditEntry.Create(
+                clock.UtcNow, ctx.OrganizationId, ctx.UserId, AuditActions.OrganizationRequisitesChanged,
+                nameof(Organization), org.Id.ToString(), c.Before, c.After, c.Field, currentUser.CorrelationId));
+        }
+
+        await db.SaveOrConflictAsync(ct);
+        return await LoadAsync(ctx, org.Id, ct);
+    }
+
     /// <summary>
     /// Первичное создание организации с системными ролями P0 и Владельцем. Системная операция при развёртывании,
     /// поэтому выполняется без пользователя-автора.
@@ -143,6 +167,7 @@ public sealed class OrganizationService(IKnitErpDbContext db, IAccessGuard guard
         var o = await db.Organizations.AsNoTracking().SingleOrDefaultAsync(x => x.Id == organizationId, ct)
                 ?? throw new NotFoundException("Организация");
         return new OrganizationDto(o.Id, o.FullName, o.ShortName, o.Inn, o.Kpp, o.KppVerified, o.ActualAddress,
-            o.TimeZoneId, o.CurrencyCode, o.WebsiteUrl, ctx.Permissions.Has(Permissions.OrganizationEdit), o.RowVersion, o.CountryCode);
+            o.TimeZoneId, o.CurrencyCode, o.WebsiteUrl, ctx.Permissions.Has(Permissions.OrganizationEdit), o.RowVersion, o.CountryCode,
+            new PrintRequisites(o.LegalAddress, o.BankName, o.BankBic, o.BankAccount, o.BankCorrAccount, o.DirectorName, o.AccountantName));
     }
 }

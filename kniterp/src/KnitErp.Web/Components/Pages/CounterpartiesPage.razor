@@ -50,6 +50,7 @@ else
                     {
                         <label>@L("КПП") <InputText @bind-Value="_form.Kpp" maxlength="9" placeholder="@L("только у организации")" /></label>
                     }
+                    <label>@L("Адрес") <InputText @bind-Value="_form.Address" maxlength="500" placeholder="@L("для счёта и УПД")" /></label>
                     <label>@L("Комментарий") <InputText @bind-Value="_form.Comment" maxlength="1000" /></label>
                     <label class="inline"><InputCheckbox @bind-Value="_form.IsSupplier" /> @L("Поставщик")</label>
                     <label class="inline"><InputCheckbox @bind-Value="_form.IsCustomer" /> @L("Покупатель")</label>
@@ -197,6 +198,7 @@ else
         _form = new CounterpartyForm
         {
             Name = c.Name, Inn = c.Inn, Kpp = c.Kpp, IsSupplier = c.IsSupplier, IsCustomer = c.IsCustomer, Comment = c.Comment, CountryCode = c.CountryCode,
+            Address = c.Address,
         };
         _mode = Mode.Edit;
     }
@@ -211,7 +213,7 @@ else
     private Task SaveAsync() => RunAsync(async () =>
     {
         var cmd = new CounterpartyCommand(_form.Name, _form.Inn, FormCountry.HasKpp ? _form.Kpp : null, _form.IsSupplier, _form.IsCustomer, _form.Comment,
-            _form.CountryCode);
+            _form.CountryCode, _form.Address ?? string.Empty);
         if (_mode == Mode.Create)
         {
             await Counterparties.CreateAsync(cmd);
@@ -278,6 +280,7 @@ else
         public bool IsSupplier { get; set; }
         public bool IsCustomer { get; set; }
         public string? Comment { get; set; }
+        public string? Address { get; set; }
         public string CountryCode { get; set; } = KnitErp.Domain.Organizations.Countries.Russia;
     }
 }

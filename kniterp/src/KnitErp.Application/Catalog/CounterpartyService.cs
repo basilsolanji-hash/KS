@@ -10,15 +10,18 @@ namespace KnitErp.Application.Catalog;
 
 public sealed record CounterpartyDto(
     long Id, string Name, string? Inn, string? Kpp, bool IsSupplier, bool IsCustomer, string? Comment, bool IsArchived, byte[] RowVersion,
-    string CountryCode = KnitErp.Domain.Organizations.Countries.Russia)
+    string CountryCode = KnitErp.Domain.Organizations.Countries.Russia, string? Address = null)
 {
     public string RolesText => Counterparty.RolesText(IsSupplier, IsCustomer);
     public KnitErp.Domain.Organizations.CountryInfo Country => KnitErp.Domain.Organizations.Countries.Get(CountryCode);
 }
 
-/// <summary>CountryCode — страна регистрации (D60); null — страна организации при создании, прежняя при изменении.</summary>
+/// <summary>
+/// CountryCode — страна регистрации (D60); null — страна организации при создании, прежняя при изменении.
+/// Address — адрес для печатных форм; null — не менять (загрузка из Excel адреса не знает), пустая строка — стереть.
+/// </summary>
 public sealed record CounterpartyCommand(
-    string Name, string? Inn, string? Kpp, bool IsSupplier, bool IsCustomer, string? Comment, string? CountryCode = null);
+    string Name, string? Inn, string? Kpp, bool IsSupplier, bool IsCustomer, string? Comment, string? CountryCode = null, string? Address = null);
 
 public sealed record CounterpartyFilter(bool? Suppliers = null, bool? Customers = null, string? Search = null, bool IncludeArchived = false);
 
@@ -53,7 +56,7 @@ public sealed class CounterpartyService(IKnitErpDbContext db, IAccessGuard guard
         }
 
         var rows = await q.OrderBy(c => c.Name).Take(2000)
-            .Select(c => new CounterpartyDto(c.Id, c.Name, c.Inn, c.Kpp, c.IsSupplier, c.IsCustomer, c.Comment, c.IsArchived, c.RowVersion, c.CountryCode))
+            .Select(c => new CounterpartyDto(c.Id, c.Name, c.Inn, c.Kpp, c.IsSupplier, c.IsCustomer, c.Comment, c.IsArchived, c.RowVersion, c.CountryCode, c.Address))
             .ToListAsync(ct);
         return new CounterpartyListDto(rows, ctx.Permissions.Has(Permissions.CatalogEdit), ctx.Permissions.Has(Permissions.CatalogArchive));
     }
@@ -63,6 +66,7 @@ public sealed class CounterpartyService(IKnitErpDbContext db, IAccessGuard guard
         var ctx = await guard.DemandAsync(Permissions.CatalogEdit, ct);
         var country = cmd.CountryCode ?? await db.Organizations.Where(o => o.Id == ctx.OrganizationId).Select(o => o.CountryCode).SingleAsync(ct);
         var c = Counterparty.Create(ctx.OrganizationId, cmd.Name, cmd.Inn, cmd.Kpp, cmd.IsSupplier, cmd.IsCustomer, cmd.Comment, country);
+        c.SetAddress(cmd.Address);
         await EnsureInnFreeAsync(ctx, c.CountryCode, c.Inn, c.Kpp, null, ct);
         db.Counterparties.Add(c);
         await db.SaveChangesAsync(ct);
@@ -76,7 +80,12 @@ public sealed class CounterpartyService(IKnitErpDbContext db, IAccessGuard guard
         var ctx = await guard.DemandAsync(Permissions.CatalogEdit, ct);
         var c = await FindAsync(ctx, id, ct);
         c.EnsureVersion(c.RowVersion, rowVersion);
-        var changes = c.Update(cmd.Name, cmd.Inn, cmd.Kpp, cmd.IsSupplier, cmd.IsCustomer, cmd.Comment, cmd.CountryCode);
+        var changes = c.Update(cmd.Name, cmd.Inn, cmd.Kpp, cmd.IsSupplier, cmd.IsCustomer, cmd.Comment, cmd.CountryCode).ToList();
+        if (cmd.Address is not null && c.SetAddress(cmd.Address) is { } addressChange)
+        {
+            changes.Add(addressChange);
+        }
+
         await EnsureInnFreeAsync(ctx, c.CountryCode, c.Inn, c.Kpp, id, ct);
         foreach (var change in changes)
         {

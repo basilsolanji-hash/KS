@@ -87,3 +87,8 @@ window.kniterp = {
         try { await navigator.clipboard.writeText(text); return true; } catch (e) { return false; }
     }
 };
+
+// Печатные формы: кнопка с data-print открывает печать браузера (встроенный onclick запрещён CSP).
+document.addEventListener('click', function (e) {
+    if (e.target.closest && e.target.closest('[data-print]')) { e.preventDefault(); window.print(); }
+});

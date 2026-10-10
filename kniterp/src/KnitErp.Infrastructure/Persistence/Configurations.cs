@@ -37,6 +37,13 @@ internal sealed class OrganizationConfiguration : IEntityTypeConfiguration<Organ
         b.Property(x => x.WebsiteUrl).HasMaxLength(Organization.WebsiteMaxLength);
         b.Property(x => x.TimeZoneId).HasMaxLength(Organization.TimeZoneMaxLength).IsRequired();
         b.Property(x => x.CurrencyCode).HasColumnType("char(3)").IsRequired();
+        b.Property(x => x.LegalAddress).HasMaxLength(Organization.AddressMaxLength);
+        b.Property(x => x.BankName).HasMaxLength(Organization.BankNameMaxLength);
+        b.Property(x => x.BankBic).HasColumnType("varchar(11)");
+        b.Property(x => x.BankAccount).HasColumnType("varchar(34)");
+        b.Property(x => x.BankCorrAccount).HasColumnType("varchar(34)");
+        b.Property(x => x.DirectorName).HasMaxLength(Organization.PersonNameMaxLength);
+        b.Property(x => x.AccountantName).HasMaxLength(Organization.PersonNameMaxLength);
         b.Property(x => x.RowVersion).IsRowVersion();
         b.Ignore(x => x.PrintableKpp);
         b.HasIndex(x => new { x.CountryCode, x.Inn }).IsUnique().HasDatabaseName("ux_organizations_country_inn");
@@ -363,6 +370,7 @@ internal sealed class CounterpartyConfiguration : IEntityTypeConfiguration<Count
         b.Property(x => x.Kpp).HasColumnType("char(9)");
         b.Property(x => x.CountryCode).HasColumnType("char(2)").IsRequired().HasDefaultValue("RU");
         b.Property(x => x.Comment).HasMaxLength(Counterparty.CommentMaxLength);
+        b.Property(x => x.Address).HasMaxLength(Counterparty.AddressMaxLength);
         b.Property(x => x.RowVersion).IsRowVersion();
         b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
         b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_counterparties_org_id");
@@ -740,6 +748,67 @@ internal sealed class CustomerPaymentConfiguration : IEntityTypeConfiguration<Cu
         b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.CancelledByUserId).OnDelete(DeleteBehavior.Restrict);
         b.HasIndex(x => new { x.OrganizationId, x.Number }).IsUnique().HasDatabaseName("ux_customer_payments_org_number");
         b.HasIndex(x => new { x.OrganizationId, x.CustomerId, x.PaymentDate }).HasDatabaseName("ix_customer_payments_org_customer_date");
+    }
+}
+
+internal sealed class CustomerInvoiceConfiguration : IEntityTypeConfiguration<CustomerInvoice>
+{
+    public void Configure(EntityTypeBuilder<CustomerInvoice> b)
+    {
+        b.ToTable("customer_invoices", t =>
+        {
+            t.HasCheckConstraint("ck_customer_invoices_status", "[Status] IN (2, 9)");
+            t.HasCheckConstraint("ck_customer_invoices_due", "[DueDate] IS NULL OR [DueDate] >= [InvoiceDate]");
+            t.HasCheckConstraint("ck_customer_invoices_cancelled",
+                "([Status] = 9 AND [CancelledByUserId] IS NOT NULL AND [CancelReason] IS NOT NULL) OR ([Status] = 2 AND [CancelledByUserId] IS NULL)");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Number).HasMaxLength(30).IsRequired();
+        b.Property(x => x.Status).HasConversion<byte>();
+        b.Property(x => x.Comment).HasMaxLength(CustomerInvoice.CommentMaxLength);
+        b.Property(x => x.CancelReason).HasMaxLength(CustomerInvoice.CommentMaxLength);
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.Ignore(x => x.Total);
+        b.Ignore(x => x.VatTotal);
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<Counterparty>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.CustomerId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_customer_invoices_customer");
+        b.HasOne<SalesOrder>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.SalesOrderId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_customer_invoices_order");
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.CancelledByUserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasIndex(x => new { x.OrganizationId, x.Number }).IsUnique().HasDatabaseName("ux_customer_invoices_org_number");
+        // У заказа один действующий счёт (D68): другой — после отмены прежнего.
+        b.HasIndex(x => new { x.OrganizationId, x.SalesOrderId }).IsUnique().HasFilter("[Status] = 2")
+            .HasDatabaseName("ux_customer_invoices_order_issued");
+        b.HasIndex(x => new { x.OrganizationId, x.CustomerId, x.InvoiceDate }).HasDatabaseName("ix_customer_invoices_org_customer_date");
+        b.HasMany(x => x.Lines).WithOne().HasForeignKey(x => x.InvoiceId).OnDelete(DeleteBehavior.Cascade);
+        b.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field).HasField("_lines");
+    }
+}
+
+internal sealed class CustomerInvoiceLineConfiguration : IEntityTypeConfiguration<CustomerInvoiceLine>
+{
+    public void Configure(EntityTypeBuilder<CustomerInvoiceLine> b)
+    {
+        b.ToTable("customer_invoice_lines", t =>
+        {
+            t.HasCheckConstraint("ck_customer_invoice_lines_quantity", "[Quantity] > 0");
+            t.HasCheckConstraint("ck_customer_invoice_lines_price", "[Price] >= 0 AND [Amount] >= 0 AND [VatAmount] >= 0");
+            t.HasCheckConstraint("ck_customer_invoice_lines_vat", "[VatPercent] IS NULL OR [VatPercent] BETWEEN 0 AND 100");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Quantity).HasColumnType("decimal(18,6)");
+        b.Property(x => x.Price).HasColumnType("decimal(19,4)");
+        b.Property(x => x.Amount).HasColumnType("decimal(19,4)");
+        b.Property(x => x.VatAmount).HasColumnType("decimal(19,4)");
+        b.Property(x => x.VatPercent).HasColumnType("decimal(5,2)");
+        b.HasOne<Item>().WithMany().HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Restrict);
+        b.HasIndex(x => new { x.InvoiceId, x.ItemId }).IsUnique().HasDatabaseName("ux_customer_invoice_lines_invoice_item");
     }
 }
 

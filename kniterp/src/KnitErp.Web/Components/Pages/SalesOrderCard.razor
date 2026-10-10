@@ -3,6 +3,7 @@
 @using KnitErp.Domain.Sales
 @using KnitErp.Domain.Warehousing
 @inject SalesService Sales
+@inject CustomerInvoiceService Invoices
 @inject NavigationManager Navigation
 
 <PageTitle>@(_order?.Number ?? L("Заказ покупателя")) — knitERP</PageTitle>
@@ -231,6 +232,12 @@ else
                         <td><a href="stock-documents/@d.Id">@L(d.KindName) @d.Number</a></td>
                         <td>@d.Date.ToString("dd.MM.yyyy")</td>
                         <td><span class="tag @StockDocumentsPage.StatusClass(d.Status)">@L(d.StatusName)</span></td>
+                        <td>
+                            @if (_order.CanSeePrices && d.Kind == StockOperationKind.Shipment && d.Status == StockDocumentStatus.Posted)
+                            {
+                                <a href="print/upd/@d.Id" target="_blank" rel="noopener">@L("УПД")</a>
+                            }
+                        </td>
                     </tr>
                 }
             </tbody>
@@ -239,6 +246,26 @@ else
 
     @if (_order.CanSeePrices && _order.Status is SalesOrderStatus.Confirmed or SalesOrderStatus.Closed)
     {
+        <h2 style="margin-top: 20px">@L("Счёт на оплату")</h2>
+        @if (_invoiceId is { } invoiceId)
+        {
+            <p>
+                <a href="customer-invoices/@invoiceId">@L("Счёт выставлен — открыть")</a> ·
+                <a href="print/invoice/@invoiceId" target="_blank" rel="noopener">@L("Печать счёта")</a>
+            </p>
+        }
+        else if (_order.CanEdit)
+        {
+            <form class="inline-form" @onsubmit="IssueInvoiceAsync">
+                <label>@L("Оплатить до") <input type="date" @bind="_dueDate" /></label>
+                <button type="submit" disabled="@_busy">@L("Выставить счёт")</button>
+            </form>
+        }
+        else
+        {
+            <p class="muted">@L("Счёт не выставлен.")</p>
+        }
+
         <h2 style="margin-top: 20px">@L("Оплаты")</h2>
         @if (_order.CanEdit)
         {
@@ -291,6 +318,8 @@ else
     private DateTime _payDate = DateTime.Today;
     private string _payText = string.Empty;
     private string? _payComment;
+    private long? _invoiceId;
+    private DateTime? _dueDate;
 
     private sealed class HeaderForm
     {
@@ -328,7 +357,36 @@ else
         }
     }
 
-    private async Task LoadAsync() => _order = await Sales.GetOrderAsync(Id);
+    private async Task LoadAsync()
+    {
+        _order = await Sales.GetOrderAsync(Id);
+        _invoiceId = _order.CanSeePrices ? await Invoices.FindForOrderAsync(Id) : null;
+    }
+
+    /// <summary>Счёт по заказу и сразу его карточка: там печать.</summary>
+    private async Task IssueInvoiceAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var id = await Invoices.CreateAsync(Id, _dueDate is { } d ? DateOnly.FromDateTime(d) : null, null);
+            Navigation.NavigateTo($"customer-invoices/{id}");
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+            _messageIsError = true;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
 
     private Task EditHeaderAsync() => RunAsync(() =>
     {

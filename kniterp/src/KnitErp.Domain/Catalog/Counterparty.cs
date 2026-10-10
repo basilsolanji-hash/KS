@@ -11,6 +11,7 @@ public sealed class Counterparty
 {
     public const int NameMaxLength = 300;
     public const int CommentMaxLength = 1000;
+    public const int AddressMaxLength = 500;
 
     private Counterparty()
     {
@@ -28,6 +29,10 @@ public sealed class Counterparty
     public bool IsSupplier { get; private set; }
     public bool IsCustomer { get; private set; }
     public string? Comment { get; private set; }
+
+    /// <summary>Юридический адрес — для печатных форм (счёт, УПД).</summary>
+    public string? Address { get; private set; }
+
     public bool IsArchived { get; private set; }
     public byte[] RowVersion { get; private set; } = [];
 
@@ -77,6 +82,25 @@ public sealed class Counterparty
         Add("Роль", before.Roles, RolesText(IsSupplier, IsCustomer));
         Add("Комментарий", before.Comment, Comment);
         return changes;
+    }
+
+    /// <summary>Адрес меняется отдельно: загрузка из Excel адреса не знает и его не трогает.</summary>
+    public FieldChange? SetAddress(string? address)
+    {
+        if (IsArchived)
+        {
+            throw new BusinessRuleException("catalog.archived", "Контрагент в архиве. Сначала верните его из архива.");
+        }
+
+        var value = DomainText.Optional(address, AddressMaxLength, "Адрес");
+        if (value == Address)
+        {
+            return null;
+        }
+
+        var change = new FieldChange("Адрес", Address, value);
+        Address = value;
+        return change;
     }
 
     public void Archive()

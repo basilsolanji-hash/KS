@@ -1,0 +1,40 @@
+@inherits LayoutComponentBase
+
+@* Печатная форма: белый лист A4 без меню. Панель с кнопками на бумагу не выводится. *@
+@* Стили — в разметке, а не в HeadContent: HeadContent страницы заменил бы HeadContent макета. *@
+<style>
+        body { background: #fff !important; color: #000 !important; }
+        .print-bar { display: flex; gap: 8px; align-items: center; padding: 10px 16px; background: #F1F1F3; border-bottom: 1px solid #D0D0D6; font: 13px Arial, sans-serif; }
+        .print-bar button { background: #2BA89A; color: #fff; border: 0; border-radius: 4px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+        .print-bar a { color: #1B6F66; }
+        .print-bar .warn { color: #8A5A00; }
+        .sheet { background: #fff; color: #000; max-width: 1080px; margin: 0 auto; padding: 18px 20px; font: 11px Arial, sans-serif; line-height: 1.35; }
+        .sheet.portrait { max-width: 780px; }
+        .sheet h1 { font-size: 16px; font-weight: 700; margin: 14px 0 8px; padding-bottom: 6px; border-bottom: 2px solid #000; color: #000; }
+        .sheet table { border-collapse: collapse; width: 100%; color: #000; background: #fff; }
+        .sheet th, .sheet td { border: 1px solid #000; padding: 3px 4px; vertical-align: top; font-size: 11px; color: #000; background: #fff; position: static; text-align: left; font-weight: 400; }
+        .sheet th { text-align: center; font-weight: 600; }
+        .sheet td.n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .sheet td.c { text-align: center; }
+        .sheet .plain td { border: 0; padding: 2px 4px 2px 0; }
+        .sheet .totals-print { width: auto; margin-left: auto; margin-top: 4px; }
+        .sheet .totals-print td { border: 0; font-weight: 700; padding: 1px 4px; }
+        .sheet .words { font-weight: 700; margin: 8px 0; }
+        .sheet .sign { display: flex; gap: 40px; margin-top: 28px; flex-wrap: wrap; }
+        .sheet .sign > div { flex: 1; min-width: 260px; }
+        .sheet .line { display: inline-block; min-width: 140px; border-bottom: 1px solid #000; margin: 0 6px; }
+        .sheet .small { font-size: 9px; color: #333; }
+        .sheet .stamp { color: #B00020; font-size: 20px; font-weight: 700; border: 3px solid #B00020; display: inline-block; padding: 4px 12px; transform: rotate(-6deg); margin: 6px 0; }
+        .sheet .upd-head { display: grid; grid-template-columns: 170px 1fr; gap: 0; border: 1px solid #000; }
+        .sheet .upd-status { border-right: 1px solid #000; padding: 6px; }
+        .sheet .upd-fields { padding: 4px 8px; }
+        .sheet .upd-fields div { display: flex; gap: 6px; }
+        .sheet .upd-fields b { min-width: 230px; font-weight: 400; }
+        .sheet .upd-fields .code { margin-left: auto; color: #333; }
+        @@media print {
+            .print-bar { display: none; }
+            .sheet { max-width: none; padding: 0; }
+        }
+</style>
+
+@Body

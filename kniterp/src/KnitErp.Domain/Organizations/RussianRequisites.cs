@@ -1,6 +1,6 @@
 namespace KnitErp.Domain.Organizations;
 
-/// <summary>Проверки российских реквизитов: ИНН юрлица и ИП, КПП.</summary>
+/// <summary>Проверки российских реквизитов: ИНН юрлица и ИП, КПП, БИК и банковские счета.</summary>
 public static class RussianRequisites
 {
     private static readonly int[] InnLegalWeights = [2, 4, 10, 3, 5, 9, 4, 6, 8];
@@ -66,5 +66,33 @@ public static class RussianRequisites
         }
 
         return true;
+    }
+
+    /// <summary>БИК банка: 9 цифр, начинается с 04.</summary>
+    public static bool IsValidBik(string? bik) => bik is { Length: 9 } && bik.All(char.IsAsciiDigit) && bik.StartsWith("04", StringComparison.Ordinal);
+
+    /// <summary>Расчётный счёт: 20 цифр, контрольный ключ — вместе с тремя последними цифрами БИК.</summary>
+    public static bool IsValidSettlementAccount(string? account, string bik) => IsValidBik(bik) && AccountKey(bik[^3..], account);
+
+    /// <summary>Корреспондентский счёт: 20 цифр, 301…, контрольный ключ — вместе с «0» и 5–6-й цифрами БИК.</summary>
+    public static bool IsValidCorrespondentAccount(string? account, string bik) =>
+        IsValidBik(bik) && account is not null && account.StartsWith("301", StringComparison.Ordinal) && AccountKey("0" + bik[4..6], account);
+
+    private static bool AccountKey(string prefix, string? account)
+    {
+        if (account is null || account.Length != 20 || !account.All(char.IsAsciiDigit))
+        {
+            return false;
+        }
+
+        var s = prefix + account;
+        int[] weights = [7, 1, 3];
+        var sum = 0;
+        for (var i = 0; i < s.Length; i++)
+        {
+            sum += (s[i] - '0') * weights[i % 3] % 10;
+        }
+
+        return sum % 10 == 0;
     }
 }

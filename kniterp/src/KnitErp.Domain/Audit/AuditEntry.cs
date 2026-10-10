@@ -129,6 +129,8 @@ public static class AuditActions
     public const string SalesOrderCancelled = "sales.order.cancelled";
     public const string CustomerPaymentCreated = "sales.payment.created";
     public const string CustomerPaymentCancelled = "sales.payment.cancelled";
+    public const string CustomerInvoiceIssued = "sales.invoice.issued";
+    public const string CustomerInvoiceCancelled = "sales.invoice.cancelled";
     public const string PeriodClosed = "period.closed";
     public const string PeriodReopened = "period.reopened";
     public const string SupportTicketCreated = "support.ticket.created";

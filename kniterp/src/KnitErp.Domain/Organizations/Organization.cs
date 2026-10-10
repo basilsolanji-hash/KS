@@ -12,6 +12,10 @@ public sealed class Organization
     public const int AddressMaxLength = 500;
     public const int TimeZoneMaxLength = 64;
     public const int WebsiteMaxLength = 300;
+    public const int BankNameMaxLength = 300;
+    public const int BicMaxLength = 11;
+    public const int AccountMaxLength = 34;
+    public const int PersonNameMaxLength = 150;
 
     private Organization()
     {
@@ -38,6 +42,25 @@ public sealed class Organization
     public string CountryCode { get; private set; } = Countries.Russia;
 
     public string CurrencyCode { get; private set; } = "RUB";
+
+    /// <summary>Юридический адрес — для печатных форм (счёт, УПД). Пусто — печатается фактический.</summary>
+    public string? LegalAddress { get; private set; }
+
+    public string? BankName { get; private set; }
+
+    /// <summary>БИК (Россия) или код банка / SWIFT другой страны.</summary>
+    public string? BankBic { get; private set; }
+
+    /// <summary>Расчётный счёт или IBAN.</summary>
+    public string? BankAccount { get; private set; }
+
+    public string? BankCorrAccount { get; private set; }
+
+    /// <summary>Руководитель и главный бухгалтер — подписи в печатных формах («Иванов И. И.»).</summary>
+    public string? DirectorName { get; private set; }
+
+    public string? AccountantName { get; private set; }
+
     public bool IsArchived { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
     public byte[] RowVersion { get; private set; } = [];
@@ -111,6 +134,65 @@ public sealed class Organization
         return changes;
     }
 
+    /// <summary>
+    /// Реквизиты для печатных форм (D68): юридический адрес, банк, подписи. Для России БИК и счета проверяются
+    /// по контрольному ключу; для других стран — только длина и символы. Возвращает изменения для журнала.
+    /// </summary>
+    public IReadOnlyList<FieldChange> UpdatePrintRequisites(PrintRequisites r)
+    {
+        EnsureNotArchived();
+        var legal = DomainText.Optional(r.LegalAddress, AddressMaxLength, "Юридический адрес");
+        var bank = DomainText.Optional(r.BankName, BankNameMaxLength, "Банк");
+        var bic = Code(r.BankBic, BicMaxLength, "БИК");
+        var account = Code(r.BankAccount, AccountMaxLength, "Расчётный счёт");
+        var corr = Code(r.BankCorrAccount, AccountMaxLength, "Корреспондентский счёт");
+        var director = DomainText.Optional(r.DirectorName, PersonNameMaxLength, "Руководитель");
+        var accountant = DomainText.Optional(r.AccountantName, PersonNameMaxLength, "Главный бухгалтер");
+
+        if (CountryCode == Countries.Russia)
+        {
+            if (bic is not null && !RussianRequisites.IsValidBik(bic))
+            {
+                throw new BusinessRuleException("org.bank.bik", "БИК — 9 цифр, начинается с 04.");
+            }
+
+            if ((account is not null || corr is not null) && bic is null)
+            {
+                throw new BusinessRuleException("org.bank.bik_required", "Укажите БИК банка — по нему проверяются счета.");
+            }
+
+            if (account is not null && !RussianRequisites.IsValidSettlementAccount(account, bic!))
+            {
+                throw new BusinessRuleException("org.bank.account", "Расчётный счёт не сходится с БИК: проверьте 20 цифр счёта и БИК.");
+            }
+
+            if (corr is not null && !RussianRequisites.IsValidCorrespondentAccount(corr, bic!))
+            {
+                throw new BusinessRuleException("org.bank.corr", "Корреспондентский счёт не сходится с БИК: проверьте 20 цифр (начинается с 301).");
+            }
+        }
+
+        var changes = new List<FieldChange>();
+        string? Set(string field, string? before, string? after)
+        {
+            if (before != after)
+            {
+                changes.Add(new FieldChange(field, before, after));
+            }
+
+            return after;
+        }
+
+        LegalAddress = Set("LegalAddress", LegalAddress, legal);
+        BankName = Set("BankName", BankName, bank);
+        BankBic = Set("BankBic", BankBic, bic);
+        BankAccount = Set("BankAccount", BankAccount, account);
+        BankCorrAccount = Set("BankCorrAccount", BankCorrAccount, corr);
+        DirectorName = Set("DirectorName", DirectorName, director);
+        AccountantName = Set("AccountantName", AccountantName, accountant);
+        return changes;
+    }
+
     public FieldChange? ConfirmKpp(string kpp)
     {
         EnsureNotArchived();
@@ -140,6 +222,23 @@ public sealed class Organization
         }
 
         return uri.ToString();
+    }
+
+    /// <summary>Код или номер счёта: без пробелов, только латинские буквы и цифры.</summary>
+    private static string? Code(string? value, int maxLength, string field)
+    {
+        var v = value?.Replace(" ", string.Empty, StringComparison.Ordinal).Trim().ToUpperInvariant();
+        if (string.IsNullOrEmpty(v))
+        {
+            return null;
+        }
+
+        if (v.Length > maxLength || !v.All(char.IsAsciiLetterOrDigit))
+        {
+            throw new BusinessRuleException("org.bank.code", $"Поле «{field}»: только цифры и латинские буквы, не длиннее {maxLength}.");
+        }
+
+        return v;
     }
 
     private void SetKpp(string? kpp, bool verified)
@@ -196,3 +295,6 @@ public sealed class Organization
 }
 
 public sealed record FieldChange(string Field, string? Before, string? After);
+
+public sealed record PrintRequisites(
+    string? LegalAddress, string? BankName, string? BankBic, string? BankAccount, string? BankCorrAccount, string? DirectorName, string? AccountantName);

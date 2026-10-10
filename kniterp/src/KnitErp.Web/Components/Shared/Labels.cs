@@ -62,6 +62,8 @@ public static class AuditLabels
         [AuditActions.SalesOrderCancelled] = "Заказ покупателя отменён",
         [AuditActions.CustomerPaymentCreated] = "Оплата от покупателя",
         [AuditActions.CustomerPaymentCancelled] = "Оплата от покупателя отменена",
+        [AuditActions.CustomerInvoiceIssued] = "Выставлен счёт покупателю",
+        [AuditActions.CustomerInvoiceCancelled] = "Счёт покупателю отменён",
         [AuditActions.PeriodClosed] = "Период закрыт",
         [AuditActions.PeriodReopened] = "Период открыт",
         [AuditActions.SupportTicketCreated] = "Обращение в поддержку",
