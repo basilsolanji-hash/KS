@@ -67,9 +67,11 @@ public sealed class VatRateService(IKnitErpDbContext db, IAccessGuard guard, ICu
 
         await EnsureNameFreeAsync(ctx, rate.Name, null, ct);
         db.VatRates.Add(rate);
+        await using var tx = await db.BeginTransactionAsync(ct);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.CatalogCreated, rate.Id, null, Describe(rate), VatRate.KindName(kind));
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return rate.Id;
     }
 

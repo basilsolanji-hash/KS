@@ -117,9 +117,11 @@ public sealed class EmployeeService(
             cmd.DepartmentId, cmd.PositionId, cmd.HiredOn);
         await EnsureNumberFreeAsync(ctx, employee.PersonnelNumber, null, ct);
         db.Employees.Add(employee);
+        await using var tx = await db.BeginTransactionAsync(ct);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.EmployeeHired, employee.Id, null, $"{employee.PersonnelNumber} {employee.FullName}", null);
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return employee.Id;
     }
 

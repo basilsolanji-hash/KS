@@ -35,9 +35,11 @@ public sealed class OperationReasonService(IKnitErpDbContext db, IAccessGuard gu
         var reason = OperationReason.Create(ctx.OrganizationId, kind, name, requiresComment);
         await EnsureFreeAsync(ctx, reason.Kind, reason.Name, null, ct);
         db.OperationReasons.Add(reason);
+        await using var tx = await db.BeginTransactionAsync(ct);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.CatalogCreated, reason.Id, null, reason.Name, StockOperationKinds.Name(kind));
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return reason.Id;
     }
 

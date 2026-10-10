@@ -2,16 +2,33 @@
 # Резервная копия knitERP (D54): ./backup.sh full | log
 # SQL Server Express не шифрует копии сам, поэтому файл сразу шифруется на сервере (AES-256, ключ /opt/kniterp/backup.key)
 # и исходник удаляется. Хранение 35 дней. Если в .env задан RCLONE_REMOTE (например, beget-s3:kniterp-backups),
-# зашифрованные копии ещё и выгружаются во внешнее хранилище.
+# зашифрованные копии ещё и выгружаются во внешнее хранилище — тогда выгрузка обязательна.
+#
+# Готовая копия появляется только после всех этапов (аудит 10.10.2026, п. 3–4): шифрование пишет во временный
+# *.part, затем копия расшифровывается и проверяется целостность архива, и только после этого файл переименовывается.
+# Итог каждого запуска пишется в $BACKUP_STATUS_DIR: last-ok-<вид>, last-offsite, а при ошибке — last-error с причиной;
+# monitor.sh по ним поднимает тревогу.
 set -euo pipefail
 cd "$(dirname "$0")"
 set -a; . ./.env; set +a
 umask 077
+STATUS_DIR="${BACKUP_STATUS_DIR:-/var/lib/kniterp-backup}"
+mkdir -p "$STATUS_DIR"
+STEP="подготовка"
+PART=""
+fail() {
+  local code=$?
+  [[ -n "$PART" ]] && rm -f "$PART"
+  echo "$(date -u +%FT%TZ) ${KIND:-?} ошибка на этапе «$STEP» (код $code)" | tee "$STATUS_DIR/last-error" >&2
+  exit "$code"
+}
+trap fail ERR
 KIND="${1:-full}"
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
-KEY=/opt/kniterp/backup.key
+KEY="${BACKUP_KEY_FILE:-/opt/kniterp/backup.key}"
 sql() { docker compose exec -T sql /opt/mssql-tools18/bin/sqlcmd -C -b -S localhost -U sa -P "$SQL_SA_PASSWORD" "$@"; }
 
+STEP="резервная копия SQL Server"
 case "$KIND" in
   full)
     FILE="kniterp-full-$STAMP.bak"
@@ -25,11 +42,28 @@ case "$KIND" in
   *) echo "Использование: $0 full|log"; exit 2 ;;
 esac
 
-gzip -c "$BACKUP_DIR/raw/$FILE" | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass "file:$KEY" > "$BACKUP_DIR/enc/$FILE.gz.enc"
+OUT="$BACKUP_DIR/enc/$FILE.gz.enc"
+PART="$OUT.part"
+STEP="сжатие и шифрование"
+gzip -c "$BACKUP_DIR/raw/$FILE" | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass "file:$KEY" > "$PART"
+STEP="проверка зашифрованной копии"
+[[ -s "$PART" ]] || { echo "Зашифрованная копия пустая" >&2; false; }
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass "file:$KEY" -in "$PART" | gzip -t
+mv -f "$PART" "$OUT"
+PART=""
 rm -f "$BACKUP_DIR/raw/$FILE"
 find "$BACKUP_DIR/enc" -name 'kniterp-*' -mtime +35 -delete
+find "$BACKUP_DIR/enc" -name '*.part' -mmin +120 -delete
 
-if [[ -n "${RCLONE_REMOTE:-}" ]] && command -v rclone >/dev/null; then
-  rclone copy "$BACKUP_DIR/enc/$FILE.gz.enc" "$RCLONE_REMOTE" --quiet
+if [[ -n "${RCLONE_REMOTE:-}" ]]; then
+  STEP="выгрузка во внешнее хранилище"
+  command -v rclone >/dev/null || { echo "RCLONE_REMOTE задан, но rclone не установлен" >&2; false; }
+  rclone copy "$OUT" "$RCLONE_REMOTE" --quiet
+  STEP="проверка копии во внешнем хранилище"
+  rclone check "$BACKUP_DIR/enc" "$RCLONE_REMOTE" --one-way --include "$(basename "$OUT")" --quiet
+  date -u +%FT%TZ > "$STATUS_DIR/last-offsite"
 fi
-echo "$(date -u +%FT%TZ) $KIND ok $FILE.gz.enc"
+
+date -u +%FT%TZ > "$STATUS_DIR/last-ok-$KIND"
+rm -f "$STATUS_DIR/last-error"
+echo "$(date -u +%FT%TZ) $KIND ok $(basename "$OUT")"

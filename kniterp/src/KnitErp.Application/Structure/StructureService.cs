@@ -81,9 +81,11 @@ public sealed class StructureService(IKnitErpDbContext db, IAccessGuard guard, I
         var department = Department.Create(ctx.OrganizationId, name, parentId, clock.UtcNow);
         await EnsureDepartmentNameFreeAsync(ctx, department.Name, null, ct);
         db.Departments.Add(department);
+        await using var tx = await db.BeginTransactionAsync(ct);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.DepartmentCreated, nameof(Department), department.Id, null, department.Name, null);
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return department.Id;
     }
 
@@ -145,9 +147,11 @@ public sealed class StructureService(IKnitErpDbContext db, IAccessGuard guard, I
         var position = Position.Create(ctx.OrganizationId, name, clock.UtcNow);
         await EnsurePositionNameFreeAsync(ctx, position.Name, null, ct);
         db.Positions.Add(position);
+        await using var tx = await db.BeginTransactionAsync(ct);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.PositionCreated, nameof(Position), position.Id, null, position.Name, null);
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return position.Id;
     }
 

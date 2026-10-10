@@ -160,10 +160,12 @@ public sealed class VatInvoiceService(IKnitErpDbContext db, IAccessGuard guard, 
         var invoice = ReceivedVatInvoice.Register(ctx.OrganizationId, supplierId, receipt.Id, number, cmd.Date, cmd.Amount, cmd.VatAmount, cmd.Comment,
             ctx.UserId, clock.UtcNow);
         db.ReceivedVatInvoices.Add(invoice);
+        await using var tx = await db.BeginTransactionAsync(ct);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.ReceivedVatInvoiceRegistered, invoice.Id, null, $"{invoice.Amount:0.00}, НДС {invoice.VatAmount:0.00}",
             $"№ {number} от {cmd.Date:dd.MM.yyyy} к {receipt.Number}");
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return invoice.Id;
     }
 

@@ -69,9 +69,11 @@ public sealed class CounterpartyService(IKnitErpDbContext db, IAccessGuard guard
         c.SetAddress(cmd.Address);
         await EnsureInnFreeAsync(ctx, c.CountryCode, c.Inn, c.Kpp, null, ct);
         db.Counterparties.Add(c);
+        await using var tx = await db.BeginTransactionAsync(ct);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.CatalogCreated, c.Id, null, c.Inn is null ? c.Name : $"{c.Name}, ИНН {c.Inn}", c.RolesText());
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return c.Id;
     }
 

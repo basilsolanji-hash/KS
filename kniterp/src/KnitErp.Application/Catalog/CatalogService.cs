@@ -55,9 +55,11 @@ public sealed class CatalogService(IKnitErpDbContext db, IAccessGuard guard, ICu
         }
 
         db.Units.Add(unit);
+        await using var tx = await db.BeginTransactionAsync(ct);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.CatalogCreated, nameof(UnitOfMeasure), unit.Id, null, $"{unit.Name} ({unit.Symbol})", null);
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return unit.Id;
     }
 
@@ -168,9 +170,11 @@ public sealed class CatalogService(IKnitErpDbContext db, IAccessGuard guard, ICu
 
         await EnsureCodeFreeAsync(ctx, item.Code, null, ct);
         db.Items.Add(item);
+        await using var tx = await db.BeginTransactionAsync(ct);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.CatalogCreated, nameof(Item), item.Id, null, $"{item.Code} {item.Name}", ItemTypes.Name(item.Type));
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return item.Id;
     }
 

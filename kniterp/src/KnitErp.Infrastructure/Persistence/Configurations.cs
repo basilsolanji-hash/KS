@@ -597,6 +597,7 @@ internal sealed class TechCardConfiguration : IEntityTypeConfiguration<KnitErp.D
         b.Property(x => x.Id).UseIdentityColumn();
         b.Property(x => x.Status).HasConversion<byte>();
         b.Property(x => x.OutputQuantity).HasColumnType("decimal(18,6)");
+        b.Property(x => x.Revision).HasDefaultValue(0);
         b.Property(x => x.Comment).HasMaxLength(KnitErp.Domain.Production.TechCard.CommentMaxLength);
         b.Property(x => x.RowVersion).IsRowVersion();
         b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
@@ -623,6 +624,8 @@ internal sealed class TechCardLineConfiguration : IEntityTypeConfiguration<KnitE
         {
             t.HasCheckConstraint("ck_tech_card_lines_quantity", "[Quantity] > 0");
             t.HasCheckConstraint("ck_tech_card_lines_waste", "[WastePercent] >= 0 AND [WastePercent] < 100");
+            // Строки меняются только у черновика — триггер в миграции TechCardRevisionAndLineGuard.
+            t.HasTrigger("tr_tech_card_lines_draft_only");
         });
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).UseIdentityColumn();

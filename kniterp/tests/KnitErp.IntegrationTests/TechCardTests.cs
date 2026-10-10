@@ -87,6 +87,118 @@ public sealed class TechCardTests(SqlTestHost host) : IClassFixture<SqlTestHost>
         }
     }
 
+    /// <summary>Аудит 10.10.2026, п. 1: старая вкладка не перезаписывает чужую правку и не меняет действующую карту.</summary>
+    [SqlFact]
+    public async Task Stale_tab_cannot_overwrite_norms_or_change_active_card()
+    {
+        var org = await CreateAsync();
+        long card, yarn, buttons;
+        await using (var s = host.As(org.OwnerUserId, org.OrganizationId))
+        {
+            var units = await s.Catalog.ListUnitsAsync();
+            var pcs = units.Single(u => u.Symbol == "шт").Id;
+            var sweater = await s.Catalog.CreateItemAsync(new ItemCommand("СВ-1", "Свитер", ItemType.Finished, pcs, null));
+            yarn = await s.Catalog.CreateItemAsync(new ItemCommand("ПР-1", "Пряжа", ItemType.RawMaterial, units.Single(u => u.Symbol == "кг").Id, null));
+            buttons = await s.Catalog.CreateItemAsync(new ItemCommand("ФУ-1", "Пуговица", ItemType.Accessory, pcs, null));
+            card = await s.TechCards.CreateAsync(sweater, 10, null);
+        }
+
+        // Две вкладки открыли одну и ту же версию карты.
+        byte[] tabA, tabB;
+        await using (var s = host.As(org.OwnerUserId, org.OrganizationId))
+        {
+            tabA = (await s.TechCards.GetAsync(card)).RowVersion;
+            tabB = tabA;
+        }
+
+        await using (var s = host.As(org.OwnerUserId, org.OrganizationId))
+        {
+            await s.TechCards.SetLineAsync(card, yarn, 3m, 0m, tabA);
+        }
+
+        await using (var s = host.As(org.OwnerUserId, org.OrganizationId))
+        {
+            // Вкладка B со старой версией получает конфликт — правка вкладки A не теряется.
+            await Assert.ThrowsAsync<ConcurrencyConflictException>(() => s.TechCards.SetLineAsync(card, yarn, 9m, 0m, tabB));
+            await Assert.ThrowsAsync<ConcurrencyConflictException>(() => s.TechCards.SetLineAsync(card, buttons, 5m, 0m, tabB));
+            Assert.Equal(3m, (await s.TechCards.GetAsync(card)).Lines.Single().Quantity);
+        }
+
+        // Карта введена в действие другим пользователем; прежняя вкладка с версией черновика ничего не меняет.
+        byte[] stale;
+        await using (var s = host.As(org.OwnerUserId, org.OrganizationId))
+        {
+            stale = (await s.TechCards.GetAsync(card)).RowVersion;
+            await s.TechCards.ActivateAsync(card, stale);
+        }
+
+        await using (var s = host.As(org.OwnerUserId, org.OrganizationId))
+        {
+            await Assert.ThrowsAsync<ConcurrencyConflictException>(() => s.TechCards.SetLineAsync(card, yarn, 1m, 0m, stale));
+            await Assert.ThrowsAsync<ConcurrencyConflictException>(() => s.TechCards.RemoveLineAsync(card, yarn, stale));
+            var dto = await s.TechCards.GetAsync(card);
+            Assert.Equal((TechCardStatus.Active, 3m), (dto.Status, dto.Lines.Single().Quantity));
+        }
+
+        // Даже в обход приложения строки действующей карты не меняются — запрещает триггер в базе.
+        await using (var db = host.NewDb())
+        {
+            var ex = await Assert.ThrowsAnyAsync<Exception>(() =>
+                db.Database.ExecuteSqlInterpolatedAsync($"UPDATE [kniterp].[tech_card_lines] SET [Quantity] = 99 WHERE [TechCardId] = {card}"));
+            Assert.Contains("новую версию", ex.Message);
+        }
+    }
+
+    /// <summary>Аудит 10.10.2026, п. 2: карта и запись журнала сохраняются вместе — сбой журнала не оставляет карту.</summary>
+    [SqlFact]
+    public async Task Card_is_not_left_without_audit_record_when_audit_fails()
+    {
+        var org = await CreateAsync();
+        long sweater;
+        await using (var s = host.As(org.OwnerUserId, org.OrganizationId))
+        {
+            var pcs = (await s.Catalog.ListUnitsAsync()).Single(u => u.Symbol == "шт").Id;
+            sweater = await s.Catalog.CreateItemAsync(new ItemCommand("СВ-9", "Свитер", ItemType.Finished, pcs, null));
+        }
+
+        // Сбой записи в журнал — только для техкарт этой организации, на время теста.
+        await using (var db = host.NewDb())
+        {
+            // Номер организации — число из теста, не ввод пользователя.
+            var sql = $"""
+                CREATE TRIGGER [kniterp].[tr_test_audit_fail] ON [kniterp].[audit_log] AFTER INSERT AS
+                BEGIN
+                    IF EXISTS (SELECT 1 FROM inserted WHERE [EntityType] = 'TechCard' AND [OrganizationId] = {org.OrganizationId})
+                        THROW 51999, N'Сбой журнала (тест)', 1;
+                END
+                """;
+            await db.Database.ExecuteSqlRawAsync(sql);
+        }
+
+        try
+        {
+            await using var s = host.As(org.OwnerUserId, org.OrganizationId);
+            await Assert.ThrowsAnyAsync<Exception>(() => s.TechCards.CreateAsync(sweater, 10, null));
+        }
+        finally
+        {
+            await using var db = host.NewDb();
+            await db.Database.ExecuteSqlRawAsync("DROP TRIGGER [kniterp].[tr_test_audit_fail]");
+        }
+
+        await using (var db = host.NewDb())
+        {
+            Assert.False(await db.TechCards.AnyAsync(c => c.OrganizationId == org.OrganizationId));
+        }
+
+        // После устранения сбоя карта создаётся как обычно — версия 1, без «лишней» первой.
+        await using (var s = host.As(org.OwnerUserId, org.OrganizationId))
+        {
+            var id = await s.TechCards.CreateAsync(sweater, 10, null);
+            Assert.Equal(1, (await s.TechCards.GetAsync(id)).Version);
+        }
+    }
+
     private async Task<CreatedOrganization> CreateAsync()
     {
         int[] w = [2, 4, 10, 3, 5, 9, 4, 6, 8];

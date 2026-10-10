@@ -48,6 +48,13 @@ public sealed class TechCard
     public long? ActivatedByUserId { get; private set; }
     public DateTime? ActivatedAtUtc { get; private set; }
     public byte[] RowVersion { get; private set; } = [];
+
+    /// <summary>
+    /// Номер правки состава (аудит 10.10.2026, п. 1): растёт при любом изменении партии или строк, поэтому строка самой карты
+    /// обновляется и её rowversion проверяется — старая вкладка получает конфликт, а не перезаписывает чужую правку.
+    /// </summary>
+    public int Revision { get; private set; }
+
     public IReadOnlyList<TechCardLine> Lines => _lines;
 
     public static TechCard Create(long organizationId, long itemId, int version, decimal outputQuantity, string? comment, long userId, DateTime nowUtc)
@@ -90,8 +97,10 @@ public sealed class TechCard
             throw new BusinessRuleException("techcard.output", "Количество изделия в партии — больше нуля.");
         }
 
+        var text = DomainText.Optional(comment, CommentMaxLength, "Комментарий");
         OutputQuantity = outputQuantity;
-        Comment = DomainText.Optional(comment, CommentMaxLength, "Комментарий");
+        Comment = text;
+        Revision++;
     }
 
     /// <summary>Норма материала на партию: добавляет строку или меняет существующую.</summary>
@@ -132,6 +141,8 @@ public sealed class TechCard
         {
             line.Set(quantity, wastePercent);
         }
+
+        Revision++;
     }
 
     public void RemoveLine(long materialItemId)
@@ -140,6 +151,7 @@ public sealed class TechCard
         var line = _lines.FirstOrDefault(l => l.ItemId == materialItemId)
                    ?? throw new BusinessRuleException("techcard.line_missing", "Такого материала в карте нет.");
         _lines.Remove(line);
+        Revision++;
     }
 
     /// <summary>Ввод в действие. Предыдущую действующую версию изделия архивирует сервис в той же транзакции.</summary>

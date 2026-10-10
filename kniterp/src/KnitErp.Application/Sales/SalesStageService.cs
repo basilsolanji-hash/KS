@@ -41,9 +41,11 @@ public sealed class SalesStageService(IKnitErpDbContext db, IAccessGuard guard, 
         var stage = SalesOrderStage.Create(ctx.OrganizationId, name, color, last + 10);
         await EnsureFreeAsync(ctx, stage.Name, null, ct);
         db.SalesOrderStages.Add(stage);
+        await using var tx = await db.BeginTransactionAsync(ct);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.CatalogCreated, stage.Id, null, $"{stage.Name} ({stage.Color})", "Этап заказа покупателя");
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return stage.Id;
     }
 

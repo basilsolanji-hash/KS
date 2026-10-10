@@ -52,9 +52,11 @@ internal sealed class CustomFieldStore(IKnitErpDbContext db, ICurrentUser curren
         var field = CustomFieldDefinition.Create(ctx.OrganizationId, target, name, type, last + 10, type == CustomFieldType.Catalog ? catalogId : null);
         await EnsureFreeAsync(ctx, target, field.Name, null, ct);
         db.CustomFieldDefinitions.Add(field);
+        await using var tx = await db.BeginTransactionAsync(ct);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.CatalogCreated, field.Id, null, $"{field.Name} ({CustomFieldDefinition.TypeName(field.Type)})", reason);
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return field.Id;
     }
 

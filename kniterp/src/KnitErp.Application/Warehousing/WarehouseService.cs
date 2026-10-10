@@ -46,9 +46,11 @@ public sealed class WarehouseService(IKnitErpDbContext db, IAccessGuard guard, I
         var site = Site.Create(ctx.OrganizationId, name, address);
         await EnsureSiteNameFreeAsync(ctx, site.Name, null, ct);
         db.Sites.Add(site);
+        await using var tx = await db.BeginTransactionAsync(ct);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.CatalogCreated, nameof(Site), site.Id, null, site.Name, site.Address);
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return site.Id;
     }
 
@@ -84,9 +86,11 @@ public sealed class WarehouseService(IKnitErpDbContext db, IAccessGuard guard, I
         var warehouse = Warehouse.Create(ctx.OrganizationId, name, siteId);
         await EnsureWarehouseNameFreeAsync(ctx, warehouse.Name, null, ct);
         db.Warehouses.Add(warehouse);
+        await using var tx = await db.BeginTransactionAsync(ct);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.CatalogCreated, nameof(Warehouse), warehouse.Id, null, warehouse.Name, siteName);
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return warehouse.Id;
     }
 

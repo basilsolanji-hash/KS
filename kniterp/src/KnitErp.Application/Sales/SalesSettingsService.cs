@@ -50,9 +50,11 @@ public sealed class SalesSettingsService(IKnitErpDbContext db, IAccessGuard guar
         var lookup = Lookup.Create(ctx.OrganizationId, kind, name);
         await EnsureLookupFreeAsync(ctx, kind, lookup.Name, null, ct);
         db.Lookups.Add(lookup);
+        await using var tx = await db.BeginTransactionAsync(ct);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.CatalogCreated, nameof(Lookup), lookup.Id, null, lookup.Name, Lookup.KindName(kind));
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return lookup.Id;
     }
 

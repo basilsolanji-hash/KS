@@ -35,15 +35,30 @@ check_disk() {
   (( free >= DISK_MIN_FREE_PCT )) || echo "Свободно ${free}% диска (порог ${DISK_MIN_FREE_PCT}%)"
 }
 
-# Возраст самого свежего файла по маске в минутах; пусто — файлов нет.
+# Возраст самого свежего непустого файла по маске в минутах; пусто — файлов нет. Пустой файл копией не считается.
 newest_age_min() {
   local newest
-  newest="$(find "$BACKUP_DIR/enc" -name "$1" -printf '%T@\n' 2>/dev/null | sort -n | tail -1)"
+  newest="$(find "$BACKUP_DIR/enc" -name "$1" -size +0 -printf '%T@\n' 2>/dev/null | sort -n | tail -1)"
   [[ -n "$newest" ]] && echo $(( ( $(date +%s) - ${newest%.*} ) / 60 ))
 }
 
+BACKUP_STATUS_DIR="${BACKUP_STATUS_DIR:-/var/lib/kniterp-backup}"
+
+# Возраст файла в минутах по времени изменения; пусто — файла нет.
+file_age_min() {
+  [[ -f "$1" ]] && echo $(( ( $(date +%s) - $(stat -c %Y "$1") ) / 60 ))
+}
+
 check_backups() {
-  local full log
+  local full log offsite
+  # Последний запуск backup.sh завершился ошибкой — тревога сразу, даже если старые копии ещё свежие.
+  if [[ -f "$BACKUP_STATUS_DIR/last-error" ]]; then echo "Резервная копия не создана: $(cat "$BACKUP_STATUS_DIR/last-error")"; return; fi
+  if [[ -n "${RCLONE_REMOTE:-}" ]]; then
+    offsite="$(file_age_min "$BACKUP_STATUS_DIR/last-offsite")"
+    if [[ -z "$offsite" ]] || (( offsite > FULL_MAX_AGE_H * 60 )); then
+      echo "Нет подтверждённой копии во внешнем хранилище за ${FULL_MAX_AGE_H} ч ($RCLONE_REMOTE)"; return
+    fi
+  fi
   full="$(newest_age_min 'kniterp-full-*.enc')"
   if [[ -z "$full" ]]; then echo "Нет ни одной полной резервной копии в $BACKUP_DIR/enc"; return; fi
   (( full <= FULL_MAX_AGE_H * 60 )) || { echo "Последняя полная копия — $(( full / 60 )) ч назад (порог ${FULL_MAX_AGE_H} ч)"; return; }

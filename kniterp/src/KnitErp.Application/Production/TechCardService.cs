@@ -122,9 +122,11 @@ public sealed class TechCardService(IKnitErpDbContext db, IAccessGuard guard, IC
         var card = TechCard.Create(ctx.OrganizationId, productItemId, await NextVersionAsync(ctx, productItemId, ct), outputQuantity, comment,
             ctx.UserId, clock.UtcNow);
         db.TechCards.Add(card);
+        await using var tx = await db.BeginTransactionAsync(ct);
         await db.SaveOrConflictAsync(ct);
         Audit(ctx, AuditActions.CatalogCreated, card.Id, null, $"{product.Code} {product.Name}, версия {card.Version}", "Техкарта");
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return card.Id;
     }
 
@@ -135,9 +137,11 @@ public sealed class TechCardService(IKnitErpDbContext db, IAccessGuard guard, IC
         var source = await FindAsync(ctx, id, ct);
         var copy = source.CopyAsVersion(await NextVersionAsync(ctx, source.ItemId, ct), ctx.UserId, clock.UtcNow);
         db.TechCards.Add(copy);
+        await using var tx = await db.BeginTransactionAsync(ct);
         await db.SaveOrConflictAsync(ct);
         Audit(ctx, AuditActions.CatalogCreated, copy.Id, null, $"Версия {copy.Version} копией версии {source.Version}", "Техкарта");
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return copy.Id;
     }
 

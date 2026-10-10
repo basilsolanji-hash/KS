@@ -88,10 +88,12 @@ public sealed class LegalEntityService(IKnitErpDbContext db, IAccessGuard guard,
         var entity = LegalEntity.Create(ctx.OrganizationId, country, data, isDefault: !hasDefault);
         await EnsureUniqueAsync(ctx, entity.Inn, entity.Kpp, null, ct);
         db.LegalEntities.Add(entity);
+        await using var tx = await db.BeginTransactionAsync(ct);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.CatalogCreated, nameof(LegalEntity), entity.Id, null,
             $"{entity.ShortName}, ИНН {entity.Inn}{(entity.Kpp is null ? "" : ", КПП " + entity.Kpp)}", LegalEntity.KindName(entity.Kind));
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return entity.Id;
     }
 
@@ -130,10 +132,12 @@ public sealed class LegalEntityService(IKnitErpDbContext db, IAccessGuard guard,
         }
 
         // Сначала снимается прежнее основное: уникальный индекс «одно основное» проверяется на каждой строке.
+        await using var tx = await db.BeginTransactionAsync(ct);
         await db.SaveOrConflictAsync(ct);
         entity.SetDefault(true);
         Audit(ctx, AuditActions.CatalogChanged, nameof(LegalEntity), id, current.FirstOrDefault()?.ShortName, entity.ShortName, "Основное юрлицо");
         await db.SaveOrConflictAsync(ct);
+        await tx.CommitAsync(ct);
     }
 
     public async Task SetArchivedAsync(long id, bool archived, byte[] rowVersion, CancellationToken ct = default)
@@ -167,10 +171,12 @@ public sealed class LegalEntityService(IKnitErpDbContext db, IAccessGuard guard,
             cmd.CorrAccount, isDefault: !await accounts.AnyAsync(a => a.IsDefault, ct));
         await EnsureAccountFreeAsync(legalEntityId, account.Account, null, ct);
         db.LegalEntityAccounts.Add(account);
+        await using var tx = await db.BeginTransactionAsync(ct);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.CatalogCreated, nameof(LegalEntityAccount), account.Id, null, $"{account.BankName}, р/с {account.Account}",
             $"Расчётный счёт: {entity.ShortName}");
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return account.Id;
     }
 
@@ -199,10 +205,12 @@ public sealed class LegalEntityService(IKnitErpDbContext db, IAccessGuard guard,
             a.SetDefault(false);
         }
 
+        await using var tx = await db.BeginTransactionAsync(ct);
         await db.SaveOrConflictAsync(ct);
         account.SetDefault(true);
         Audit(ctx, AuditActions.CatalogChanged, nameof(LegalEntityAccount), id, current.FirstOrDefault()?.Account, account.Account, "Основной расчётный счёт");
         await db.SaveOrConflictAsync(ct);
+        await tx.CommitAsync(ct);
     }
 
     /// <summary>Счёт в архив: в выписанных счетах он остаётся, в новых заказах его не выбрать. Основным становится другой счёт, если есть.</summary>

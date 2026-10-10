@@ -91,9 +91,11 @@ public sealed class NomenclatureService(IKnitErpDbContext db, IAccessGuard guard
         var group = ItemGroup.Create(ctx.OrganizationId, parentId, name);
         await EnsureGroupFreeAsync(ctx, parentId, group.Name, null, ct);
         db.ItemGroups.Add(group);
+        await using var tx = await db.BeginTransactionAsync(ct);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.CatalogCreated, nameof(ItemGroup), group.Id, null, group.Name, "Группа номенклатуры");
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return group.Id;
     }
 
@@ -339,9 +341,11 @@ public sealed class NomenclatureService(IKnitErpDbContext db, IAccessGuard guard
         var type = PriceType.Create(ctx.OrganizationId, name, includesVat, !await types.AnyAsync(t => t.IsDefault, ct), last + 10);
         await EnsurePriceTypeFreeAsync(ctx, type.Name, null, ct);
         db.PriceTypes.Add(type);
+        await using var tx = await db.BeginTransactionAsync(ct);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.CatalogCreated, nameof(PriceType), type.Id, null, type.Name, "Вид цены");
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return type.Id;
     }
 
@@ -365,10 +369,12 @@ public sealed class NomenclatureService(IKnitErpDbContext db, IAccessGuard guard
 
         var current = await db.PriceTypes.Where(t => t.OrganizationId == ctx.OrganizationId && t.IsDefault).ToListAsync(ct);
         current.ForEach(t => t.SetDefault(false));
+        await using var tx = await db.BeginTransactionAsync(ct);
         await db.SaveOrConflictAsync(ct);
         type.SetDefault(true);
         Audit(ctx, AuditActions.CatalogChanged, nameof(PriceType), id, current.FirstOrDefault()?.Name, type.Name, "Основной вид цены");
         await db.SaveOrConflictAsync(ct);
+        await tx.CommitAsync(ct);
     }
 
     public async Task SetPriceTypeArchivedAsync(long id, bool archived, byte[] rowVersion, CancellationToken ct = default)
@@ -430,9 +436,11 @@ public sealed class NomenclatureService(IKnitErpDbContext db, IAccessGuard guard
         var catalog = UserCatalog.Create(ctx.OrganizationId, name);
         await EnsureCatalogFreeAsync(ctx, catalog.Name, null, ct);
         db.UserCatalogs.Add(catalog);
+        await using var tx = await db.BeginTransactionAsync(ct);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.CatalogCreated, nameof(UserCatalog), catalog.Id, null, catalog.Name, "Свой справочник");
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return catalog.Id;
     }
 
@@ -507,9 +515,11 @@ public sealed class NomenclatureService(IKnitErpDbContext db, IAccessGuard guard
         var entry = UserCatalogEntry.Create(ctx.OrganizationId, catalogId, name, code);
         await EnsureEntryFreeAsync(catalogId, entry.Name, null, ct);
         db.UserCatalogEntries.Add(entry);
+        await using var tx = await db.BeginTransactionAsync(ct);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.CatalogCreated, nameof(UserCatalogEntry), entry.Id, null, entry.Display, catalog.Name);
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return entry.Id;
     }
 
