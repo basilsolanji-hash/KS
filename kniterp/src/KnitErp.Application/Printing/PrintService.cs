@@ -22,10 +22,15 @@ public sealed record InvoicePrintDto(
     bool PricesIncludeVat, IReadOnlyList<PrintLineDto> Lines, decimal Total, decimal VatTotal, string TotalInWords, string CurrencyCode,
     bool Cancelled);
 
+/// <summary>
+/// УПД со статусом 1 (D68, D71). Number — порядковый номер счёта-фактуры (цифры номера отгрузки), ShipmentNumber — документ
+/// об отгрузке (строка 5а). PaymentDocuments — строка 5: платёжные документы предоплаты до даты отгрузки. Warnings — чего
+/// не хватает для правильного документа; на бумагу не выводятся.
+/// </summary>
 public sealed record UpdPrintDto(
-    string Number, DateOnly Date, PrintPartyDto Seller, PrintRequisites Requisites, PrintPartyDto Buyer, string Basis, string Warehouse,
-    IReadOnlyList<PrintLineDto> Lines, decimal TotalWithoutVat, decimal VatTotal, decimal Total, string TotalInWords, string Currency,
-    bool Reversed);
+    string Number, DateOnly Date, string ShipmentNumber, PrintPartyDto Seller, PrintRequisites Requisites, PrintPartyDto Buyer, string Basis,
+    string Warehouse, IReadOnlyList<PrintLineDto> Lines, decimal TotalWithoutVat, decimal VatTotal, decimal Total, string TotalInWords, string Currency,
+    bool Reversed, string? PaymentDocuments, IReadOnlyList<string> Warnings);
 
 /// <summary>
 /// Данные печатных форм (D68): счёт на оплату — по счёту покупателю; УПД (статус 1: счёт-фактура и передаточный документ) —
@@ -85,11 +90,76 @@ public sealed class PrintService(IKnitErpDbContext db, IAccessGuard guard)
             .ToList();
         var total = lines.Sum(l => l.Amount);
         var country = Countries.Get(org.CountryCode);
-        return new UpdPrintDto(doc.Number, doc.DocumentDate, Seller(org), Requisites(org), await BuyerAsync(doc.CounterpartyId!.Value, ct),
+        var buyer = await BuyerAsync(doc.CounterpartyId!.Value, ct);
+        var buyerIsRussianCompany = await db.Counterparties.AsNoTracking().Where(c => c.Id == doc.CounterpartyId)
+            .Select(c => c.CountryCode == Countries.Russia).SingleAsync(ct);
+
+        // Строка 5: оплата (предоплата) до отгрузки — номер и дата платёжного документа покупателя.
+        var prepayments = await db.CustomerPayments.AsNoTracking()
+            .Where(p => p.OrganizationId == ctx.OrganizationId && p.SalesOrderId == order.Id && p.Status == CustomerPaymentStatus.Posted
+                        && p.PaymentDate <= doc.DocumentDate)
+            .OrderBy(p => p.PaymentDate).Select(p => new { p.DocumentNumber, p.PaymentDate }).ToListAsync(ct);
+        var paymentDocuments = prepayments.Count == 0 ? null
+            : string.Join("; ", prepayments.Select(p => $"№ {p.DocumentNumber ?? "—"} от {p.PaymentDate:dd.MM.yyyy}"));
+
+        var seller = Seller(org);
+        var warnings = new List<string>();
+        if (org.CountryCode != Countries.Russia)
+        {
+            warnings.Add("Форма УПД — российская; для организации другой страны нужен документ по её законодательству.");
+        }
+
+        if (seller.Kpp is null)
+        {
+            warnings.Add("КПП продавца не указан или не сверен — строка 2б неполная. Сверьте КПП в разделе «Организация».");
+        }
+
+        if (seller.Address is null)
+        {
+            warnings.Add("Не указан адрес продавца (строка 2а) — заполните юридический адрес в разделе «Организация».");
+        }
+
+        if (buyer.Inn is null && buyerIsRussianCompany)
+        {
+            warnings.Add("У покупателя не указан ИНН (строка 6б) — заполните его в карточке контрагента.");
+        }
+
+        if (buyer.Address is null)
+        {
+            warnings.Add("Не указан адрес покупателя (строка 6а) — заполните его в карточке контрагента.");
+        }
+
+        if (org.DirectorName is null)
+        {
+            warnings.Add("Не указан руководитель для подписи — раздел «Организация», «Реквизиты для печати».");
+        }
+
+        if (prepayments.Any(p => p.DocumentNumber is null))
+        {
+            warnings.Add("У оплаты до отгрузки не указан номер платёжного документа покупателя (строка 5).");
+        }
+
+        if (prepayments.Count > 0)
+        {
+            warnings.Add("Отгрузка в счёт предоплаты: в строке 5б указываются авансовые счета-фактуры, выставленные при получении оплаты. "
+                         + "В knitERP авансовые счета-фактуры пока не оформляются — впишите их реквизиты из учётной программы.");
+        }
+
+        return new UpdPrintDto(VatInvoiceNumber(doc.Number), doc.DocumentDate, doc.Number, seller, Requisites(org), buyer,
             Basis(order), warehouse, lines, lines.Sum(l => l.AmountWithoutVat), lines.Sum(l => l.VatAmount), total,
             AmountInWords.Format(total, org.CurrencyCode),
-            $"{country.CurrencyName}, {CurrencyNumeric.GetValueOrDefault(org.CurrencyCode, org.CurrencyCode)}",
-            doc.Status == StockDocumentStatus.Reversed);
+            $"{char.ToUpperInvariant(country.CurrencyName[0])}{country.CurrencyName[1..]}, {CurrencyNumeric.GetValueOrDefault(org.CurrencyCode, org.CurrencyCode)}",
+            doc.Status == StockDocumentStatus.Reversed, paymentDocuments, warnings);
+    }
+
+    /// <summary>
+    /// Порядковый номер счёта-фактуры (подп. «а» п. 1 Правил заполнения, ПП № 1137) — цифры номера отгрузки без префикса и ведущих нулей:
+    /// «ОТ-000015» → «15». Нумерация отгрузок сквозная по организации и идёт по хронологии их оформления (D71).
+    /// </summary>
+    public static string VatInvoiceNumber(string shipmentNumber)
+    {
+        var digits = new string(shipmentNumber.SkipWhile(c => !char.IsAsciiDigit(c)).Where(char.IsAsciiDigit).ToArray()).TrimStart('0');
+        return digits.Length == 0 ? shipmentNumber : digits;
     }
 
     private async Task<AccessContext> DemandAsync(CancellationToken ct)
@@ -102,7 +172,8 @@ public sealed class PrintService(IKnitErpDbContext db, IAccessGuard guard)
     private static PrintPartyDto Seller(Organization org) => new(org.FullName, org.Inn, org.PrintableKpp, org.LegalAddress ?? org.ActualAddress);
 
     private static PrintRequisites Requisites(Organization o) =>
-        new(o.LegalAddress ?? o.ActualAddress, o.BankName, o.BankBic, o.BankAccount, o.BankCorrAccount, o.DirectorName, o.AccountantName);
+        new(o.LegalAddress ?? o.ActualAddress, o.BankName, o.BankBic, o.BankAccount, o.BankCorrAccount, o.DirectorName, o.AccountantName,
+            o.DirectorPosition);
 
     private async Task<PrintPartyDto> BuyerAsync(long counterpartyId, CancellationToken ct) =>
         await db.Counterparties.AsNoTracking().Where(c => c.Id == counterpartyId)

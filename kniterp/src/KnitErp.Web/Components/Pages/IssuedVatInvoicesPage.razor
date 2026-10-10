@@ -15,7 +15,7 @@ else if (_rows is null)
 else
 {
     <h1>@L("Счета-фактуры выданные")</h1>
-    <p class="muted">@L("Счёт-фактура выдаётся в составе УПД по проведённой отгрузке по заказу покупателя; номер — номер отгрузки. Сторнированная отгрузка — аннулированный счёт-фактура, в итоги не входит.")</p>
+    <p class="muted">@L("Счёт-фактура выдаётся в составе УПД по проведённой отгрузке по заказу покупателя; порядковый номер — цифры номера отгрузки. Сторнированная отгрузка — аннулированный счёт-фактура, в итоги не входит.")</p>
 
     @if (_error is not null)
     {
@@ -33,17 +33,18 @@ else
 
     <div class="scroll">
         <table>
-            <thead><tr><th>@L("Номер")</th><th>@L("Дата")</th><th>@L("Покупатель")</th><th class="opt">@L("ИНН/КПП")</th><th class="opt">@L("Заказ")</th><th class="num">@L("Без НДС")</th><th class="num">@L("НДС")</th><th class="num">@L("Всего")</th><th></th></tr></thead>
+            <thead><tr><th>@L("Номер")</th><th>@L("Дата")</th><th class="opt">@L("Отгрузка")</th><th>@L("Покупатель")</th><th class="opt">@L("ИНН/КПП")</th><th class="opt">@L("Заказ")</th><th class="num">@L("Без НДС")</th><th class="num">@L("НДС")</th><th class="num">@L("Всего")</th><th></th></tr></thead>
             <tbody>
                 @if (_rows.Count == 0)
                 {
-                    <tr><td colspan="9" class="muted">@L("За период счетов-фактур нет.")</td></tr>
+                    <tr><td colspan="10" class="muted">@L("За период счетов-фактур нет.")</td></tr>
                 }
                 @foreach (var r in _rows)
                 {
                     <tr class="@(r.Annulled ? "archived" : null)">
-                        <td><a href="stock-documents/@r.DocumentId">@r.Number</a> @if (r.Annulled) { <span class="tag">@L("аннулирован")</span> }</td>
+                        <td>@r.InvoiceNumber @if (r.Annulled) { <span class="tag">@L("аннулирован")</span> }</td>
                         <td>@r.Date.ToString("dd.MM.yyyy")</td>
+                        <td><a href="stock-documents/@r.DocumentId">@r.Number</a></td>
                         <td>@r.Customer</td>
                         <td>@r.Inn@(r.Kpp is null ? "" : "/" + r.Kpp)</td>
                         <td>@r.OrderNumber</td>
@@ -57,7 +58,7 @@ else
             @if (_rows.Count > 0)
             {
                 var valid = _rows.Where(r => !r.Annulled).ToList();
-                <tfoot><tr><td colspan="5"><b>@L("Итого")</b></td><td class="num">@Amounts.Format(valid.Sum(r => r.AmountWithoutVat))</td><td class="num"><b>@Amounts.Format(valid.Sum(r => r.VatAmount))</b></td><td class="num"><b>@Amounts.Format(valid.Sum(r => r.Amount))</b></td><td></td></tr></tfoot>
+                <tfoot><tr><td colspan="6"><b>@L("Итого")</b></td><td class="num">@Amounts.Format(valid.Sum(r => r.AmountWithoutVat))</td><td class="num"><b>@Amounts.Format(valid.Sum(r => r.VatAmount))</b></td><td class="num"><b>@Amounts.Format(valid.Sum(r => r.Amount))</b></td><td></td></tr></tfoot>
             }
         </table>
     </div>

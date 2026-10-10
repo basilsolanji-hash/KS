@@ -3,6 +3,7 @@ using KnitErp.Application.Catalog;
 using KnitErp.Application.Common;
 using KnitErp.Application.Organizations;
 using KnitErp.Domain.Organizations;
+using KnitErp.Application.Printing;
 using KnitErp.Application.Sales;
 using KnitErp.Application.Warehousing;
 using KnitErp.Domain.Access;
@@ -166,7 +167,13 @@ public sealed class SalesTests(SqlTestHost host) : IClassFixture<SqlTestHost>
             var upd = await s.Print.UpdAsync(ship);
             Assert.Equal((20_000m, 4_400m, 24_400m), (upd.TotalWithoutVat, upd.VatTotal, upd.Total));
             Assert.Equal((2_000m, "Двадцать четыре тысячи четыреста рублей 00 копеек"), (upd.Lines.Single().Price, upd.TotalInWords));
-            Assert.EndsWith("643", upd.Currency);
+            Assert.Equal("Российский рубль, 643", upd.Currency);
+            // Порядковый номер счёта-фактуры — цифры номера отгрузки; оплата до отгрузки — в строке 5, без номера п/п — предупреждение.
+            Assert.Equal(PrintService.VatInvoiceNumber(upd.ShipmentNumber), upd.Number);
+            Assert.Matches("^[1-9][0-9]*$", upd.Number);
+            Assert.Equal("№ — от 09.10.2026", upd.PaymentDocuments);
+            Assert.Contains(upd.Warnings, w => w.Contains("строка 5)"));
+            Assert.Contains(upd.Warnings, w => w.Contains("КПП продавца"));
 
             // Отмена счёта с причиной — затем можно выставить новый.
             Assert.Equal("field.required", (await Assert.ThrowsAsync<BusinessRuleException>(() =>
@@ -326,6 +333,7 @@ public sealed class SalesTests(SqlTestHost host) : IClassFixture<SqlTestHost>
             await s.Documents.PostAsync(ship, (await s.Documents.GetAsync(ship)).RowVersion);
             var issued = (await s.VatInvoices.IssuedAsync(period)).Single();
             Assert.Equal((8_000m, 1_760m, 9_760m, false), (issued.AmountWithoutVat, issued.VatAmount, issued.Amount, issued.Annulled));
+            Assert.Equal(PrintService.VatInvoiceNumber(issued.Number), issued.InvoiceNumber);
             Assert.Empty(await s.VatInvoices.IssuedAsync(period with { Search = "нет такого" }));
             await s.Documents.ReverseAsync(ship, "ошибочная отгрузка", (await s.Documents.GetAsync(ship)).RowVersion);
             Assert.Empty(await s.VatInvoices.IssuedAsync(period));

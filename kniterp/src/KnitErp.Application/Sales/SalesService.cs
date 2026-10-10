@@ -339,7 +339,12 @@ public sealed class SalesService(
     }
 
     /// <summary>Оплата от покупателя: сразу уменьшает его долг. Заказ — по желанию, того же покупателя.</summary>
-    public async Task<long> CreatePaymentAsync(DateOnly date, long customerId, long? orderId, decimal amount, string? comment, CancellationToken ct = default)
+    public async Task<long> CreatePaymentAsync(DateOnly date, long customerId, long? orderId, decimal amount, string? comment, CancellationToken ct = default) =>
+        await CreatePaymentAsync(date, customerId, orderId, amount, comment, null, ct);
+
+    /// <summary>documentNumber — номер платёжного поручения покупателя: нужен для строки 5 счёта-фактуры при предоплате.</summary>
+    public async Task<long> CreatePaymentAsync(
+        DateOnly date, long customerId, long? orderId, decimal amount, string? comment, string? documentNumber, CancellationToken ct = default)
     {
         var ctx = await DemandEditAsync(ct);
         var customer = await db.Counterparties.AsNoTracking().SingleOrDefaultAsync(c => c.Id == customerId && c.OrganizationId == ctx.OrganizationId, ct)
@@ -362,7 +367,7 @@ public sealed class SalesService(
         await ClosedPeriod.EnsureOpenAsync(db, ctx.OrganizationId, date, ct);
         await using var tx = await db.BeginTransactionAsync(ct);
         var number = await DocumentNumbers.NextAsync(db, ctx.OrganizationId, CustomerPayment.NumberPrefix, ct);
-        var payment = CustomerPayment.Create(ctx.OrganizationId, number, date, customerId, orderId, amount, comment, ctx.UserId, clock.UtcNow);
+        var payment = CustomerPayment.Create(ctx.OrganizationId, number, date, customerId, orderId, amount, comment, ctx.UserId, clock.UtcNow, documentNumber);
         db.CustomerPayments.Add(payment);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.CustomerPaymentCreated, nameof(CustomerPayment), payment.Id, null, $"{payment.Amount:0.00}",

@@ -120,6 +120,7 @@ else
             @PrintRow(L("БИК"), pr.BankBic, 11, v => _print!.BankBic = v, () => _print?.BankBic)
             @PrintRow(L("Расчётный счёт"), pr.BankAccount, 40, v => _print!.BankAccount = v, () => _print?.BankAccount)
             @PrintRow(L("Корреспондентский счёт"), pr.BankCorrAccount, 40, v => _print!.BankCorrAccount = v, () => _print?.BankCorrAccount)
+            @PrintRow(L("Должность руководителя"), pr.DirectorPosition, 100, v => _print!.DirectorPosition = v, () => _print?.DirectorPosition)
             @PrintRow(L("Руководитель"), pr.DirectorName, 150, v => _print!.DirectorName = v, () => _print?.DirectorName)
             @PrintRow(L("Главный бухгалтер"), pr.AccountantName, 150, v => _print!.AccountantName = v, () => _print?.AccountantName)
         </table>
@@ -173,6 +174,7 @@ else
         {
             LegalAddress = p.LegalAddress, BankName = p.BankName, BankBic = p.BankBic, BankAccount = p.BankAccount,
             BankCorrAccount = p.BankCorrAccount, DirectorName = p.DirectorName, AccountantName = p.AccountantName,
+            DirectorPosition = p.DirectorPosition ?? "Генеральный директор",
         };
         _printError = null;
     }
@@ -188,7 +190,8 @@ else
         try
         {
             _org = await Organizations.UpdatePrintRequisitesAsync(new UpdatePrintRequisitesCommand(new KnitErp.Domain.Organizations.PrintRequisites(
-                _print.LegalAddress, _print.BankName, _print.BankBic, _print.BankAccount, _print.BankCorrAccount, _print.DirectorName, _print.AccountantName),
+                _print.LegalAddress, _print.BankName, _print.BankBic, _print.BankAccount, _print.BankCorrAccount, _print.DirectorName, _print.AccountantName,
+                _print.DirectorPosition),
                 _org!.RowVersion));
             _print = null;
             _printError = null;
@@ -212,6 +215,7 @@ else
         public string? BankCorrAccount { get; set; }
         public string? DirectorName { get; set; }
         public string? AccountantName { get; set; }
+        public string? DirectorPosition { get; set; }
     }
 
     protected override async Task OnInitializedAsync()

@@ -39,7 +39,8 @@ else
                 </label>
                 <label>@L("Дата") <input type="date" @bind="_date" /></label>
                 <label>@L("Сумма") <input @bind="_amount" inputmode="decimal" size="12" /></label>
-                <label>@L("Комментарий") <input @bind="_comment" maxlength="@CustomerPayment.CommentMaxLength" placeholder="@L("п/п № 101")" /></label>
+                <label>@L("№ платёжного документа") <input @bind="_document" maxlength="@CustomerPayment.DocumentNumberMaxLength" size="10" placeholder="101" /></label>
+                <label>@L("Комментарий") <input @bind="_comment" maxlength="@CustomerPayment.CommentMaxLength" /></label>
                 <button type="submit" disabled="@_busy">@L("Записать оплату")</button>
             </form>
             <p class="muted">@L("Оплату по конкретному заказу удобнее записывать в карточке заказа.")</p>
@@ -119,6 +120,7 @@ else
     private DateTime _date = DateTime.Today;
     private string _amount = string.Empty;
     private string? _comment;
+    private string? _document;
     private long? _cancelId;
     private string _reason = string.Empty;
 
@@ -160,7 +162,8 @@ else
             throw new BusinessRuleException("sales.number", L("Укажите число, например 1 220,50."));
         }
 
-        await Sales.CreatePaymentAsync(DateOnly.FromDateTime(_date), supplier, null, amount, _comment);
+        await Sales.CreatePaymentAsync(DateOnly.FromDateTime(_date), supplier, null, amount, _comment, _document);
+        _document = null;
         _amount = string.Empty;
         _comment = null;
     }, L("Оплата записана."));

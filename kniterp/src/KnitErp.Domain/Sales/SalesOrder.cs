@@ -259,6 +259,7 @@ public sealed class CustomerPayment
 {
     public const string NumberPrefix = "ПО";
     public const int CommentMaxLength = 500;
+    public const int DocumentNumberMaxLength = 30;
 
     private CustomerPayment()
     {
@@ -271,6 +272,13 @@ public sealed class CustomerPayment
     public long CustomerId { get; private set; }
     public long? SalesOrderId { get; private set; }
     public decimal Amount { get; private set; }
+
+    /// <summary>
+    /// Номер платёжного документа покупателя (платёжного поручения); дата — дата оплаты. Печатается в строке 5 счёта-фактуры
+    /// при отгрузке в счёт предоплаты (подп. «з» п. 1 Правил заполнения, ПП № 1137).
+    /// </summary>
+    public string? DocumentNumber { get; private set; }
+
     public string? Comment { get; private set; }
     public CustomerPaymentStatus Status { get; private set; }
     public long CreatedByUserId { get; private set; }
@@ -281,7 +289,8 @@ public sealed class CustomerPayment
     public byte[] RowVersion { get; private set; } = [];
 
     public static CustomerPayment Create(
-        long organizationId, string number, DateOnly date, long customerId, long? orderId, decimal amount, string? comment, long userId, DateTime nowUtc)
+        long organizationId, string number, DateOnly date, long customerId, long? orderId, decimal amount, string? comment, long userId, DateTime nowUtc,
+        string? documentNumber = null)
     {
         if (amount <= 0 || Money.Round(amount) != amount)
         {
@@ -290,6 +299,7 @@ public sealed class CustomerPayment
 
         return new CustomerPayment
         {
+            DocumentNumber = DomainText.Optional(documentNumber, DocumentNumberMaxLength, "№ платёжного документа"),
             OrganizationId = organizationId,
             Number = number,
             PaymentDate = date,

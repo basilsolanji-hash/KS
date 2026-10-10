@@ -13,7 +13,7 @@ public sealed record VatJournalFilter(DateOnly From, DateOnly To, string? Search
 
 /// <summary>Выданный счёт-фактура = УПД по отгрузке (D68). Annulled — отгрузка сторнирована, в итоги не входит.</summary>
 public sealed record IssuedVatInvoiceDto(
-    long DocumentId, string Number, DateOnly Date, string Customer, string? Inn, string? Kpp, string OrderNumber,
+    long DocumentId, string InvoiceNumber, string Number, DateOnly Date, string Customer, string? Inn, string? Kpp, string OrderNumber,
     decimal AmountWithoutVat, decimal VatAmount, bool Annulled)
 {
     public decimal Amount => AmountWithoutVat + VatAmount;
@@ -79,7 +79,7 @@ public sealed class VatInvoiceService(IKnitErpDbContext db, IAccessGuard guard, 
                     order.Lines.Single(x => x.ItemId == l.ItemId).VatPercent, order.PricesIncludeVat);
                 return (acc.Amount + a, acc.Vat + v);
             });
-            return new IssuedVatInvoiceDto(d.Id, d.Number, d.DocumentDate, d.Name, d.Inn, d.Kpp, d.OrderNumber, amount - vat, vat,
+            return new IssuedVatInvoiceDto(d.Id, KnitErp.Application.Printing.PrintService.VatInvoiceNumber(d.Number), d.Number, d.DocumentDate, d.Name, d.Inn, d.Kpp, d.OrderNumber, amount - vat, vat,
                 d.Status == StockDocumentStatus.Reversed);
         }).ToList();
     }

@@ -16,6 +16,7 @@ public sealed class Organization
     public const int BicMaxLength = 11;
     public const int AccountMaxLength = 34;
     public const int PersonNameMaxLength = 150;
+    public const int PositionMaxLength = 100;
 
     private Organization()
     {
@@ -60,6 +61,9 @@ public sealed class Organization
     public string? DirectorName { get; private set; }
 
     public string? AccountantName { get; private set; }
+
+    /// <summary>Должность руководителя для подписи в УПД («Генеральный директор»).</summary>
+    public string? DirectorPosition { get; private set; }
 
     public bool IsArchived { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
@@ -148,6 +152,7 @@ public sealed class Organization
         var corr = Code(r.BankCorrAccount, AccountMaxLength, "Корреспондентский счёт");
         var director = DomainText.Optional(r.DirectorName, PersonNameMaxLength, "Руководитель");
         var accountant = DomainText.Optional(r.AccountantName, PersonNameMaxLength, "Главный бухгалтер");
+        var position = DomainText.Optional(r.DirectorPosition, PositionMaxLength, "Должность руководителя");
 
         if (CountryCode == Countries.Russia)
         {
@@ -190,6 +195,7 @@ public sealed class Organization
         BankCorrAccount = Set("BankCorrAccount", BankCorrAccount, corr);
         DirectorName = Set("DirectorName", DirectorName, director);
         AccountantName = Set("AccountantName", AccountantName, accountant);
+        DirectorPosition = Set("DirectorPosition", DirectorPosition, position);
         return changes;
     }
 
@@ -297,4 +303,5 @@ public sealed class Organization
 public sealed record FieldChange(string Field, string? Before, string? After);
 
 public sealed record PrintRequisites(
-    string? LegalAddress, string? BankName, string? BankBic, string? BankAccount, string? BankCorrAccount, string? DirectorName, string? AccountantName);
+    string? LegalAddress, string? BankName, string? BankBic, string? BankAccount, string? BankCorrAccount, string? DirectorName, string? AccountantName,
+    string? DirectorPosition = null);

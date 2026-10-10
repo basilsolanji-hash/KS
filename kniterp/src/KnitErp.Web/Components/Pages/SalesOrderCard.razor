@@ -272,7 +272,8 @@ else
             <form class="inline-form" @onsubmit="PayAsync">
                 <label>@L("Дата") <input type="date" @bind="_payDate" /></label>
                 <label>@L("Сумма") <input @bind="_payText" inputmode="decimal" size="12" /></label>
-                <label>@L("Комментарий") <input @bind="_payComment" maxlength="@CustomerPayment.CommentMaxLength" placeholder="@L("п/п № 101")" /></label>
+                <label>@L("№ платёжного документа") <input @bind="_payDocument" maxlength="@CustomerPayment.DocumentNumberMaxLength" size="10" placeholder="101" /></label>
+                <label>@L("Комментарий") <input @bind="_payComment" maxlength="@CustomerPayment.CommentMaxLength" /></label>
                 <button type="submit" disabled="@_busy">@L("Записать оплату")</button>
             </form>
         }
@@ -318,6 +319,7 @@ else
     private DateTime _payDate = DateTime.Today;
     private string _payText = string.Empty;
     private string? _payComment;
+    private string? _payDocument;
     private long? _invoiceId;
     private DateTime? _dueDate;
 
@@ -458,7 +460,8 @@ else
 
     private Task PayAsync() => RunAsync(async () =>
     {
-        await Sales.CreatePaymentAsync(DateOnly.FromDateTime(_payDate), _order!.CustomerId, Id, Number(_payText), _payComment);
+        await Sales.CreatePaymentAsync(DateOnly.FromDateTime(_payDate), _order!.CustomerId, Id, Number(_payText), _payComment, _payDocument);
+        _payDocument = null;
         _payText = string.Empty;
         _payComment = null;
     }, L("Оплата записана."));

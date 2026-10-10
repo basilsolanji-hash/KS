@@ -44,6 +44,7 @@ internal sealed class OrganizationConfiguration : IEntityTypeConfiguration<Organ
         b.Property(x => x.BankCorrAccount).HasColumnType("varchar(34)");
         b.Property(x => x.DirectorName).HasMaxLength(Organization.PersonNameMaxLength);
         b.Property(x => x.AccountantName).HasMaxLength(Organization.PersonNameMaxLength);
+        b.Property(x => x.DirectorPosition).HasMaxLength(Organization.PositionMaxLength);
         b.Property(x => x.RowVersion).IsRowVersion();
         b.Ignore(x => x.PrintableKpp);
         b.HasIndex(x => new { x.CountryCode, x.Inn }).IsUnique().HasDatabaseName("ux_organizations_country_inn");
@@ -735,6 +736,7 @@ internal sealed class CustomerPaymentConfiguration : IEntityTypeConfiguration<Cu
         b.Property(x => x.Status).HasConversion<byte>();
         b.Property(x => x.Amount).HasColumnType("decimal(19,4)");
         b.Property(x => x.Comment).HasMaxLength(CustomerPayment.CommentMaxLength);
+        b.Property(x => x.DocumentNumber).HasMaxLength(CustomerPayment.DocumentNumberMaxLength);
         b.Property(x => x.CancelReason).HasMaxLength(CustomerPayment.CommentMaxLength);
         b.Property(x => x.RowVersion).IsRowVersion();
         b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);

@@ -1393,7 +1393,6 @@
   "Корреспондентский счёт не сходится с БИК: проверьте 20 цифр (начинается с 301).": "Korrespondent hisob BIK bilan mos emas: 20 ta raqamni tekshiring (301 bilan boshlanadi).",
   "Не заполнены банковские реквизиты — раздел «Организация», «Реквизиты для печати».": "Bank rekvizitlari to'ldirilmagan — «Tashkilot» bo'limi, «Chop etish uchun rekvizitlar».",
   "не оплачен": "to'lanmagan",
-  "Не указан руководитель для подписи — раздел «Организация», «Реквизиты для печати».": "Imzo uchun rahbar ko'rsatilmagan — «Tashkilot» bo'limi, «Chop etish uchun rekvizitlar».",
   "номер, покупатель, ИНН, заказ": "raqam, xaridor, STIR, buyurtma",
   "оплатить до": "to'lash muddati",
   "Оплатить до": "To'lash muddati",
@@ -1479,10 +1478,13 @@
   "Счёт-фактура": "Hisob-faktura",
   "Счёт-фактура (или УПД) поставщика регистрируется к проведённой приёмке по заказу: номер и дата — как в документе поставщика, суммы подставляются по ценам заказа и правятся по документу.": "Yetkazib beruvchining hisob-fakturasi (yoki UPD) buyurtma bo'yicha o'tkazilgan qabul qilishga ro'yxatga olinadi: raqam va sana — yetkazib beruvchi hujjatidagidek, summalar buyurtma narxlari bo'yicha qo'yiladi va hujjat bo'yicha tuzatiladi.",
   "Счёт-фактура № {0} от {1:dd.MM.yyyy} этого поставщика уже зарегистрирован.": "Ushbu yetkazib beruvchining {1:dd.MM.yyyy} sanadagi {0}-sonli hisob-fakturasi allaqachon ro'yxatga olingan.",
-  "Счёт-фактура выдаётся в составе УПД по проведённой отгрузке по заказу покупателя; номер — номер отгрузки. Сторнированная отгрузка — аннулированный счёт-фактура, в итоги не входит.": "Hisob-faktura xaridor buyurtmasi bo'yicha o'tkazilgan jo'natish bo'yicha UPD tarkibida beriladi; raqami — jo'natish raqami. Storno qilingan jo'natish — bekor qilingan hisob-faktura, jamiga kirmaydi.",
   "Счёт-фактура зарегистрирован.": "Hisob-faktura ro'yxatga olindi.",
   "Счёт-фактура отменён.": "Hisob-faktura bekor qilindi.",
   "Счёт-фактура поставщика отменён": "Yetkazib beruvchining hisob-fakturasi bekor qilindi",
   "Счёт-фактура регистрируется к проведённой приёмке по заказу поставщику.": "Hisob-faktura yetkazib beruvchiga buyurtma bo'yicha o'tkazilgan qabul qilishga ro'yxatga olinadi.",
-  "Счёт-фактура уже отменён.": "Hisob-faktura allaqachon bekor qilingan."
+  "Счёт-фактура уже отменён.": "Hisob-faktura allaqachon bekor qilingan.",
+  "№ платёжного документа": "To'lov hujjati raqami",
+  "Должность руководителя": "Rahbar lavozimi",
+  "Проверьте перед печатью:": "Chop etishdan oldin tekshiring:",
+  "Счёт-фактура выдаётся в составе УПД по проведённой отгрузке по заказу покупателя; порядковый номер — цифры номера отгрузки. Сторнированная отгрузка — аннулированный счёт-фактура, в итоги не входит.": "Hisob-faktura xaridor buyurtmasi bo'yicha o'tkazilgan jo'natish bo'yicha UPD tarkibida beriladi; tartib raqami — jo'natish raqamining raqamlari. Storno qilingan jo'natish — bekor qilingan hisob-faktura, jamiga kirmaydi."
 }

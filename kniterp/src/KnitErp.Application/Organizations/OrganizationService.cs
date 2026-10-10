@@ -168,6 +168,6 @@ public sealed class OrganizationService(IKnitErpDbContext db, IAccessGuard guard
                 ?? throw new NotFoundException("Организация");
         return new OrganizationDto(o.Id, o.FullName, o.ShortName, o.Inn, o.Kpp, o.KppVerified, o.ActualAddress,
             o.TimeZoneId, o.CurrencyCode, o.WebsiteUrl, ctx.Permissions.Has(Permissions.OrganizationEdit), o.RowVersion, o.CountryCode,
-            new PrintRequisites(o.LegalAddress, o.BankName, o.BankBic, o.BankAccount, o.BankCorrAccount, o.DirectorName, o.AccountantName));
+            new PrintRequisites(o.LegalAddress, o.BankName, o.BankBic, o.BankAccount, o.BankCorrAccount, o.DirectorName, o.AccountantName, o.DirectorPosition));
     }
 }

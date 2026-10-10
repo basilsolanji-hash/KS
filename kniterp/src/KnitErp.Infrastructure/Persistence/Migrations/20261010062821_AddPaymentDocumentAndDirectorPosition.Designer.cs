@@ -4,6 +4,7 @@ using KnitErp.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace KnitErp.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(KnitErpDbContext))]
-    partial class KnitErpDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261010062821_AddPaymentDocumentAndDirectorPosition")]
+    partial class AddPaymentDocumentAndDirectorPosition
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

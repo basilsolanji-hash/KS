@@ -110,4 +110,12 @@ public sealed class InvoiceAndPrintTests
         invoice.Cancel(1, "ошибка", DateTime.UtcNow);
         Assert.Equal("purchase.vat_invoice.cancelled", Assert.Throws<BusinessRuleException>(() => invoice.Cancel(1, "ещё", DateTime.UtcNow)).Code);
     }
+
+    [Theory]
+    [InlineData("ОТ-000015", "15")]
+    [InlineData("ОТ-001200", "1200")]
+    [InlineData("ОТ-000000", "ОТ-000000")]
+    public void Vat_invoice_number_is_the_sequence_digits(string shipment, string expected) =>
+        Assert.Equal(expected, KnitErp.Application.Printing.PrintService.VatInvoiceNumber(shipment));
+
 }
