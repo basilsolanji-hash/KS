@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
     <title>knitERP</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="img/icon-32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="img/icon-192.png" />
+    <link rel="apple-touch-icon" href="img/icon-180.png" />
+    <link rel="manifest" href="manifest.json" />
+    <meta name="theme-color" content="#1E1E20" />
     <script src="js/theme.js"></script>
     <style>
         /* Тема (D73): переменные цветов. По умолчанию — тёмная; светлая — выбор в профиле или «как в системе».
@@ -339,7 +344,7 @@
         .learn article h2 { font-size: 15px; }
         .nav-collapse { margin: 12px 10px 0; background: none; color: var(--muted-2); padding: 2px 6px; }
         .shell.narrow .side { flex-basis: 52px; }
-        .shell.narrow .nav-text, .shell.narrow .caret, .shell.narrow .nav-items, .shell.narrow .side-head .logo { display: none; }
+        .shell.narrow .nav-text, .shell.narrow .caret, .shell.narrow .nav-items { display: none; }
         .shell.narrow .nav-group-head, .shell.narrow .nav-single { justify-content: center; padding: 8px 0; }
 
         /* Главный экран: плитки показателей, месяц склада, последние документы. */
@@ -368,6 +373,31 @@
         .cell-short { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad-text); font-weight: 600; }
         .money-debt { color: var(--bad-text); font-weight: 600; }
         .inn-fill { display: flex; gap: 6px; align-items: center; }
+        /* Заставка (D80): фон как у ролика, видео по центру, счётчик — крупные тонкие цифры и тонкая полоса. */
+        .kn-intro { position: fixed; inset: 0; z-index: 2147483000; background: #19191B; display: flex; flex-direction: column;
+                    align-items: center; justify-content: center; gap: 8px; cursor: pointer; opacity: 1; transition: opacity .3s ease; }
+        .kn-intro[hidden] { display: none !important; }
+        .kn-intro video { width: min(62vmin, 460px); height: auto; aspect-ratio: 1; object-fit: cover; opacity: 0; transition: opacity .25s ease;
+                         -webkit-mask-image: radial-gradient(circle, #000 58%, transparent 71%); mask-image: radial-gradient(circle, #000 58%, transparent 71%); }
+        .kn-intro.kn-intro-on video { opacity: 1; }
+        .kn-intro-count { width: min(62vmin, 460px); display: flex; flex-direction: column; align-items: center; gap: 10px;
+                          font-family: Inter, system-ui, sans-serif; color: #F2F2F3; }
+        .kn-intro-num { font-size: clamp(40px, 9vmin, 72px); font-weight: 200; letter-spacing: -2px; font-variant-numeric: tabular-nums; }
+        .kn-intro-pct { font-size: clamp(16px, 3vmin, 24px); font-weight: 300; color: #2ED3C6; margin-left: 4px; }
+        .kn-intro-bar { width: 100%; height: 2px; background: rgba(255,255,255,.08); border-radius: 2px; overflow: hidden; }
+        .kn-intro-bar span { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #2ED3C6, #8FF0E8);
+                             box-shadow: 0 0 12px rgba(46,211,198,.6); }
+        .kn-intro-brand { font-size: 13px; letter-spacing: 6px; text-transform: uppercase; color: #8A8A91; }
+        .kn-intro-brand b { color: #2ED3C6; font-weight: 600; }
+        .kn-intro-skip { position: absolute; right: max(20px, env(safe-area-inset-right)); bottom: max(24px, env(safe-area-inset-bottom));
+                         background: transparent; border: 1px solid rgba(46,211,198,.6); color: #F2F2F3; }
+        .kn-intro.kn-intro-out { opacity: 0; pointer-events: none; }
+        @@media (prefers-reduced-motion: reduce) { .kn-intro { display: none !important; } }
+        /* Логотип в меню — ссылка на главный экран. */
+        a.logo { display: inline-flex; align-items: center; gap: 8px; color: var(--text); text-decoration: none; }
+        a.logo img { width: 28px; height: 28px; border-radius: 7px; }
+        .shell.narrow .side-head a.logo { display: inline-flex; }
+        .shell.narrow .side-head a.logo .logo-text { display: none; }
         .catalog-layout { display: grid; grid-template-columns: 1fr; gap: 16px; }
         @@media (min-width: 900px) { .catalog-layout { grid-template-columns: 230px minmax(0, 1fr); } }
         .group-tree { display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--line); border-radius: 8px; padding: 6px; align-self: start;
@@ -653,9 +683,23 @@
     <HeadOutlet @rendermode="PageRenderMode" />
 </head>
 <body>
+    @* Заставка при открытии (раз в день): вязаная «K» и счётчик процентов; логика — js/intro.js. *@
+    <div id="kn-intro" class="kn-intro" hidden role="dialog" aria-modal="true" aria-label="knitERP">
+        <video muted playsinline preload="auto" aria-hidden="true">
+            <source src="media/intro.webm" type="video/webm" />
+            <source src="media/intro.mp4" type="video/mp4" />
+        </video>
+        <div class="kn-intro-count" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div><span class="kn-intro-num">0</span><span class="kn-intro-pct">%</span></div>
+            <div class="kn-intro-bar"><span></span></div>
+            <div class="kn-intro-brand">knit<b>ERP</b></div>
+        </div>
+        <button type="button" class="kn-intro-skip">@L("Пропустить")</button>
+    </div>
     <Routes @rendermode="PageRenderMode" />
     <script src="_framework/blazor.web.js"></script>
     <script src="js/kniterp.js"></script>
+    <script src="js/intro.js"></script>
 </body>
 </html>
 
