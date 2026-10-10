@@ -3,6 +3,7 @@
 @using KnitErp.Domain.Sales
 @using KnitErp.Domain.Warehousing
 @inject SalesService Sales
+@inject SalesStageService StageList
 @inject CustomerInvoiceService Invoices
 @inject NavigationManager Navigation
 
@@ -29,6 +30,25 @@ else
     <div class="page-head">
         <h1>@L("Заказ покупателя") @_order.Number <span class="tag @SalesOrdersPage.StatusClass(_order.Status)">@L(_order.StatusName)</span>
             <span class="muted" style="font-size: 13px; font-weight: 400">@SalesOrdersPage.ShippedName(_order.Shipped)</span></h1>
+        <div class="stage-pick">
+            @if (CurrentAccess.Has(Permissions.SalesEdit) && _order.Status != SalesOrderStatus.Cancelled)
+            {
+                <label>@L("Этап")
+                    <select value="@(_order.Stage?.Id.ToString() ?? "")" @onchange="SetStageAsync" disabled="@_busy" class="stage-select stage-@(_order.Stage?.Color ?? "none")">
+                        <option value="">@L("без этапа")</option>
+                        @foreach (var st in _stages)
+                        {
+                            <option value="@st.Id">@st.Name</option>
+                        }
+                    </select>
+                </label>
+                <a href="sales-order-stages" class="muted" title="@L("Настроить этапы")">⚙</a>
+            }
+            else
+            {
+                <StageChip Stage="_order.Stage" />
+            }
+        </div>
     </div>
 
     @if (_message is not null)
@@ -321,6 +341,7 @@ else
     private string? _payComment;
     private string? _payDocument;
     private long? _invoiceId;
+    private IReadOnlyList<SalesStageDto> _stages = [];
     private DateTime? _dueDate;
 
     private sealed class HeaderForm
@@ -359,8 +380,17 @@ else
         }
     }
 
+    /// <summary>Смена этапа из выпадающего списка в шапке — сразу сохраняется.</summary>
+    private Task SetStageAsync(ChangeEventArgs e) => RunAsync(
+        () => Sales.SetOrderStageAsync(Id, long.TryParse(e.Value?.ToString(), out var s) ? s : null, _order!.RowVersion), L("Этап заказа изменён."));
+
     private async Task LoadAsync()
     {
+        if (_stages.Count == 0)
+        {
+            _stages = await StageList.ListAsync();
+        }
+
         _order = await Sales.GetOrderAsync(Id);
         _invoiceId = _order.CanSeePrices ? await Invoices.FindForOrderAsync(Id) : null;
     }

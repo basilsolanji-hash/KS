@@ -2,6 +2,7 @@
 @using KnitErp.Application.Sales
 @using KnitErp.Domain.Sales
 @inject SalesService Sales
+@inject SalesStageService StageList
 @inject NavigationManager Navigation
 
 <PageTitle>@L("Заказы покупателей") — knitERP</PageTitle>
@@ -85,6 +86,17 @@ else
                 }
             </select>
         </label>
+        <label>
+            @L("Этап")
+            <select @bind="_stage">
+                <option value="">@L("Все")</option>
+                <option value="0">@L("без этапа")</option>
+                @foreach (var st in _stages)
+                {
+                    <option value="@st.Id">@st.Name</option>
+                }
+            </select>
+        </label>
         <label>@L("С") <input type="date" @bind="_from" /></label>
         <label>@L("По") <input type="date" @bind="_to" /></label>
         <label>@L("Поиск") <input @bind="_search" placeholder="@L("Номер, покупатель, договор")" /></label>
@@ -92,36 +104,60 @@ else
     </form>
 
     var showSums = _rows.Any(r => r.Total is not null);
+    var active = _rows.Where(r => r.Status != SalesOrderStatus.Cancelled).ToList();
     <div class="scroll">
-        <table>
+        <table class="orders">
             <thead>
                 <tr>
-                    <th>@L("Номер")</th><th>@L("Дата")</th><th>@L("Покупатель")</th><th class="opt">@L("Склад")</th><th class="opt">@L("Отгрузка")</th>
-                    <th>@L("Статус")</th><th>@L("Отгрузка")</th>@if (showSums) { <th class="num">@L("Сумма")</th> }
+                    <th>@L("Номер")</th><th>@L("Дата")</th><th>@L("Покупатель")</th>
+                    @if (showSums)
+                    {
+                        <th class="num">@L("Сумма")</th><th class="num opt">@L("Выставлено счетов")</th><th class="num">@L("Оплачено")</th>
+                        <th class="num">@L("Не оплачено")</th><th class="num opt">@L("Отгружено")</th>
+                    }
+                    <th class="opt">@L("План. отгрузка")</th><th>@L("Этап")</th><th class="opt">@L("Учёт")</th>
                 </tr>
             </thead>
             <tbody>
                 @if (_rows.Count == 0)
                 {
-                    <tr><td colspan="8" class="muted">@L("Заказов нет.")</td></tr>
+                    <tr><td colspan="11" class="muted">@L("Заказов нет.")</td></tr>
                 }
                 @foreach (var o in _rows)
                 {
-                    <tr>
+                    var paidFull = o.Total is > 0 && o.Paid >= o.Total;
+                    var shippedFull = o.Shipped == ShipmentState.Full;
+                    <tr class="@(o.Status == SalesOrderStatus.Cancelled ? "archived" : null)">
                         <td><a href="sales-orders/@o.Id">@o.Number</a></td>
                         <td>@o.OrderDate.ToString("dd.MM.yyyy")</td>
                         <td>@o.Customer</td>
-                        <td>@o.Warehouse</td>
+                        @if (showSums)
+                        {
+                            <td class="num">@Amounts.Format(o.Total)</td>
+                            <td class="num">@Amounts.Format(o.Invoiced)</td>
+                            <td class="num @(paidFull ? "cell-good" : o.Paid > 0 ? "cell-part" : null)">@Amounts.Format(o.Paid)</td>
+                            <td class="num @(o.Unpaid > 0 ? "warn-text" : null)">@Amounts.Format(o.Unpaid)</td>
+                            <td class="num @(shippedFull ? "cell-good" : o.ShippedValue > 0 ? "cell-part" : null)">@Amounts.Format(o.ShippedValue)</td>
+                        }
                         <td>@(o.ShipDate?.ToString("dd.MM.yyyy") ?? "—")</td>
-                        <td><span class="tag @StatusClass(o.Status)">@L(o.StatusName)</span></td>
-                        <td>@ShippedName(o.Shipped)</td>
-                        @if (showSums) { <td class="num">@Amounts.Format(o.Total)</td> }
+                        <td><StageChip Stage="o.Stage" /></td>
+                        <td><span class="tag @StatusClass(o.Status)">@L(o.StatusName)</span> <span class="muted">@ShippedName(o.Shipped)</span></td>
                     </tr>
                 }
             </tbody>
             @if (showSums && _rows.Count > 0)
             {
-                <tfoot><tr><td colspan="7"><b>@L("Итого")</b></td><td class="num"><b>@Amounts.Format(_rows.Where(r => r.Status != SalesOrderStatus.Cancelled).Sum(r => r.Total ?? 0))</b></td></tr></tfoot>
+                <tfoot>
+                    <tr>
+                        <td colspan="3"><b>@L("Итого")</b> <span class="muted">@L("без отменённых")</span></td>
+                        <td class="num"><b>@Amounts.Format(active.Sum(r => r.Total ?? 0))</b></td>
+                        <td class="num">@Amounts.Format(active.Sum(r => r.Invoiced ?? 0))</td>
+                        <td class="num">@Amounts.Format(active.Sum(r => r.Paid ?? 0))</td>
+                        <td class="num"><b>@Amounts.Format(active.Sum(r => r.Unpaid ?? 0))</b></td>
+                        <td class="num">@Amounts.Format(active.Sum(r => r.ShippedValue ?? 0))</td>
+                        <td colspan="3"></td>
+                    </tr>
+                </tfoot>
             }
         </table>
     </div>
@@ -140,6 +176,8 @@ else
     private string? _denied;
     private string? _error;
     private string _status = string.Empty;
+    private string _stage = string.Empty;
+    private IReadOnlyList<SalesStageDto> _stages = [];
     private string _search = string.Empty;
     private DateTime? _from;
     private DateTime? _to;
@@ -156,6 +194,7 @@ else
     {
         try
         {
+            _stages = await StageList.ListAsync();
             await LoadAsync();
         }
         catch (AccessDeniedException ex)
@@ -167,7 +206,8 @@ else
     private async Task LoadAsync() =>
         _rows = await Sales.ListOrdersAsync(new SalesOrderFilter(
             byte.TryParse(_status, out var st) ? (SalesOrderStatus)st : null, _search,
-            _from is { } f ? DateOnly.FromDateTime(f) : null, _to is { } t ? DateOnly.FromDateTime(t) : null));
+            _from is { } f ? DateOnly.FromDateTime(f) : null, _to is { } t ? DateOnly.FromDateTime(t) : null,
+            long.TryParse(_stage, out var stage) ? stage : null));
 
     private Task ReloadAsync() => RunAsync(LoadAsync);
 

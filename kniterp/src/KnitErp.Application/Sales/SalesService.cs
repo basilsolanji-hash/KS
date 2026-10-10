@@ -20,14 +20,25 @@ public enum ShipmentState : byte
     Full = 2,
 }
 
-public sealed record SalesOrderFilter(SalesOrderStatus? Status = null, string? Search = null, DateOnly? From = null, DateOnly? To = null);
+/// <summary>StageId: null — все, 0 — без этапа, иначе — этап.</summary>
+public sealed record SalesOrderFilter(
+    SalesOrderStatus? Status = null, string? Search = null, DateOnly? From = null, DateOnly? To = null, long? StageId = null);
 
-/// <summary>Total — null, если у пользователя нет права «Цены и суммы».</summary>
+/// <summary>Этап заказа (D75) — название и цвет из справочника.</summary>
+public sealed record SalesStageRefDto(long Id, string Name, string Color);
+
+/// <summary>
+/// Строка списка заказов. Суммы — null без права «Цены и суммы»: сумма заказа, выставлено счетов (действующие счета),
+/// оплачено (оплаты по заказу), отгружено (отгружено − возвращено по ценам заказа с НДС). Как колонки МойСклад (D75).
+/// </summary>
 public sealed record SalesOrderRowDto(
     long Id, string Number, DateOnly OrderDate, string Customer, string Warehouse, DateOnly? ShipDate, SalesOrderStatus Status,
-    ShipmentState Shipped, decimal? Total)
+    ShipmentState Shipped, decimal? Total, SalesStageRefDto? Stage = null, decimal? Invoiced = null, decimal? Paid = null, decimal? ShippedValue = null)
 {
     public string StatusName => SalesOrder.StatusName(Status);
+
+    /// <summary>Не оплачено: сумма заказа минус оплаты (минус — переплата).</summary>
+    public decimal? Unpaid => Total is { } t && Paid is { } p ? t - p : null;
 }
 
 public sealed record SalesOrderLineDto(
@@ -53,7 +64,7 @@ public sealed record SalesOrderDto(
     string? CustomerReference, bool PricesIncludeVat, SalesOrderStatus Status, string? Comment, string CreatedBy, DateTime CreatedAtUtc,
     string? ConfirmedBy, DateTime? ConfirmedAtUtc, IReadOnlyList<SalesOrderLineDto> Lines, IReadOnlyList<SalesLinkedDocumentDto> Documents,
     IReadOnlyList<CustomerPaymentDto> Payments, decimal? Total, decimal? VatTotal, decimal? ShippedValue, decimal? ReturnedValue, decimal? Paid,
-    bool CanEdit, bool CanSeePrices, bool CanCreateDocuments, byte[] RowVersion)
+    bool CanEdit, bool CanSeePrices, bool CanCreateDocuments, byte[] RowVersion, SalesStageRefDto? Stage = null)
 {
     public string StatusName => SalesOrder.StatusName(Status);
     public decimal? Debt => ShippedValue is { } r && ReturnedValue is { } ret && Paid is { } p ? r - ret - p : null;
@@ -104,6 +115,11 @@ public sealed class SalesService(
             q = q.Where(o => o.OrderDate <= to);
         }
 
+        if (filter.StageId is { } stageId)
+        {
+            q = stageId == 0 ? q.Where(o => o.StageId == null) : q.Where(o => o.StageId == stageId);
+        }
+
         var rows = from o in q
                    join s in db.Counterparties.AsNoTracking() on o.CustomerId equals s.Id
                    join w in db.Warehouses.AsNoTracking() on o.WarehouseId equals w.Id
@@ -116,15 +132,34 @@ public sealed class SalesService(
         }
 
         var list = await rows.OrderByDescending(r => r.o.OrderDate).ThenByDescending(r => r.o.Id).Take(MaxRows)
-            .Select(r => new { r.o.Id, r.o.Number, r.o.OrderDate, r.Customer, r.Warehouse, r.o.ShipDate, r.o.Status,
+            .Select(r => new { r.o.Id, r.o.Number, r.o.OrderDate, r.Customer, r.Warehouse, r.o.ShipDate, r.o.Status, r.o.StageId,
                 Lines = r.o.Lines.Select(l => new { l.ItemId, l.Quantity, l.Amount }).ToList() })
             .ToListAsync(ct);
         var ids = list.Select(o => o.Id).ToList();
         var moved = await MovedAsync(ctx, ids, ct);
+        var stages = await StagesAsync(ctx, ct);
         var prices = ctx.Permissions.Has(Permissions.PriceView);
+        Dictionary<long, decimal> invoiced = [], paid = [];
+        if (prices)
+        {
+            invoiced = await db.CustomerInvoices.AsNoTracking()
+                .Where(i => i.OrganizationId == ctx.OrganizationId && ids.Contains(i.SalesOrderId) && i.Status == CustomerInvoiceStatus.Issued)
+                .GroupBy(i => i.SalesOrderId).Select(g => new { g.Key, Sum = g.SelectMany(i => i.Lines).Sum(l => l.Amount) })
+                .ToDictionaryAsync(x => x.Key, x => x.Sum, ct);
+            paid = await db.CustomerPayments.AsNoTracking()
+                .Where(p => p.OrganizationId == ctx.OrganizationId && p.SalesOrderId != null && ids.Contains(p.SalesOrderId.Value)
+                            && p.Status == CustomerPaymentStatus.Posted)
+                .GroupBy(p => p.SalesOrderId!.Value).Select(g => new { g.Key, Sum = g.Sum(p => p.Amount) })
+                .ToDictionaryAsync(x => x.Key, x => x.Sum, ct);
+        }
+
         return list.Select(o => new SalesOrderRowDto(o.Id, o.Number, o.OrderDate, o.Customer, o.Warehouse, o.ShipDate, o.Status,
                 StateOf(o.Lines.Select(l => (l.Quantity, Net(moved, o.Id, l.ItemId)))),
-                prices ? o.Lines.Sum(l => l.Amount) : null))
+                prices ? o.Lines.Sum(l => l.Amount) : null,
+                o.StageId is { } sid && stages.TryGetValue(sid, out var stage) ? stage : null,
+                prices ? invoiced.GetValueOrDefault(o.Id) : null,
+                prices ? paid.GetValueOrDefault(o.Id) : null,
+                prices ? Money.Round(o.Lines.Sum(l => Net(moved, o.Id, l.ItemId) * (l.Quantity == 0 ? 0 : l.Amount / l.Quantity))) : null))
             .ToList();
     }
 
@@ -175,8 +210,42 @@ public sealed class SalesService(
             prices ? order.Total : null, prices ? order.VatTotal : null,
             prices ? Value(StockOperationKind.Shipment) : null, prices ? Value(StockOperationKind.CustomerReturn) : null,
             prices ? payments.Where(p => p.Status == CustomerPaymentStatus.Posted).Sum(p => p.Amount) : null,
-            canEdit, prices, canDocs, order.RowVersion);
+            canEdit, prices, canDocs, order.RowVersion,
+            order.StageId is { } sid && (await StagesAsync(ctx, ct)).TryGetValue(sid, out var stage) ? stage : null);
     }
+
+    /// <summary>
+    /// Этап заказа (D75): метка работы, меняется в любом состоянии, кроме отменённого. Право — «Продажи: заказы и оплаты»;
+    /// цены для этого не нужны. null — снять этап.
+    /// </summary>
+    public async Task SetOrderStageAsync(long id, long? stageId, byte[] rowVersion, CancellationToken ct = default)
+    {
+        var ctx = await guard.DemandAsync(Permissions.SalesEdit, ct);
+        var order = await LoadOrderAsync(ctx, id, ct);
+        order.EnsureVersion(order.RowVersion, rowVersion);
+        var stages = await StagesAsync(ctx, ct);
+        string? name = null;
+        if (stageId is { } sid)
+        {
+            var stage = await db.SalesOrderStages.AsNoTracking().SingleOrDefaultAsync(s => s.Id == sid && s.OrganizationId == ctx.OrganizationId, ct)
+                        ?? throw new NotFoundException("Этап заказа");
+            if (stage.IsArchived)
+            {
+                throw new BusinessRuleException("catalog.archived", $"Этап «{stage.Name}» в архиве.");
+            }
+
+            name = stage.Name;
+        }
+
+        var before = order.StageId is { } old && stages.TryGetValue(old, out var o) ? o.Name : null;
+        order.SetStage(stageId);
+        Audit(ctx, AuditActions.SalesOrderChanged, nameof(SalesOrder), id, before ?? "—", name ?? "—", $"{order.Number}: этап");
+        await db.SaveOrConflictAsync(ct);
+    }
+
+    private async Task<Dictionary<long, SalesStageRefDto>> StagesAsync(AccessContext ctx, CancellationToken ct) =>
+        await db.SalesOrderStages.AsNoTracking().Where(s => s.OrganizationId == ctx.OrganizationId)
+            .ToDictionaryAsync(s => s.Id, s => new SalesStageRefDto(s.Id, s.Name, s.Color), ct);
 
     /// <summary>Справочники формы заказа: покупатели, склады, позиции с НДС по умолчанию, ставки НДС организации.</summary>
     public async Task<SalesOptionsDto> GetOptionsAsync(DateOnly? onDate = null, CancellationToken ct = default)

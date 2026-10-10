@@ -688,12 +688,35 @@ internal sealed class SalesOrderConfiguration : IEntityTypeConfiguration<SalesOr
         b.HasOne<Warehouse>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.WarehouseId })
             .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("fk_sales_orders_warehouse");
+        b.HasOne<SalesOrderStage>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.StageId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_sales_orders_stage");
+        b.HasIndex(x => new { x.OrganizationId, x.StageId }).HasDatabaseName("ix_sales_orders_org_stage");
         b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.ConfirmedByUserId).OnDelete(DeleteBehavior.Restrict);
         b.HasIndex(x => new { x.OrganizationId, x.Number }).IsUnique().HasDatabaseName("ux_sales_orders_org_number");
         b.HasIndex(x => new { x.OrganizationId, x.CustomerId, x.OrderDate }).HasDatabaseName("ix_sales_orders_org_customer_date");
         b.HasMany(x => x.Lines).WithOne().HasForeignKey(x => x.OrderId).OnDelete(DeleteBehavior.Cascade);
         b.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field).HasField("_lines");
+    }
+}
+
+internal sealed class SalesOrderStageConfiguration : IEntityTypeConfiguration<SalesOrderStage>
+{
+    public void Configure(EntityTypeBuilder<SalesOrderStage> b)
+    {
+        b.ToTable("sales_order_stages", t =>
+            t.HasCheckConstraint("ck_sales_order_stages_color",
+                "[Color] IN ('gray', 'blue', 'teal', 'green', 'yellow', 'orange', 'red', 'magenta', 'violet')"));
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Name).HasMaxLength(SalesOrderStage.NameMaxLength).IsRequired();
+        b.Property(x => x.Color).HasColumnType("varchar(16)").IsRequired();
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_sales_order_stages_org_id");
+        b.HasIndex(x => new { x.OrganizationId, x.Name }).IsUnique().HasFilter("[IsArchived] = 0")
+            .HasDatabaseName("ux_sales_order_stages_org_name_active");
     }
 }
 

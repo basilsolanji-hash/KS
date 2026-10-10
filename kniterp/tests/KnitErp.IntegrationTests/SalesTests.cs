@@ -67,6 +67,28 @@ public sealed class SalesTests(SqlTestHost host) : IClassFixture<SqlTestHost>
             Assert.Equal((61_000m, 4_880m, 40_000m, 16_120m), (dto.ShippedValue!.Value, dto.ReturnedValue!.Value, dto.Paid!.Value, dto.Debt!.Value));
             Assert.Equal(16_120m, (await s.Sales.BalancesAsync()).Single(b => b.CustomerId == f.Customer).Debt);
 
+            // Колонки списка как в МойСклад (D75): сумма, выставлено счетов, оплачено, не оплачено, отгружено (за вычетом возврата).
+            var row = (await s.Sales.ListOrdersAsync(new SalesOrderFilter())).Single(r => r.Id == order);
+            Assert.Equal((61_000m, 0m, 40_000m, 21_000m, 56_120m), (row.Total!.Value, row.Invoiced!.Value, row.Paid!.Value, row.Unpaid!.Value, row.ShippedValue!.Value));
+
+            // Этапы: у новой организации — шесть по умолчанию; этап ставится в заказ, по нему фильтруется список.
+            var stages = await s.Stages.ListAsync();
+            Assert.Equal(KnitErp.Domain.Sales.SalesOrderStage.Defaults.Select(d => d.Name), stages.Select(st => st.Name));
+            var ready = await s.Stages.CreateAsync("Готов к запуску — оплачен", "green");
+            Assert.Equal("sales.stage.duplicate", (await Assert.ThrowsAsync<BusinessRuleException>(() => s.Stages.CreateAsync("Собран", "teal"))).Code);
+            Assert.Equal("sales.stage.color", (await Assert.ThrowsAsync<BusinessRuleException>(() => s.Stages.CreateAsync("Розовый", "pink"))).Code);
+            await s.Sales.SetOrderStageAsync(order, ready, (await s.Sales.GetOrderAsync(order)).RowVersion);
+            Assert.Equal(("Готов к запуску — оплачен", "green"), ((await s.Sales.GetOrderAsync(order)).Stage!.Name, (await s.Sales.GetOrderAsync(order)).Stage!.Color));
+            Assert.Single(await s.Sales.ListOrdersAsync(new SalesOrderFilter(StageId: ready)));
+            Assert.Empty(await s.Sales.ListOrdersAsync(new SalesOrderFilter(StageId: 0)));
+            Assert.Equal(1, (await s.Stages.ListAsync()).Single(st => st.Id == ready).Orders);
+            await s.Stages.MoveAsync(ready, -1);
+            Assert.Equal("Готов к запуску — оплачен", (await s.Stages.ListAsync())[^2].Name);
+            var archived = (await s.Stages.ListAsync()).Single(st => st.Name == "Собран");
+            await s.Stages.ArchiveAsync(archived.Id, archived.RowVersion);
+            Assert.Equal("catalog.archived", (await Assert.ThrowsAsync<BusinessRuleException>(async () =>
+                await s.Sales.SetOrderStageAsync(order, archived.Id, (await s.Sales.GetOrderAsync(order)).RowVersion))).Code);
+
             // Динамика на главной: продажи за день = отгружено 61 000 − возвращено 4 880; поступления — 40 000.
             var charts = (await s.Dashboard.GetAsync()).Charts;
             var sales = charts.Single(c => c.Title == "Продажи");
@@ -88,6 +110,8 @@ public sealed class SalesTests(SqlTestHost host) : IClassFixture<SqlTestHost>
             Assert.Empty((await s.Dashboard.GetAsync()).Charts);
             Assert.Null((await s.Dashboard.GetAsync()).Finance);
             await Assert.ThrowsAsync<AccessDeniedException>(() => s.Sales.BalancesAsync());
+            Assert.Null((await s.Sales.ListOrdersAsync(new SalesOrderFilter())).Single().Paid);
+            await Assert.ThrowsAsync<AccessDeniedException>(async () => await s.Sales.SetOrderStageAsync(order, null, (await s.Sales.GetOrderAsync(order)).RowVersion));
         }
 
         var other = await CreateOrgAsync();

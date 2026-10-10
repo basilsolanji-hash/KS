@@ -1,0 +1,181 @@
+@page "/sales-order-stages"
+@using KnitErp.Application.Sales
+@using KnitErp.Domain.Sales
+@using KnitErp.Web.Components.Shared
+@inject SalesStageService Stages
+
+<PageTitle>@L("Этапы заказов") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_rows is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <h1>@L("Этапы заказов покупателей")</h1>
+    <p class="muted">@L("Свои статусы работы с заказом и их цвета — как в МойСклад: «Ждём оплату», «В работе», «Собран». Учёт (черновик, подтверждён, закрыт, отменён) от этапа не зависит. Этап меняется в карточке заказа.")</p>
+
+    @if (_message is not null)
+    {
+        <div class="@(_isError ? "flash error" : "flash")" role="@(_isError ? "alert" : "status")">@_message</div>
+    }
+
+    @if (CanEdit)
+    {
+        <form class="inline-form" @onsubmit="CreateAsync">
+            <label>@L("Название") <input @bind="_name" maxlength="@SalesOrderStage.NameMaxLength" required placeholder="@L("Ждём оплату")" /></label>
+            <label>@L("Цвет") @ColorSelect(_color, v => _color = v)</label>
+            <button type="submit" disabled="@_busy">@L("Добавить")</button>
+        </form>
+    }
+
+    <div class="scroll">
+        <table>
+            <thead><tr><th>@L("Этап")</th><th>@L("Цвет")</th><th class="num">@L("Заказов")</th>@if (CanEdit) { <th></th> }</tr></thead>
+            <tbody>
+                @foreach (var s in _rows)
+                {
+                    <tr class="@(s.IsArchived ? "archived" : null)">
+                        @if (_edit?.Id == s.Id)
+                        {
+                            <td><input @bind="_editName" maxlength="@SalesOrderStage.NameMaxLength" aria-label="@L("Название")" /></td>
+                            <td>@ColorSelect(_editColor, v => _editColor = v)</td>
+                            <td class="num">@s.Orders</td>
+                            <td>
+                                <button type="button" @onclick="SaveAsync" disabled="@_busy">@L("Сохранить")</button>
+                                <button type="button" class="secondary" @onclick="() => _edit = null">@L("Отмена")</button>
+                            </td>
+                        }
+                        else
+                        {
+                            <td><StageChip Stage="new SalesStageRefDto(s.Id, s.Name, s.Color)" /> @if (s.IsArchived) { <span class="tag">@L("архив")</span> }</td>
+                            <td>@StageChip.ColorName(s.Color)</td>
+                            <td class="num">@s.Orders</td>
+                            @if (CanEdit)
+                            {
+                                <td>
+                                    @if (!s.IsArchived)
+                                    {
+                                        <button type="button" class="secondary icon" @onclick="() => MoveAsync(s, -1)" disabled="@_busy" title="@L("Выше")" aria-label="@L("Выше: {0}", s.Name)">↑</button>
+                                        <button type="button" class="secondary icon" @onclick="() => MoveAsync(s, 1)" disabled="@_busy" title="@L("Ниже")" aria-label="@L("Ниже: {0}", s.Name)">↓</button>
+                                        <button type="button" class="secondary" @onclick="() => StartEdit(s)" disabled="@_busy">@L("Изменить")</button>
+                                        <button type="button" class="secondary" @onclick="() => ArchiveAsync(s)" disabled="@_busy">@L("В архив")</button>
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="secondary" @onclick="() => RestoreAsync(s)" disabled="@_busy">@L("Вернуть")</button>
+                                    }
+                                </td>
+                            }
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private IReadOnlyList<SalesStageDto>? _rows;
+    private bool _busy;
+    private string? _denied;
+    private string? _message;
+    private bool _isError;
+    private string? _name;
+    private string _color = "blue";
+    private SalesStageDto? _edit;
+    private string? _editName;
+    private string _editColor = "gray";
+
+    private bool CanEdit => CurrentAccess.Has(Permissions.SalesEdit);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+
+    private RenderFragment ColorSelect(string value, Action<string> set) => __builder =>
+    {
+        <select value="@value" @onchange="e => set(e.Value?.ToString() ?? value)" aria-label="@L("Цвет")">
+            @foreach (var c in SalesOrderStage.Colors)
+            {
+                <option value="@c">@StageChip.ColorName(c)</option>
+            }
+        </select>
+    };
+
+    private async Task LoadAsync() => _rows = await Stages.ListAsync(includeArchived: true);
+
+    private void StartEdit(SalesStageDto s)
+    {
+        _edit = s;
+        _editName = s.Name;
+        _editColor = s.Color;
+    }
+
+    private Task CreateAsync() => RunAsync(async () =>
+    {
+        await Stages.CreateAsync(_name, _color);
+        _name = null;
+    }, L("Этап добавлен."));
+
+    private Task SaveAsync() => RunAsync(async () =>
+    {
+        await Stages.UpdateAsync(_edit!.Id, _editName, _editColor, _edit.RowVersion);
+        _edit = null;
+    }, L("Этап сохранён."));
+
+    private Task MoveAsync(SalesStageDto s, int delta) => RunAsync(() => Stages.MoveAsync(s.Id, delta), null);
+
+    private Task ArchiveAsync(SalesStageDto s) => RunAsync(() => Stages.ArchiveAsync(s.Id, s.RowVersion), L("Этап «{0}» в архиве.", s.Name));
+
+    private Task RestoreAsync(SalesStageDto s) => RunAsync(() => Stages.RestoreAsync(s.Id, s.RowVersion), L("Этап «{0}» снова действует.", s.Name));
+
+    /// <summary>Одна операция за раз, затем свежий список: у вкладки один DbContext.</summary>
+    private async Task RunAsync(Func<Task> action, string? success)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _isError = false;
+        try
+        {
+            await action();
+            _message = success;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+            _isError = true;
+        }
+        finally
+        {
+            try
+            {
+                await LoadAsync();
+            }
+            finally
+            {
+                _busy = false;
+            }
+        }
+    }
+}

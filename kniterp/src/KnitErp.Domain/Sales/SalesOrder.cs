@@ -46,6 +46,10 @@ public sealed class SalesOrder
     public bool PricesIncludeVat { get; private set; }
 
     public SalesOrderStatus Status { get; private set; }
+
+    /// <summary>Этап работы с заказом из справочника организации (D75); null — этап не выбран.</summary>
+    public long? StageId { get; private set; }
+
     public string? Comment { get; private set; }
     public long CreatedByUserId { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
@@ -121,6 +125,17 @@ public sealed class SalesOrder
         var line = _lines.FirstOrDefault(l => l.ItemId == itemId)
                    ?? throw new BusinessRuleException("sales.line_missing", "Такой строки в заказе нет.");
         _lines.Remove(line);
+    }
+
+    /// <summary>Этап меняется в любом состоянии, кроме отменённого: это метка работы, а не учёт.</summary>
+    public void SetStage(long? stageId)
+    {
+        if (Status == SalesOrderStatus.Cancelled)
+        {
+            throw new BusinessRuleException("sales.order.cancelled", "Заказ отменён — этап не меняется.");
+        }
+
+        StageId = stageId;
     }
 
     public void Confirm(long userId, DateTime nowUtc)
