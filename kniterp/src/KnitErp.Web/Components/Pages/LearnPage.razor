@@ -1,0 +1,40 @@
+@page "/learn/{Section}"
+
+<PageTitle>@L("Обучение") — knitERP</PageTitle>
+
+<div class="learn">
+    <h1>@L("Обучение: {0}", L(Category))</h1>
+    <p class="muted">@L("Как работать в разделе — коротко и по шагам. Остались вопросы — спросите ИИ-помощника на панели сверху или напишите в «Поддержку».")</p>
+    @if (Articles.Count == 0)
+    {
+        <p class="muted">@L("Статьи для этого раздела готовятся.")</p>
+    }
+    @foreach (var a in Articles)
+    {
+        <article>
+            <h2>@L(a.Title)</h2>
+            @foreach (var p in a.Body)
+            {
+                <p>@L(p)</p>
+            }
+        </article>
+    }
+</div>
+
+@code {
+    /// <summary>Раздел меню: sales, purchases, crm, warehouse.</summary>
+    [Parameter]
+    public string Section { get; set; } = string.Empty;
+
+    /// <summary>Категория статей справочного центра для раздела меню.</summary>
+    private string Category => Section switch
+    {
+        "sales" => "Продажи",
+        "purchases" => "Закупки",
+        "crm" => "CRM",
+        "warehouse" => "Склад",
+        _ => "Первые шаги",
+    };
+
+    private IReadOnlyList<HelpArticle> Articles => HelpCenter.Articles.Where(a => a.Category == Category).ToList();
+}

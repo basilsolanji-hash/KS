@@ -46,7 +46,7 @@ public sealed record StockDocumentOptions(
 /// <summary>Фильтр реестра документов: вид, статус, период по дате документа, склад (отправитель или получатель), поиск по номеру и контрагенту.</summary>
 public sealed record StockDocumentListFilter(
     StockOperationKind? Kind = null, StockDocumentStatus? Status = null, DateOnly? From = null, DateOnly? To = null,
-    long? WarehouseId = null, string? Search = null);
+    long? WarehouseId = null, string? Search = null, bool? ByOrder = null);
 
 /// <summary>
 /// Поступление, списание и перемещение: черновик → проведение (движения регистра) → при ошибке сторно.
@@ -100,6 +100,12 @@ public sealed class StockDocumentService(
         if (filter.WarehouseId is { } wh)
         {
             q = q.Where(d => d.WarehouseId == wh || d.TargetWarehouseId == wh);
+        }
+
+        // «Приёмка» — поступления по заказу поставщику, «Оприходования» — без заказа (выпуск, излишки, прочее).
+        if (filter.ByOrder is { } byOrder)
+        {
+            q = byOrder ? q.Where(d => d.PurchaseOrderId != null || d.SalesOrderId != null) : q.Where(d => d.PurchaseOrderId == null && d.SalesOrderId == null);
         }
 
         if (!string.IsNullOrWhiteSpace(filter.Search))

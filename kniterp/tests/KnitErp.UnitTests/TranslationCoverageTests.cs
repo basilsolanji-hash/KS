@@ -70,6 +70,11 @@ public sealed partial class TranslationCoverageTests
             keys.Add(m.Groups[1].Value);
         }
 
+        foreach (Match m in MenuPlanned().Matches(layout))
+        {
+            keys.Add(m.Groups[1].Value);
+        }
+
         foreach (var tool in ToolCatalog.All)
         {
             keys.Add(tool.Title);
@@ -229,6 +234,9 @@ public sealed partial class TranslationCoverageTests
 
     [GeneratedRegex("""new\("\w+", "([^"]+)",\s*\[""")]
     private static partial Regex MenuSection();
+
+    [GeneratedRegex("""Soon\("[\w-]+", "([^"]+)"\)""")]
+    private static partial Regex MenuPlanned();
 
     [GeneratedRegex(@"new DashboardTileDto\(""([^""]+)"", \w+, ""([^""]+)""")]
     private static partial Regex DashboardTile();

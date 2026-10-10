@@ -243,10 +243,10 @@ app.MapGet("/reports/turnover.xlsx", (long? warehouse, DateOnly from, DateOnly t
 app.MapGet("/reports/inventory-variances.xlsx", (long? warehouse, DateOnly from, DateOnly to, string? search, KnitErp.Web.Exports.ReportExports export, CancellationToken ct) =>
     FileOrForbid(() => export.InventoryVariancesAsync(new InventoryVarianceFilter(warehouse, from, to, search), ct),
         $"otkloneniya-inventarizacii-{from:yyyy-MM-dd}-{to:yyyy-MM-dd}.xlsx"));
-app.MapGet("/stock-documents.xlsx", (byte? kind, byte? status, DateOnly? from, DateOnly? to, long? warehouse, string? search,
+app.MapGet("/stock-documents.xlsx", (byte? kind, byte? status, DateOnly? from, DateOnly? to, long? warehouse, string? search, int? order,
         KnitErp.Web.Exports.ReportExports export, CancellationToken ct) =>
     FileOrForbid(() => export.StockDocumentsAsync(new StockDocumentListFilter((KnitErp.Domain.Warehousing.StockOperationKind?)kind,
-        (KnitErp.Domain.Warehousing.StockDocumentStatus?)status, from, to, warehouse, search), ct), $"reestr-dokumentov-{DateTime.UtcNow:yyyy-MM-dd}.xlsx"));
+        (KnitErp.Domain.Warehousing.StockDocumentStatus?)status, from, to, warehouse, search, order is null ? null : order == 1), ct), $"reestr-dokumentov-{DateTime.UtcNow:yyyy-MM-dd}.xlsx"));
 app.MapGet("/inventory.xlsx", (DateOnly? from, DateOnly? to, long? warehouse, KnitErp.Web.Exports.ReportExports export, CancellationToken ct) =>
     FileOrForbid(() => export.InventoriesAsync(new InventoryListFilter(from, to, warehouse), ct), $"reestr-inventarizaciy-{DateTime.UtcNow:yyyy-MM-dd}.xlsx"));
 app.MapGet("/opening-balances.xlsx", (KnitErp.Web.Exports.ReportExports export, CancellationToken ct) =>

@@ -46,6 +46,12 @@
                         <div class="nav-items">
                             @foreach (var item in group.Items)
                             {
+                                @if (item.Planned)
+                                {
+                                    <span class="nav-planned" title="@L("В плане разработки")">@L(item.Label) <span class="tag">@L("скоро")</span></span>
+                                    continue;
+                                }
+
                                 <a href="@item.Href" class="@(item.Href == Current ? "active" : null)" aria-current="@(item.Href == Current ? "page" : null)">
                                     @L(item.Label)
                                     @if (!item.Allowed(_access))
@@ -94,48 +100,75 @@
 @code {
     private CurrentAccessDto? _access;
 
-    private sealed record NavItem(string Href, string Label, Func<CurrentAccessDto, bool> Allowed);
+    /// <summary>Пункт меню. Planned — функция в плане: виден серым с пометкой «скоро» и никуда не ведёт.</summary>
+    private sealed record NavItem(string Href, string Label, Func<CurrentAccessDto, bool> Allowed, bool Planned = false);
 
     private sealed record NavGroup(string Key, string Title, NavItem[] Items);
 
     private static bool Docs(CurrentAccessDto a) =>
         a.Has(Permissions.WarehouseDocumentCreate) || a.Has(Permissions.WarehouseDocumentPost) || a.Has(Permissions.WarehouseReportView);
 
-    // Разделы меню по работе фабрики. Названия — русские ключи, переводятся при показе (L), чтобы меню было на языке
-    // текущего пользователя. Пункты без доступа видны и кликабельны: сервер ответит отказом и запишет попытку в журнал.
+    private static NavItem Soon(string key, string label) => new("plan:" + key, label, _ => true, Planned: true);
+
+    // Разделы меню — по структуре, которую задал пользователь (Продажи, Закупки, CRM, Склад, в каждом «Обучение»).
+    // Названия — русские ключи, переводятся при показе (L). Пункты без доступа видны и кликабельны: сервер ответит
+    // отказом и запишет попытку в журнал. Пункты «скоро» — функции в плане (D66).
     private static readonly NavGroup[] Groups =
     [
         new("home", "Главная", [new("", "Главная", a => true)]),
-        new("purchases", "Закупки",
-        [
-            new("purchase-orders", "Заказы поставщикам", a => a.Has(Permissions.PurchaseView)),
-            new("stock-documents?kind=1", "Поступления", Docs),
-            new("stock-documents?kind=5", "Возвраты поставщикам", Docs),
-            new("supplier-payments", "Оплаты поставщикам", a => a.Has(Permissions.PurchaseView) && a.Has(Permissions.PriceView)),
-            new("reports/supplier-balances", "Расчёты с поставщиками", a => a.Has(Permissions.PurchaseView) && a.Has(Permissions.PriceView)),
-        ]),
         new("sales", "Продажи",
         [
             new("sales-orders", "Заказы покупателей", a => a.Has(Permissions.SalesView)),
+            Soon("sales-invoices", "Счета покупателям"),
             new("stock-documents?kind=6", "Отгрузки", Docs),
-            new("stock-documents?kind=7", "Возвраты от покупателей", Docs),
+            Soon("commission-reports", "Отчёты комиссионера"),
+            new("stock-documents?kind=7", "Возвраты покупателей", Docs),
+            Soon("issued-vat-invoices", "Счета-фактуры выданные"),
+            Soon("profitability", "Прибыльность"),
+            Soon("sales-by-item", "Товары и реализации"),
+            Soon("sales-funnel", "Воронка продаж"),
+            Soon("unit-economics", "Юнит-экономика"),
             new("customer-payments", "Оплаты покупателей", a => a.Has(Permissions.SalesView) && a.Has(Permissions.PriceView)),
             new("reports/customer-balances", "Расчёты с покупателями", a => a.Has(Permissions.SalesView) && a.Has(Permissions.PriceView)),
+            new("learn/sales", "Обучение", a => true),
         ]),
-        // Замечание пользователя: поставщики и покупатели — в отдельном разделе CRM.
+        new("purchases", "Закупки",
+        [
+            new("purchase-orders", "Заказы поставщикам", a => a.Has(Permissions.PurchaseView)),
+            Soon("supplier-invoices", "Счета поставщиков"),
+            new("stock-documents?kind=1&order=1", "Приёмка", Docs),
+            new("stock-documents?kind=5", "Возвраты поставщикам", Docs),
+            Soon("received-vat-invoices", "Счета-фактуры полученные"),
+            Soon("purchase-planning", "Управление закупками"),
+            new("supplier-payments", "Оплаты поставщикам", a => a.Has(Permissions.PurchaseView) && a.Has(Permissions.PriceView)),
+            new("reports/supplier-balances", "Расчёты с поставщиками", a => a.Has(Permissions.PurchaseView) && a.Has(Permissions.PriceView)),
+            new("learn/purchases", "Обучение", a => true),
+        ]),
         new("crm", "CRM",
         [
+            new("counterparties", "Контрагенты", a => a.Has(Permissions.CatalogView)),
             new("counterparties?role=customer", "Покупатели", a => a.Has(Permissions.CatalogView)),
             new("counterparties?role=supplier", "Поставщики", a => a.Has(Permissions.CatalogView)),
-            new("counterparties", "Все контрагенты", a => a.Has(Permissions.CatalogView)),
+            Soon("contracts", "Договоры"),
+            Soon("calls", "Звонки"),
+            Soon("discounts", "Скидки"),
+            new("learn/crm", "Обучение", a => true),
         ]),
         new("warehouse", "Склад",
         [
-            new("stock", "Остатки", a => a.Has(Permissions.WarehouseReportView)),
-            new("stock-documents", "Складские документы", Docs),
+            new("stock-documents?kind=1&order=0", "Оприходования", Docs),
+            new("stock-documents?kind=2", "Списания", Docs),
+            new("stock-documents?kind=3", "Перемещения", Docs),
             new("inventory", "Инвентаризация", Docs),
+            Soon("picking-waves", "Волны отбора"),
+            Soon("internal-orders", "Внутренние заказы"),
+            new("stock", "Остатки", a => a.Has(Permissions.WarehouseReportView)),
+            new("reports/turnover", "Обороты", a => a.Has(Permissions.WarehouseReportView)),
+            new("warehouses", "Склады", a => a.Has(Permissions.CatalogView)),
             new("opening-balances", "Начальные остатки", a => a.Has(Permissions.OpeningBalanceCreate) || a.Has(Permissions.OpeningBalanceApprove)
                                                          || a.Has(Permissions.WarehouseReportView)),
+            new("stock-documents", "Все складские документы", Docs),
+            new("learn/warehouse", "Обучение", a => true),
         ]),
         new("production", "Производство",
         [
@@ -144,7 +177,6 @@
         new("reports", "Отчёты",
         [
             new("reports/movements", "Движения", a => a.Has(Permissions.WarehouseReportView)),
-            new("reports/turnover", "Обороты", a => a.Has(Permissions.WarehouseReportView)),
             new("reports/inventory-variances", "Отклонения инвентаризации", a => a.Has(Permissions.WarehouseReportView)),
             new("reconciliation", "Сверка", a => a.Has(Permissions.WarehouseReportView)),
             new("audit", "Журнал аудита", a => a.HasOwnOnly(Permissions.AuditLogView)),
@@ -154,7 +186,6 @@
         [
             new("catalog", "Номенклатура", a => a.Has(Permissions.CatalogView)),
             new("units", "Единицы измерения", a => a.Has(Permissions.CatalogView)),
-            new("warehouses", "Склады", a => a.Has(Permissions.CatalogView)),
             new("vat-rates", "Ставки НДС", a => a.Has(Permissions.CatalogView)),
             new("structure", "Структура", a => a.Has(Permissions.DepartmentView)),
             new("employees", "Сотрудники", a => a.HasOwnOnly(Permissions.EmployeeView)),
@@ -170,7 +201,7 @@
         ]),
     ];
 
-    private static readonly NavItem[] Items = Groups.SelectMany(g => g.Items).ToArray();
+    private static readonly NavItem[] Items = Groups.SelectMany(g => g.Items).Where(i => !i.Planned).ToArray();
 
     private readonly HashSet<string> _toggled = [];
     private bool _narrow;
