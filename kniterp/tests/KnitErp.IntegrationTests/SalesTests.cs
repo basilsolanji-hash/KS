@@ -383,6 +383,57 @@ public sealed class SalesTests(SqlTestHost host) : IClassFixture<SqlTestHost>
         }
     }
 
+    [SqlFact]
+    public async Task Reserve_holds_unshipped_quantity_and_discount_flows_into_upd()
+    {
+        var f = await SetUpAsync();
+        await using var s = host.As(f.Org.OwnerUserId, f.Org.OrganizationId);
+        long? reason;
+        await using (var db = host.NewDb())
+        {
+            reason = await db.OperationReasons.Where(r => r.OrganizationId == f.Org.OrganizationId && r.Kind == StockOperationKind.Receipt)
+                .Select(r => (long?)r.Id).FirstAsync();
+        }
+
+        var receipt = await s.Documents.CreateAsync(StockOperationKind.Receipt, new StockDocumentHeader(f.Store, null, null, reason, Day, null));
+        await s.Documents.SetLineAsync(receipt, f.Sweater, 30, (await s.Documents.GetAsync(receipt)).RowVersion);
+        await s.Documents.PostAsync(receipt, (await s.Documents.GetAsync(receipt)).RowVersion);
+
+        // Заказ А: 20 шт. с резервом и скидкой 10 % — после подтверждения 20 шт. держатся на складе.
+        var a = await s.Sales.CreateOrderAsync(new SalesOrderHeader(Day, f.Customer, f.Store, null, null, false, null));
+        await s.Sales.SetOrderLineAsync(a, f.Sweater, 20, 1000m, 22m, 10m, (await s.Sales.GetOrderAsync(a)).RowVersion);
+        await s.Sales.SetOrderReserveAsync(a, true, (await s.Sales.GetOrderAsync(a)).RowVersion);
+        Assert.Equal(0m, (await s.Stock.BalancesAsync(new StockFilter(f.Store))).Single().Reserved);
+        await s.Sales.ConfirmOrderAsync(a, (await s.Sales.GetOrderAsync(a)).RowVersion);
+        var balance = (await s.Stock.BalancesAsync(new StockFilter(f.Store))).Single();
+        Assert.Equal((30m, 20m, 10m), (balance.Quantity, balance.Reserved, balance.Available));
+        var orderA = await s.Sales.GetOrderAsync(a);
+        Assert.Equal((true, 21_960m, 2_000m), (orderA.Reserve, orderA.Total!.Value, orderA.DiscountTotal!.Value));
+        Assert.Equal((30m, 0m, false), (orderA.Lines.Single().Stock, orderA.Lines.Single().ReservedByOthers, orderA.Lines.Single().Short));
+
+        // Заказ Б на 15 шт.: доступно ему 10 — строка подсвечена «не хватает».
+        var b = await s.Sales.CreateOrderAsync(new SalesOrderHeader(Day, f.Customer, f.Store, null, null, false, null));
+        await s.Sales.SetOrderLineAsync(b, f.Sweater, 15, 1000m, 22m, (await s.Sales.GetOrderAsync(b)).RowVersion);
+        var lineB = (await s.Sales.GetOrderAsync(b)).Lines.Single();
+        Assert.Equal((20m, 10m, true), (lineB.ReservedByOthers, lineB.Available, lineB.Short));
+
+        // Отгрузка 5 шт. по заказу А уменьшает его резерв; УПД — по цене со скидкой.
+        var ship = await s.Sales.CreateShipmentAsync(a);
+        await s.Documents.SetLineAsync(ship, f.Sweater, 5, (await s.Documents.GetAsync(ship)).RowVersion);
+        await s.Documents.PostAsync(ship, (await s.Documents.GetAsync(ship)).RowVersion);
+        balance = (await s.Stock.BalancesAsync(new StockFilter(f.Store))).Single();
+        Assert.Equal((25m, 15m, 10m), (balance.Quantity, balance.Reserved, balance.Available));
+        var upd = await s.Print.UpdAsync(ship);
+        Assert.Equal((900m, 4_500m, 5_490m), (upd.Lines.Single().Price, upd.TotalWithoutVat, upd.Total));
+
+        // Снятие резерва освобождает остаток; закрытый заказ резерв не держит и не меняет.
+        await s.Sales.SetOrderReserveAsync(a, false, (await s.Sales.GetOrderAsync(a)).RowVersion);
+        Assert.Equal(0m, (await s.Stock.BalancesAsync(new StockFilter(f.Store))).Single().Reserved);
+        await s.Sales.CloseOrderAsync(a, (await s.Sales.GetOrderAsync(a)).RowVersion);
+        Assert.Equal("sales.reserve.status", (await Assert.ThrowsAsync<BusinessRuleException>(async () =>
+            await s.Sales.SetOrderReserveAsync(a, true, (await s.Sales.GetOrderAsync(a)).RowVersion))).Code);
+    }
+
     private sealed record Fixture(CreatedOrganization Org, long Store, long Sweater, long Customer, long Senior);
 
     private async Task<Fixture> SetUpAsync()

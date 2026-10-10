@@ -118,4 +118,36 @@ public sealed class InvoiceAndPrintTests
     public void Vat_invoice_number_is_the_sequence_digits(string shipment, string expected) =>
         Assert.Equal(expected, KnitErp.Application.Printing.PrintService.VatInvoiceNumber(shipment));
 
+
+    [Fact]
+    public void Line_and_order_discounts_reduce_amount_and_vat()
+    {
+        var order = SalesOrder.Create(1, "ЗК-000001", new SalesOrderHeader(Day, 5, 7, null, null, false, null), 1, DateTime.UtcNow);
+        order.SetLine(10, 10, 1000m, 22m, 10m);
+        var line = order.Lines.Single();
+        Assert.Equal((900m, 10_980m, 1_980m, 1_000m), (line.NetPrice, line.Amount, line.VatAmount, line.DiscountAmount));
+        Assert.Equal("sales.discount", Assert.Throws<BusinessRuleException>(() => order.SetLine(10, 10, 1000m, 22m, 100.5m)).Code);
+        order.SetLine(11, 2, 500m, 22m);
+        order.SetDiscount(5);
+        Assert.All(order.Lines, l => Assert.Equal(5m, l.DiscountPercent));
+        Assert.Equal(11_590m + 1_159m, order.Total);
+        Assert.Equal(500m + 50m, order.DiscountTotal);
+
+        // Счёт копирует цену уже со скидкой.
+        order.Confirm(1, DateTime.UtcNow);
+        var invoice = CustomerInvoice.Create(1, "СЧ-1", Day, null, order, null, 1, DateTime.UtcNow);
+        Assert.Equal(950m, invoice.Lines.Single(l => l.ItemId == 10).Price);
+    }
+
+    [Fact]
+    public void Reserve_is_set_only_in_draft_or_confirmed_order()
+    {
+        var order = SalesOrder.Create(1, "ЗК-000001", new SalesOrderHeader(Day, 5, 7, null, null, false, null), 1, DateTime.UtcNow);
+        order.SetLine(10, 1, 1m, null);
+        order.SetReserve(true);
+        order.Confirm(1, DateTime.UtcNow);
+        order.SetReserve(false);
+        order.Close();
+        Assert.Equal("sales.reserve.status", Assert.Throws<BusinessRuleException>(() => order.SetReserve(true)).Code);
+    }
 }

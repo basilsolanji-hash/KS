@@ -68,7 +68,8 @@ public sealed class CustomerInvoice
         };
         foreach (var l in order.Lines)
         {
-            invoice._lines.Add(new CustomerInvoiceLine(l.ItemId, l.Quantity, l.Price, l.VatPercent, l.Amount, l.VatAmount));
+            // Цена в счёте — уже со скидкой (D76): сумма строки счёта = количество × цена.
+            invoice._lines.Add(new CustomerInvoiceLine(l.ItemId, l.Quantity, decimal.Round(l.NetPrice, 4), l.VatPercent, l.Amount, l.VatAmount));
         }
 
         return invoice;

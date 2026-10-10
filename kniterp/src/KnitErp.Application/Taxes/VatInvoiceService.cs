@@ -75,7 +75,7 @@ public sealed class VatInvoiceService(IKnitErpDbContext db, IAccessGuard guard, 
             var order = orders[d.OrderId];
             var (amount, vat) = d.Lines.Aggregate((Amount: 0m, Vat: 0m), (acc, l) =>
             {
-                var (a, v) = Money.LineAmounts(l.Quantity, order.Lines.Single(x => x.ItemId == l.ItemId).Price,
+                var (a, v) = Money.LineAmounts(l.Quantity, order.Lines.Single(x => x.ItemId == l.ItemId).NetPrice,
                     order.Lines.Single(x => x.ItemId == l.ItemId).VatPercent, order.PricesIncludeVat);
                 return (acc.Amount + a, acc.Vat + v);
             });

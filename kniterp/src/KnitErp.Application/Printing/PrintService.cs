@@ -81,7 +81,7 @@ public sealed class PrintService(IKnitErpDbContext db, IAccessGuard guard)
             .Select(l =>
             {
                 var orderLine = order.Lines.Single(o => o.ItemId == l.ItemId);
-                var (amount, vat) = Money.LineAmounts(l.Quantity, orderLine.Price, orderLine.VatPercent, order.PricesIncludeVat);
+                var (amount, vat) = Money.LineAmounts(l.Quantity, orderLine.NetPrice, orderLine.VatPercent, order.PricesIncludeVat);
                 return (Item: items[l.ItemId], l.Quantity, orderLine.VatPercent, Amount: amount, Vat: vat);
             })
             .OrderBy(l => l.Item.Code)

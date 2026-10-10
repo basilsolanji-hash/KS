@@ -47,11 +47,11 @@ else
 
     <div class="scroll">
         <table>
-            <thead><tr><th>@L("Склад")</th><th>@L("Код")</th><th>@L("Наименование")</th><th class="opt">@L("Тип")</th><th class="num">@L("Остаток")</th><th>@L("Ед.")</th></tr></thead>
+            <thead><tr><th>@L("Склад")</th><th>@L("Код")</th><th>@L("Наименование")</th><th class="opt">@L("Тип")</th><th class="num">@L("Остаток")</th><th class="num opt" title="@L("Под подтверждённые заказы покупателей с галочкой «Резерв»")">@L("Резерв")</th><th class="num">@L("Доступно")</th><th>@L("Ед.")</th></tr></thead>
             <tbody>
                 @if (_rows.Count == 0)
                 {
-                    <tr><td colspan="6" class="muted">@L("Остатков нет.")</td></tr>
+                    <tr><td colspan="8" class="muted">@L("Остатков нет.")</td></tr>
                 }
                 @foreach (var r in _rows)
                 {
@@ -61,6 +61,8 @@ else
                         <td>@r.Name</td>
                         <td>@L(r.TypeName)</td>
                         <td class="num">@Quantities.Format(r.Quantity)</td>
+                        <td class="num">@(r.Reserved > 0 ? Quantities.Format(r.Reserved) : "—")</td>
+                        <td class="num @(r.Available < 0 ? "cell-short" : null)">@Quantities.Format(r.Available)</td>
                         <td>@r.UnitSymbol</td>
                     </tr>
                 }

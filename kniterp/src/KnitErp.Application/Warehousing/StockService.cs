@@ -6,10 +6,13 @@ using Microsoft.EntityFrameworkCore;
 
 namespace KnitErp.Application.Warehousing;
 
+/// <summary>Reserved — в резерве под заказы покупателей (D76); Available — остаток минус резерв.</summary>
 public sealed record StockBalanceDto(
-    long WarehouseId, string WarehouseName, long ItemId, string Code, string Name, ItemType Type, string UnitSymbol, decimal Quantity)
+    long WarehouseId, string WarehouseName, long ItemId, string Code, string Name, ItemType Type, string UnitSymbol, decimal Quantity,
+    decimal Reserved = 0)
 {
     public string TypeName => ItemTypes.Name(Type);
+    public decimal Available => Quantity - Reserved;
 }
 
 public sealed record StockFilter(long? WarehouseId = null, ItemType? Type = null, string? Search = null);
@@ -52,9 +55,13 @@ public sealed class StockService(IKnitErpDbContext db, IAccessGuard guard)
             rows = rows.Where(r => r.i.Code.Contains(text) || r.i.Name.Contains(text));
         }
 
-        return await rows.OrderBy(r => r.WarehouseName).ThenBy(r => r.i.Type).ThenBy(r => r.i.Name).Take(5000)
-            .Select(r => new StockBalanceDto(r.s.WarehouseId, r.WarehouseName, r.i.Id, r.i.Code, r.i.Name, r.i.Type, r.Symbol, r.s.Quantity))
+        var list = await rows.OrderBy(r => r.WarehouseName).ThenBy(r => r.i.Type).ThenBy(r => r.i.Name).Take(5000)
+            .Select(r => new StockBalanceDto(r.s.WarehouseId, r.WarehouseName, r.i.Id, r.i.Code, r.i.Name, r.i.Type, r.Symbol, r.s.Quantity, 0))
             .ToListAsync(ct);
+        var reserved = await KnitErp.Application.Sales.Reservations.ByWarehouseItemAsync(db, ctx.OrganizationId,
+            list.Select(r => r.WarehouseId).Distinct().ToList(), null, null, ct);
+        return reserved.Count == 0 ? list
+            : list.Select(r => r with { Reserved = reserved.GetValueOrDefault((r.WarehouseId, r.ItemId)) }).ToList();
     }
 
     /// <summary>Склады, по которым пользователь видит остатки, — для фильтра.</summary>

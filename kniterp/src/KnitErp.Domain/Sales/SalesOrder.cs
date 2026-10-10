@@ -47,6 +47,12 @@ public sealed class SalesOrder
 
     public SalesOrderStatus Status { get; private set; }
 
+    /// <summary>
+    /// Резерв (D76): товар подтверждённого заказа, ещё не отгруженный, держится на складе заказа и не считается доступным
+    /// другим заказам. Галочка ставится и снимается в черновике и в подтверждённом заказе.
+    /// </summary>
+    public bool Reserve { get; private set; }
+
     /// <summary>Этап работы с заказом из справочника организации (D75); null — этап не выбран.</summary>
     public long? StageId { get; private set; }
 
@@ -89,10 +95,11 @@ public sealed class SalesOrder
         }
     }
 
-    /// <summary>Строка по позиции: новая или замена. vatPercent null — «без НДС».</summary>
-    public void SetLine(long itemId, decimal quantity, decimal price, decimal? vatPercent)
+    /// <summary>Строка по позиции: новая или замена. vatPercent null — «без НДС»; discountPercent — скидка строки, 0–100 %.</summary>
+    public void SetLine(long itemId, decimal quantity, decimal price, decimal? vatPercent, decimal discountPercent = 0)
     {
         EnsureDraft();
+        EnsureDiscount(discountPercent);
         Quantities.EnsurePositive(quantity);
         if (price < 0 || decimal.Round(price, 4) != price)
         {
@@ -116,7 +123,39 @@ public sealed class SalesOrder
             _lines.Add(line);
         }
 
-        line.Set(quantity, price, vatPercent, PricesIncludeVat);
+        line.Set(quantity, price, vatPercent, discountPercent, PricesIncludeVat);
+    }
+
+    /// <summary>Скидка на весь заказ: один процент всем строкам черновика (как кнопка «Скидка» в МойСклад).</summary>
+    public void SetDiscount(decimal discountPercent)
+    {
+        EnsureDraft();
+        EnsureDiscount(discountPercent);
+        foreach (var line in _lines)
+        {
+            line.Set(line.Quantity, line.Price, line.VatPercent, discountPercent, PricesIncludeVat);
+        }
+    }
+
+    /// <summary>Сумма скидки по заказу — разница между суммой по ценам без скидки и итогом.</summary>
+    public decimal DiscountTotal => _lines.Sum(l => l.DiscountAmount);
+
+    public void SetReserve(bool reserve)
+    {
+        if (Status is not (SalesOrderStatus.Draft or SalesOrderStatus.Confirmed))
+        {
+            throw new BusinessRuleException("sales.reserve.status", "Резерв ставится и снимается в черновике или подтверждённом заказе.");
+        }
+
+        Reserve = reserve;
+    }
+
+    private static void EnsureDiscount(decimal discountPercent)
+    {
+        if (discountPercent < 0 || discountPercent > 100 || decimal.Round(discountPercent, 2) != discountPercent)
+        {
+            throw new BusinessRuleException("sales.discount", "Скидка — от 0 до 100%, до сотых.");
+        }
     }
 
     public void RemoveLine(long itemId)
@@ -243,21 +282,31 @@ public sealed class SalesOrderLine
     /// <summary>Процент НДС; null — без НДС.</summary>
     public decimal? VatPercent { get; private set; }
 
+    /// <summary>Скидка строки, % (D76). Цена — до скидки; сумма и НДС — по цене со скидкой.</summary>
+    public decimal DiscountPercent { get; private set; }
+
     /// <summary>Сумма строки с НДС.</summary>
     public decimal Amount { get; private set; }
 
     public decimal VatAmount { get; private set; }
 
-    internal void Set(decimal quantity, decimal price, decimal? vatPercent, bool pricesIncludeVat)
+    /// <summary>Цена со скидкой (не округляется: округляется сумма строки).</summary>
+    public decimal NetPrice => Price * (1 - DiscountPercent / 100m);
+
+    /// <summary>Скидка в деньгах: сумма по цене без скидки минус сумма строки (в той же базе — с НДС или без).</summary>
+    public decimal DiscountAmount => DiscountPercent == 0 ? 0 : Money.Round(Quantity * Price) - Money.Round(Quantity * NetPrice);
+
+    internal void Set(decimal quantity, decimal price, decimal? vatPercent, decimal discountPercent, bool pricesIncludeVat)
     {
         Quantity = quantity;
         Price = price;
         VatPercent = vatPercent;
+        DiscountPercent = discountPercent;
         Recalculate(pricesIncludeVat);
     }
 
     internal void Recalculate(bool pricesIncludeVat) =>
-        (Amount, VatAmount) = Money.LineAmounts(Quantity, Price, VatPercent, pricesIncludeVat);
+        (Amount, VatAmount) = Money.LineAmounts(Quantity, NetPrice, VatPercent, pricesIncludeVat);
 }
 
 public enum CustomerPaymentStatus : byte

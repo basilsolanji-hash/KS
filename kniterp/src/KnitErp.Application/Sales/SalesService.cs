@@ -41,11 +41,19 @@ public sealed record SalesOrderRowDto(
     public decimal? Unpaid => Total is { } t && Paid is { } p ? t - p : null;
 }
 
+/// <summary>
+/// Строка заказа. Stock — остаток на складе заказа, ReservedByOthers — резерв других заказов на нём,
+/// Available — что можно отгрузить по этому заказу (D76): остаток − резерв других заказов.
+/// </summary>
 public sealed record SalesOrderLineDto(
     long ItemId, string Code, string Name, string UnitSymbol, byte Precision, decimal Quantity, decimal? Price, decimal? VatPercent,
-    decimal? Amount, decimal? VatAmount, decimal Shipped, decimal Returned)
+    decimal? Amount, decimal? VatAmount, decimal Shipped, decimal Returned, decimal DiscountPercent = 0, decimal Stock = 0, decimal ReservedByOthers = 0)
 {
     public decimal Left => Math.Max(0, Quantity - Shipped + Returned);
+    public decimal Available => Stock - ReservedByOthers;
+
+    /// <summary>Не хватает для отгрузки оставшегося — подсветка в строке.</summary>
+    public bool Short => Left > 0 && Available < Left;
 }
 
 public sealed record SalesLinkedDocumentDto(long Id, string Number, StockOperationKind Kind, DateOnly Date, StockDocumentStatus Status)
@@ -64,7 +72,8 @@ public sealed record SalesOrderDto(
     string? CustomerReference, bool PricesIncludeVat, SalesOrderStatus Status, string? Comment, string CreatedBy, DateTime CreatedAtUtc,
     string? ConfirmedBy, DateTime? ConfirmedAtUtc, IReadOnlyList<SalesOrderLineDto> Lines, IReadOnlyList<SalesLinkedDocumentDto> Documents,
     IReadOnlyList<CustomerPaymentDto> Payments, decimal? Total, decimal? VatTotal, decimal? ShippedValue, decimal? ReturnedValue, decimal? Paid,
-    bool CanEdit, bool CanSeePrices, bool CanCreateDocuments, byte[] RowVersion, SalesStageRefDto? Stage = null)
+    bool CanEdit, bool CanSeePrices, bool CanCreateDocuments, byte[] RowVersion, SalesStageRefDto? Stage = null, bool Reserve = false,
+    decimal? DiscountTotal = null)
 {
     public string StatusName => SalesOrder.StatusName(Status);
     public decimal? Debt => ShippedValue is { } r && ReturnedValue is { } ret && Paid is { } p ? r - ret - p : null;
@@ -187,12 +196,17 @@ public sealed class SalesService(
             docs.Where(d => d.Kind == kind && d.Status == StockDocumentStatus.Posted).SelectMany(d => d.Lines).Where(l => l.ItemId == itemId).Sum(l => l.Quantity);
 
         var prices = ctx.Permissions.Has(Permissions.PriceView);
+        var stock = await db.StockMovements.AsNoTracking()
+            .Where(m => m.OrganizationId == ctx.OrganizationId && m.WarehouseId == order.WarehouseId && itemIds.Contains(m.ItemId))
+            .GroupBy(m => m.ItemId).Select(g => new { g.Key, Sum = g.Sum(m => m.Quantity) }).ToDictionaryAsync(x => x.Key, x => x.Sum, ct);
+        var reservedByOthers = await Reservations.ByWarehouseItemAsync(db, ctx.OrganizationId, [order.WarehouseId], itemIds, order.Id, ct);
         var lines = order.Lines.Select(l =>
         {
             var item = items[l.ItemId];
             return new SalesOrderLineDto(l.ItemId, item.Code, item.Name, item.Symbol, item.Precision, l.Quantity,
                 prices ? l.Price : null, l.VatPercent, prices ? l.Amount : null, prices ? l.VatAmount : null,
-                Moved(l.ItemId, StockOperationKind.Shipment), Moved(l.ItemId, StockOperationKind.CustomerReturn));
+                Moved(l.ItemId, StockOperationKind.Shipment), Moved(l.ItemId, StockOperationKind.CustomerReturn),
+                l.DiscountPercent, stock.GetValueOrDefault(l.ItemId), reservedByOthers.GetValueOrDefault((order.WarehouseId, l.ItemId)));
         }).OrderBy(l => l.Code).ToList();
 
         var payments = await PaymentsQuery(ctx, orderId: id).ToListAsync(ct);
@@ -211,7 +225,30 @@ public sealed class SalesService(
             prices ? Value(StockOperationKind.Shipment) : null, prices ? Value(StockOperationKind.CustomerReturn) : null,
             prices ? payments.Where(p => p.Status == CustomerPaymentStatus.Posted).Sum(p => p.Amount) : null,
             canEdit, prices, canDocs, order.RowVersion,
-            order.StageId is { } sid && (await StagesAsync(ctx, ct)).TryGetValue(sid, out var stage) ? stage : null);
+            order.StageId is { } sid && (await StagesAsync(ctx, ct)).TryGetValue(sid, out var stage) ? stage : null,
+            order.Reserve, prices ? order.DiscountTotal : null);
+    }
+
+    /// <summary>Скидка на весь заказ (D76): один процент всем строкам черновика.</summary>
+    public async Task SetOrderDiscountAsync(long id, decimal discountPercent, byte[] rowVersion, CancellationToken ct = default)
+    {
+        var (ctx, order) = await LoadForEditAsync(id, rowVersion, ct);
+        order.SetDiscount(discountPercent);
+        Audit(ctx, AuditActions.SalesOrderChanged, nameof(SalesOrder), id, null, $"скидка {discountPercent:0.##}% на все строки, итого {order.Total:0.00}",
+            order.Number);
+        await db.SaveOrConflictAsync(ct);
+    }
+
+    /// <summary>Резерв товара под заказ (D76). Право — «Продажи: заказы и оплаты»; цены не нужны.</summary>
+    public async Task SetOrderReserveAsync(long id, bool reserve, byte[] rowVersion, CancellationToken ct = default)
+    {
+        var ctx = await guard.DemandAsync(Permissions.SalesEdit, ct);
+        var order = await LoadOrderAsync(ctx, id, ct);
+        order.EnsureVersion(order.RowVersion, rowVersion);
+        order.SetReserve(reserve);
+        Audit(ctx, AuditActions.SalesOrderChanged, nameof(SalesOrder), id, reserve ? "без резерва" : "резерв", reserve ? "резерв" : "без резерва",
+            order.Number);
+        await db.SaveOrConflictAsync(ct);
     }
 
     /// <summary>
@@ -299,15 +336,21 @@ public sealed class SalesService(
     }
 
     public async Task SetOrderLineAsync(long id, long itemId, decimal quantity, decimal price, decimal? vatPercent, byte[] rowVersion,
-        CancellationToken ct = default)
+        CancellationToken ct = default) =>
+        await SetOrderLineAsync(id, itemId, quantity, price, vatPercent, 0, rowVersion, ct);
+
+    /// <summary>Строка заказа со скидкой строки в процентах (D76).</summary>
+    public async Task SetOrderLineAsync(long id, long itemId, decimal quantity, decimal price, decimal? vatPercent, decimal discountPercent,
+        byte[] rowVersion, CancellationToken ct = default)
     {
         var (ctx, order) = await LoadForEditAsync(id, rowVersion, ct);
         var item = await StockEntry.ActiveItems(db, ctx.OrganizationId, itemId).SingleOrDefaultAsync(ct) ?? throw new NotFoundException("Номенклатура");
         StockEntry.EnsurePrecision(item, quantity);
-        order.SetLine(itemId, quantity, price, vatPercent);
+        order.SetLine(itemId, quantity, price, vatPercent, discountPercent);
         var line = order.Lines.Single(l => l.ItemId == itemId);
         Audit(ctx, AuditActions.SalesOrderChanged, nameof(SalesOrder), id, null,
-            $"{item.Code}: {Quantities.Format(quantity)} {item.UnitSymbol} × {price:0.####} = {line.Amount:0.00}", $"{order.Number}: строка");
+            $"{item.Code}: {Quantities.Format(quantity)} {item.UnitSymbol} × {price:0.####}{(discountPercent > 0 ? $" − {discountPercent:0.##}%" : "")} = {line.Amount:0.00}",
+            $"{order.Number}: строка");
         await db.SaveOrConflictAsync(ct);
     }
 

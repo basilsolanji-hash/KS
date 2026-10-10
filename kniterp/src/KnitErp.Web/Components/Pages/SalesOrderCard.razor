@@ -148,8 +148,28 @@ else
                     }
                 </select>
             </label>
+            <label>@L("Скидка, %") <input @bind="_discountText" inputmode="decimal" size="5" placeholder="0" /></label>
             <button type="submit" disabled="@_busy">@L("Добавить или изменить")</button>
         </form>
+        @if (_order.Lines.Count > 0)
+        {
+            <form class="inline-form" @onsubmit="SetOrderDiscountAsync">
+                <label>@L("Скидка на весь заказ, %") <input @bind="_orderDiscountText" inputmode="decimal" size="5" placeholder="5" /></label>
+                <button type="submit" class="secondary" disabled="@_busy">@L("Применить ко всем строкам")</button>
+            </form>
+        }
+    }
+
+    @if (CurrentAccess.Has(Permissions.SalesEdit) && _order.Status is SalesOrderStatus.Draft or SalesOrderStatus.Confirmed)
+    {
+        <label class="inline reserve-toggle" title="@L("Товар подтверждённого заказа держится на складе и не считается доступным другим заказам")">
+            <input type="checkbox" checked="@_order.Reserve" @onchange="ToggleReserveAsync" disabled="@_busy" /> @L("Резерв")
+            <span class="muted">@(_order.Reserve ? (_order.Status == SalesOrderStatus.Confirmed ? L("товар зарезервирован") : L("резерв начнёт действовать после подтверждения")) : "")</span>
+        </label>
+    }
+    else if (_order.Reserve)
+    {
+        <p class="muted">@L("Резерв")</p>
     }
 
     <div class="scroll">
@@ -157,8 +177,10 @@ else
             <thead>
                 <tr>
                     <th>@L("Код")</th><th>@L("Наименование")</th><th class="num">@L("Количество")</th><th>@L("Ед.")</th>
-                    @if (_order.CanSeePrices) { <th class="num">@L("Цена")</th><th class="num opt">@L("НДС")</th><th class="num">@L("Сумма")</th> }
+                    @if (_order.CanSeePrices) { <th class="num">@L("Цена")</th><th class="num opt">@L("НДС")</th><th class="num opt">@L("Скидка")</th><th class="num">@L("Сумма")</th> }
                     @if (!draft) { <th class="num">@L("Отгружено")</th><th class="num opt">@L("Возвращено")</th><th class="num">@L("Осталось")</th> }
+                    <th class="num opt" title="@L("Остаток на складе заказа")">@L("Остаток")</th>
+                    <th class="num" title="@L("Остаток минус резерв других заказов")">@L("Доступно")</th>
                     @if (editable) { <th></th> }
                 </tr>
             </thead>
@@ -178,6 +200,7 @@ else
                         {
                             <td class="num">@(l.Price?.ToString("#,0.00##", System.Globalization.CultureInfo.GetCultureInfo("ru-RU")))</td>
                             <td class="num">@Amounts.Vat(l.VatPercent)</td>
+                            <td class="num">@(l.DiscountPercent > 0 ? $"{l.DiscountPercent:0.##}%" : "—")</td>
                             <td class="num">@Amounts.Format(l.Amount)</td>
                         }
                         @if (!draft)
@@ -186,6 +209,8 @@ else
                             <td class="num">@Quantities.Format(l.Returned)</td>
                             <td class="num">@(l.Left > 0 ? Quantities.Format(l.Left) : "—")</td>
                         }
+                        <td class="num">@Quantities.Format(l.Stock)</td>
+                        <td class="num @(l.Short ? "cell-short" : null)" title="@(l.ReservedByOthers > 0 ? L("в резерве других заказов: {0}", Quantities.Format(l.ReservedByOthers)) : null)">@Quantities.Format(l.Available)</td>
                         @if (editable)
                         {
                             <td>
@@ -204,6 +229,10 @@ else
         <div class="totals">
             <span>@L("Сумма заказа:") <b>@Amounts.Format(_order.Total)</b></span>
             <span>@L("в т. ч. НДС:") @Amounts.Format(_order.VatTotal)</span>
+            @if (_order.DiscountTotal is > 0)
+            {
+                <span>@L("Скидка:") @Amounts.Format(_order.DiscountTotal)</span>
+            }
             @if (!draft)
             {
                 <span>@L("Отгружено на:") @Amounts.Format(_order.ShippedValue)</span>
@@ -336,6 +365,8 @@ else
     private string _qtyText = string.Empty;
     private string _priceText = string.Empty;
     private string _vatText = string.Empty;
+    private string _discountText = string.Empty;
+    private string _orderDiscountText = string.Empty;
     private DateTime _payDate = DateTime.Today;
     private string _payText = string.Empty;
     private string? _payComment;
@@ -460,7 +491,17 @@ else
         _qtyText = Quantities.Format(l.Quantity);
         _priceText = l.Price?.ToString("0.####", System.Globalization.CultureInfo.GetCultureInfo("ru-RU")) ?? string.Empty;
         _vatText = l.VatPercent?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+        _discountText = l.DiscountPercent > 0 ? l.DiscountPercent.ToString("0.##", System.Globalization.CultureInfo.GetCultureInfo("ru-RU")) : string.Empty;
     }
+
+    private Task SetOrderDiscountAsync() => RunAsync(async () =>
+    {
+        await Sales.SetOrderDiscountAsync(Id, Number(_orderDiscountText), _order!.RowVersion);
+        _orderDiscountText = string.Empty;
+    }, L("Скидка применена ко всем строкам."));
+
+    private Task ToggleReserveAsync(ChangeEventArgs e) =>
+        RunAsync(() => Sales.SetOrderReserveAsync(Id, e.Value is true, _order!.RowVersion), e.Value is true ? L("Товар зарезервирован.") : L("Резерв снят."));
 
     private Task SetLineAsync() => RunAsync(async () =>
     {
@@ -468,8 +509,10 @@ else
         var qty = Number(_qtyText);
         var price = Number(_priceText);
         decimal? vat = _vatText.Length == 0 ? null : decimal.Parse(_vatText, System.Globalization.CultureInfo.InvariantCulture);
-        await Sales.SetOrderLineAsync(Id, item.Id, qty, price, vat, _order!.RowVersion);
+        var discount = string.IsNullOrWhiteSpace(_discountText) ? 0 : Number(_discountText);
+        await Sales.SetOrderLineAsync(Id, item.Id, qty, price, vat, discount, _order!.RowVersion);
         _itemText = string.Empty;
+        _discountText = string.Empty;
         _qtyText = string.Empty;
         _priceText = string.Empty;
     }, null);

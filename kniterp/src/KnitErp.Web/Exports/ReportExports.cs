@@ -23,8 +23,9 @@ public sealed class ReportExports(
     public async Task<byte[]> StockAsync(StockFilter filter, CancellationToken ct)
     {
         var rows = await stock.BalancesAsync(filter, ct);
-        return spreadsheet.Write([new SheetData("Остатки", ["Склад", "Код", "Наименование", "Тип", "Остаток", "Ед."],
-            rows.Select(r => Row(r.WarehouseName, r.Code, r.Name, r.TypeName, Number(r.Quantity), r.UnitSymbol)).ToList(), Numeric(4))]);
+        return spreadsheet.Write([new SheetData("Остатки", ["Склад", "Код", "Наименование", "Тип", "Остаток", "Резерв", "Доступно", "Ед."],
+            rows.Select(r => Row(r.WarehouseName, r.Code, r.Name, r.TypeName, Number(r.Quantity), Number(r.Reserved), Number(r.Available), r.UnitSymbol)).ToList(),
+            Numeric(4, 5, 6))]);
     }
 
     public async Task<byte[]> MovementsAsync(MovementFilter filter, CancellationToken ct)

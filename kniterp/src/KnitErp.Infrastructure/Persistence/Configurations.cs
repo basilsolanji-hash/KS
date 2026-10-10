@@ -680,6 +680,8 @@ internal sealed class SalesOrderConfiguration : IEntityTypeConfiguration<SalesOr
         b.Property(x => x.RowVersion).IsRowVersion();
         b.Ignore(x => x.Total);
         b.Ignore(x => x.VatTotal);
+        b.Ignore(x => x.DiscountTotal);
+        b.Property(x => x.Reserve).HasDefaultValue(false);
         b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
         b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_sales_orders_org_id");
         b.HasOne<Counterparty>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.CustomerId })
@@ -729,6 +731,7 @@ internal sealed class SalesOrderLineConfiguration : IEntityTypeConfiguration<Sal
             t.HasCheckConstraint("ck_sales_order_lines_quantity", "[Quantity] > 0");
             t.HasCheckConstraint("ck_sales_order_lines_price", "[Price] >= 0 AND [Amount] >= 0 AND [VatAmount] >= 0");
             t.HasCheckConstraint("ck_sales_order_lines_vat", "[VatPercent] IS NULL OR [VatPercent] BETWEEN 0 AND 100");
+            t.HasCheckConstraint("ck_sales_order_lines_discount", "[DiscountPercent] BETWEEN 0 AND 100");
         });
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).UseIdentityColumn();
@@ -737,6 +740,9 @@ internal sealed class SalesOrderLineConfiguration : IEntityTypeConfiguration<Sal
         b.Property(x => x.Amount).HasColumnType("decimal(19,4)");
         b.Property(x => x.VatAmount).HasColumnType("decimal(19,4)");
         b.Property(x => x.VatPercent).HasColumnType("decimal(5,2)");
+        b.Property(x => x.DiscountPercent).HasColumnType("decimal(5,2)").HasDefaultValue(0m);
+        b.Ignore(x => x.NetPrice);
+        b.Ignore(x => x.DiscountAmount);
         b.HasOne<Item>().WithMany().HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Restrict);
         b.HasIndex(x => new { x.OrderId, x.ItemId }).IsUnique().HasDatabaseName("ux_sales_order_lines_order_item");
     }
