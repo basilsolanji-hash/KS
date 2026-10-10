@@ -968,6 +968,7 @@
     <string name="staff_no_jobs">Заказов в производстве нет.</string>
     <string name="staff_job_add">Заказ в производство</string>
     <string name="staff_job_title">Заказ (например, КП-12 Подвязы)</string>
+    <string name="staff_tech_card">Техкарта: %1$s · версия %2$d</string>
     <string name="staff_job_close">Заказ готов — убрать из списка</string>
     <string name="staff_start">Начать</string>
     <string name="staff_finish">Завершить</string>

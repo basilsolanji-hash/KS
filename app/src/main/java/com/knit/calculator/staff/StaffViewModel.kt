@@ -25,7 +25,18 @@ data class StageRun(
     val minutes: Long? get() = if (startedAt != null && finishedAt != null) (finishedAt - startedAt) / 60_000 else null
 }
 
-data class Job(val id: Int, val title: String, val client: String, val quantity: Int, val deadline: Long?, val stages: List<StageRun>)
+/** Утверждённая версия техкарты, снимок которой закреплён за производственным заданием. */
+data class JobTechCard(val code: String, val name: String, val version: Int)
+
+data class Job(
+    val id: Int,
+    val title: String,
+    val client: String,
+    val quantity: Int,
+    val deadline: Long?,
+    val techCard: JobTechCard?,
+    val stages: List<StageRun>,
+)
 
 /** График: дни недели или сменный цикл «[cycleOn] через [cycleOff]» от даты [anchor] (2/2 и т. п.). */
 data class Schedule(val days: List<Int>, val start: String, val end: String, val cycleOn: Int = 0, val cycleOff: Int = 0, val anchor: String = "") {
@@ -212,9 +223,13 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun loadJobsNow(c: ServerClient) {
         val a = c.call("jobs").optJSONArray("jobs") ?: JSONArray()
         _jobs.value = a.objects().map { j ->
+            val techCard = j.optJSONObject("techCard")?.let { tc ->
+                JobTechCard(tc.optString("code"), tc.optString("name"), tc.optInt("version"))
+            }
             Job(
                 j.optInt("id"), j.optString("title"), j.optString("client"), j.optInt("quantity"),
                 if (j.isNull("deadline")) null else j.optLong("deadline"),
+                techCard,
                 (j.optJSONArray("stages") ?: JSONArray()).objects().map { s ->
                     StageRun(
                         s.optInt("id"), s.optString("stage"), s.optString("startedBy").ifBlank { null }, s.longOrNull("startedAt"),

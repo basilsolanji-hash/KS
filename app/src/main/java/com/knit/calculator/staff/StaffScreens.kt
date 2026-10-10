@@ -200,6 +200,9 @@ fun StaffProductionScreen(vm: StaffViewModel, onBack: () -> Unit) {
                     if (job.client.isNotBlank() || job.quantity > 0) {
                         Text(listOf(job.client, if (job.quantity > 0) "${job.quantity} шт" else "").filter { it.isNotBlank() }.joinToString(" · "), color = colors.textSecondary, fontSize = 13.sp)
                     }
+                    job.techCard?.let { tc ->
+                        Text(stringResource(R.string.staff_tech_card, tc.code, tc.version), color = colors.textSecondary, fontSize = 12.sp)
+                    }
                     m.stages.forEach { stage ->
                         val (key, title, mine) = stage
                         val runs = job.stages.filter { it.stage == key }
