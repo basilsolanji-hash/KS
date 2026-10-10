@@ -1,0 +1,471 @@
+@page "/purchase-orders/{Id:long}"
+@using KnitErp.Application.Purchasing
+@using KnitErp.Domain.Purchasing
+@using KnitErp.Domain.Warehousing
+@inject PurchaseService Purchases
+@inject NavigationManager Navigation
+
+<PageTitle>@(_order?.Number ?? L("Заказ поставщику")) — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_notFound)
+{
+    <h1>@L("Заказ не найден")</h1>
+    <p><a href="purchase-orders">@L("К списку заказов")</a></p>
+}
+else if (_order is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    var draft = _order.Status == PurchaseOrderStatus.Draft;
+    var editable = draft && _order.CanEdit;
+    <p><a href="purchase-orders">@L("← Заказы поставщикам")</a></p>
+    <div class="page-head">
+        <h1>@L("Заказ поставщику") @_order.Number <span class="tag @PurchaseOrdersPage.StatusClass(_order.Status)">@L(_order.StatusName)</span>
+            <span class="muted" style="font-size: 13px; font-weight: 400">@PurchaseOrdersPage.ReceivedName(_order.Received)</span></h1>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="@(_messageIsError ? "flash error" : "flash")" role="@(_messageIsError ? "alert" : "status")">@_message</div>
+    }
+
+    @if (_header is not null)
+    {
+        <div class="panel">
+            <form @onsubmit="SaveHeaderAsync">
+                <div class="grid">
+                    <label>
+                        @L("Поставщик")
+                        <select @bind="_header.Supplier">
+                            @foreach (var s in _options!.Suppliers)
+                            {
+                                <option value="@s.Id">@s.Name</option>
+                            }
+                        </select>
+                    </label>
+                    <label>
+                        @L("Склад поступления")
+                        <select @bind="_header.Warehouse">
+                            @foreach (var w in _options.Warehouses)
+                            {
+                                <option value="@w.Id">@w.Name</option>
+                            }
+                        </select>
+                    </label>
+                    <label>@L("Дата заказа") <input type="date" @bind="_header.Date" /></label>
+                    <label>@L("Ожидаемая дата поступления") <input type="date" @bind="_header.Expected" /></label>
+                    <label>@L("Счёт поставщика") <input @bind="_header.Invoice" maxlength="@PurchaseOrder.InvoiceMaxLength" /></label>
+                    <label>@L("Комментарий") <input @bind="_header.Comment" maxlength="@PurchaseOrder.CommentMaxLength" /></label>
+                    <label class="inline"><input type="checkbox" @bind="_header.WithVat" /> @L("Цены включают НДС")</label>
+                </div>
+                <div class="actions">
+                    <button type="submit" disabled="@_busy">@L("Сохранить")</button>
+                    <button type="button" class="secondary" @onclick="() => _header = null">@L("Отмена")</button>
+                </div>
+            </form>
+        </div>
+    }
+    else
+    {
+        <dl class="facts">
+            <dt>@L("Поставщик")</dt><dd>@_order.Supplier</dd>
+            <dt>@L("Дата")</dt><dd>@_order.OrderDate.ToString("dd.MM.yyyy")@(_order.ExpectedDate is { } e ? $" · {L("ожидается")} {e:dd.MM.yyyy}" : "")</dd>
+            <dt>@L("Склад поступления")</dt><dd>@_order.Warehouse</dd>
+            @if (_order.SupplierInvoice is not null)
+            {
+                <dt>@L("Счёт поставщика")</dt><dd>@_order.SupplierInvoice</dd>
+            }
+            @if (_order.CanSeePrices)
+            {
+                <dt>@L("Цены")</dt><dd>@(_order.PricesIncludeVat ? L("включают НДС") : L("без НДС, НДС сверху"))</dd>
+            }
+            @if (_order.Comment is not null)
+            {
+                <dt>@L("Комментарий")</dt><dd>@_order.Comment</dd>
+            }
+            <dt>@L("Автор")</dt><dd>@_order.CreatedBy, @Local(_order.CreatedAtUtc)</dd>
+            @if (_order.ConfirmedBy is not null)
+            {
+                <dt>@L("Подтвердил")</dt><dd>@_order.ConfirmedBy, @Local(_order.ConfirmedAtUtc!.Value)</dd>
+            }
+        </dl>
+        @if (editable)
+        {
+            <button type="button" class="secondary" @onclick="EditHeaderAsync" disabled="@_busy">@L("Изменить шапку")</button>
+        }
+    }
+
+    <h2 style="margin-top: 16px">@L("Строки ({0})", _order.Lines.Count)</h2>
+
+    @if (editable)
+    {
+        <form class="inline-form" @onsubmit="SetLineAsync">
+            <label>
+                @L("Позиция")
+                <input list="po-items" @bind="_itemText" @bind:after="SuggestVat" size="36" placeholder="@L("Код или наименование")" />
+                <datalist id="po-items">
+                    @foreach (var i in _options?.Items ?? [])
+                    {
+                        <option value="@($"{i.Code} — {i.Name}")">@i.UnitSymbol</option>
+                    }
+                </datalist>
+            </label>
+            <label>@L("Количество") <input @bind="_qtyText" inputmode="decimal" size="8" /></label>
+            <label>@(_order.PricesIncludeVat ? L("Цена с НДС") : L("Цена без НДС")) <input @bind="_priceText" inputmode="decimal" size="10" /></label>
+            <label>
+                @L("НДС")
+                <select @bind="_vatText">
+                    @foreach (var v in _options?.VatRates ?? [])
+                    {
+                        <option value="@(v.Percent?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "")">@L(v.Name) (@Amounts.Vat(v.Percent))</option>
+                    }
+                </select>
+            </label>
+            <button type="submit" disabled="@_busy">@L("Добавить или изменить")</button>
+        </form>
+    }
+
+    <div class="scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th>@L("Код")</th><th>@L("Наименование")</th><th class="num">@L("Количество")</th><th>@L("Ед.")</th>
+                    @if (_order.CanSeePrices) { <th class="num">@L("Цена")</th><th class="num opt">@L("НДС")</th><th class="num">@L("Сумма")</th> }
+                    @if (!draft) { <th class="num">@L("Получено")</th><th class="num opt">@L("Возвращено")</th><th class="num">@L("Осталось")</th> }
+                    @if (editable) { <th></th> }
+                </tr>
+            </thead>
+            <tbody>
+                @if (_order.Lines.Count == 0)
+                {
+                    <tr><td colspan="11" class="muted">@L("Строк пока нет.")</td></tr>
+                }
+                @foreach (var l in _order.Lines)
+                {
+                    <tr>
+                        <td>@l.Code</td>
+                        <td>@l.Name</td>
+                        <td class="num">@Quantities.Format(l.Quantity)</td>
+                        <td>@l.UnitSymbol</td>
+                        @if (_order.CanSeePrices)
+                        {
+                            <td class="num">@(l.Price?.ToString("#,0.00##", System.Globalization.CultureInfo.GetCultureInfo("ru-RU")))</td>
+                            <td class="num">@Amounts.Vat(l.VatPercent)</td>
+                            <td class="num">@Amounts.Format(l.Amount)</td>
+                        }
+                        @if (!draft)
+                        {
+                            <td class="num">@Quantities.Format(l.Received)</td>
+                            <td class="num">@Quantities.Format(l.Returned)</td>
+                            <td class="num">@(l.Left > 0 ? Quantities.Format(l.Left) : "—")</td>
+                        }
+                        @if (editable)
+                        {
+                            <td>
+                                <button type="button" class="secondary" @onclick="() => EditLine(l)" disabled="@_busy" aria-label="@L("Изменить: {0}", l.Code)">@L("Изменить")</button>
+                                <button type="button" class="secondary" @onclick="() => RemoveLineAsync(l)" disabled="@_busy" aria-label="@L("Удалить строку {0}", l.Code)">@L("Удалить")</button>
+                            </td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if (_order.CanSeePrices)
+    {
+        <div class="totals">
+            <span>@L("Сумма заказа:") <b>@Amounts.Format(_order.Total)</b></span>
+            <span>@L("в т. ч. НДС:") @Amounts.Format(_order.VatTotal)</span>
+            @if (!draft)
+            {
+                <span>@L("Поступило на:") @Amounts.Format(_order.ReceivedValue)</span>
+                <span>@L("Возвращено на:") @Amounts.Format(_order.ReturnedValue)</span>
+                <span>@L("Оплачено:") @Amounts.Format(_order.Paid)</span>
+                <span class="@(_order.Debt > 0 ? "bad" : "")">@L("К оплате:") <b>@Amounts.Format(_order.Debt)</b></span>
+            }
+        </div>
+    }
+
+    <div class="actions" style="margin-top: 12px">
+        @if (editable)
+        {
+            <button type="button" @onclick="ConfirmAsync" disabled="@(_busy || _order.Lines.Count == 0)">@L("Подтвердить заказ")</button>
+        }
+        @if (_order.CanCreateDocuments && _order.Status == PurchaseOrderStatus.Confirmed && _order.Received != ReceiptState.Full)
+        {
+            <button type="button" @onclick="ReceiptAsync" disabled="@_busy">@L("Оформить поступление")</button>
+        }
+        @if (_order.CanCreateDocuments && _order.Received != ReceiptState.None)
+        {
+            <button type="button" class="secondary" @onclick="ReturnAsync" disabled="@_busy">@L("Оформить возврат")</button>
+        }
+        @if (_order.CanEdit && _order.Status == PurchaseOrderStatus.Confirmed)
+        {
+            <button type="button" class="secondary" @onclick="CloseAsync" disabled="@_busy">@L("Закрыть заказ")</button>
+        }
+        @if (_order.CanEdit && _order.Status == PurchaseOrderStatus.Closed)
+        {
+            <button type="button" class="secondary" @onclick="ReopenAsync" disabled="@_busy">@L("Вернуть в работу")</button>
+        }
+        @if (_order.CanEdit && _order.Status is PurchaseOrderStatus.Draft or PurchaseOrderStatus.Confirmed)
+        {
+            <button type="button" class="secondary" @onclick="CancelAsync" disabled="@_busy">@L("Отменить заказ")</button>
+        }
+    </div>
+
+    @if (_order.Documents.Count > 0)
+    {
+        <h2 style="margin-top: 20px">@L("Поступления и возвраты")</h2>
+        <table class="compact">
+            <tbody>
+                @foreach (var d in _order.Documents)
+                {
+                    <tr>
+                        <td><a href="stock-documents/@d.Id">@L(d.KindName) @d.Number</a></td>
+                        <td>@d.Date.ToString("dd.MM.yyyy")</td>
+                        <td><span class="tag @StockDocumentsPage.StatusClass(d.Status)">@L(d.StatusName)</span></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+
+    @if (_order.CanSeePrices && _order.Status is PurchaseOrderStatus.Confirmed or PurchaseOrderStatus.Closed)
+    {
+        <h2 style="margin-top: 20px">@L("Оплаты")</h2>
+        @if (_order.CanEdit)
+        {
+            <form class="inline-form" @onsubmit="PayAsync">
+                <label>@L("Дата") <input type="date" @bind="_payDate" /></label>
+                <label>@L("Сумма") <input @bind="_payText" inputmode="decimal" size="12" /></label>
+                <label>@L("Комментарий") <input @bind="_payComment" maxlength="@SupplierPayment.CommentMaxLength" placeholder="@L("п/п № 101")" /></label>
+                <button type="submit" disabled="@_busy">@L("Записать оплату")</button>
+            </form>
+        }
+        @if (_order.Payments.Count > 0)
+        {
+            <table class="compact">
+                <tbody>
+                    @foreach (var p in _order.Payments)
+                    {
+                        <tr class="@(p.Status == SupplierPaymentStatus.Cancelled ? "archived" : null)">
+                            <td>@p.Number</td>
+                            <td>@p.Date.ToString("dd.MM.yyyy")</td>
+                            <td class="num">@Amounts.Format(p.Amount)</td>
+                            <td>@p.Comment</td>
+                            <td>@(p.Status == SupplierPaymentStatus.Cancelled ? L("отменена: {0}", p.CancelReason ?? "") : "")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    }
+}
+
+@code {
+    [Parameter]
+    public long Id { get; set; }
+
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private PurchaseOrderDto? _order;
+    private PurchaseOptionsDto? _options;
+    private HeaderForm? _header;
+    private bool _busy;
+    private bool _notFound;
+    private string? _denied;
+    private string? _message;
+    private bool _messageIsError;
+    private string _itemText = string.Empty;
+    private string _qtyText = string.Empty;
+    private string _priceText = string.Empty;
+    private string _vatText = string.Empty;
+    private DateTime _payDate = DateTime.Today;
+    private string _payText = string.Empty;
+    private string? _payComment;
+
+    private sealed class HeaderForm
+    {
+        public string Supplier { get; set; } = string.Empty;
+        public string Warehouse { get; set; } = string.Empty;
+        public DateTime Date { get; set; }
+        public DateTime? Expected { get; set; }
+        public string? Invoice { get; set; }
+        public string? Comment { get; set; }
+        public bool WithVat { get; set; }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _order = null;
+        _notFound = false;
+        try
+        {
+            await LoadAsync();
+            if (_order!.CanEdit)
+            {
+                _options = await Purchases.GetOptionsAsync(_order.OrderDate);
+                _vatText = _options.VatRates.FirstOrDefault()?.Percent?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+            }
+
+            _payDate = TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId).Date;
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+        catch (NotFoundException)
+        {
+            _notFound = true;
+        }
+    }
+
+    private async Task LoadAsync() => _order = await Purchases.GetOrderAsync(Id);
+
+    private Task EditHeaderAsync() => RunAsync(() =>
+    {
+        _header = new HeaderForm
+        {
+            Supplier = _order!.SupplierId.ToString(), Warehouse = _order.WarehouseId.ToString(), Date = _order.OrderDate.ToDateTime(TimeOnly.MinValue),
+            Expected = _order.ExpectedDate?.ToDateTime(TimeOnly.MinValue), Invoice = _order.SupplierInvoice, Comment = _order.Comment,
+            WithVat = _order.PricesIncludeVat,
+        };
+        return Task.CompletedTask;
+    }, null);
+
+    private Task SaveHeaderAsync() => RunAsync(async () =>
+    {
+        var h = _header!;
+        await Purchases.UpdateOrderHeaderAsync(Id, new PurchaseOrderHeader(DateOnly.FromDateTime(h.Date), long.Parse(h.Supplier), long.Parse(h.Warehouse),
+            h.Expected is { } e ? DateOnly.FromDateTime(e) : null, h.Invoice, h.WithVat, h.Comment), _order!.RowVersion);
+        _header = null;
+    }, L("Сохранено."));
+
+    /// <summary>НДС по умолчанию — ставка позиции из номенклатуры.</summary>
+    private void SuggestVat()
+    {
+        if (FindItem() is { } item)
+        {
+            _vatText = item.VatPercent?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+        }
+    }
+
+    private PurchaseItemOptionDto? FindItem()
+    {
+        var code = _itemText.Split(" — ", 2)[0].Trim();
+        return _options?.Items.FirstOrDefault(i => string.Equals(i.Code, code, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void EditLine(PurchaseOrderLineDto l)
+    {
+        _itemText = $"{l.Code} — {l.Name}";
+        _qtyText = Quantities.Format(l.Quantity);
+        _priceText = l.Price?.ToString("0.####", System.Globalization.CultureInfo.GetCultureInfo("ru-RU")) ?? string.Empty;
+        _vatText = l.VatPercent?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+    }
+
+    private Task SetLineAsync() => RunAsync(async () =>
+    {
+        var item = FindItem() ?? throw new BusinessRuleException("purchase.item_unknown", L("Позиция «{0}» не найдена. Выберите из списка.", _itemText));
+        var qty = Number(_qtyText);
+        var price = Number(_priceText);
+        decimal? vat = _vatText.Length == 0 ? null : decimal.Parse(_vatText, System.Globalization.CultureInfo.InvariantCulture);
+        await Purchases.SetOrderLineAsync(Id, item.Id, qty, price, vat, _order!.RowVersion);
+        _itemText = string.Empty;
+        _qtyText = string.Empty;
+        _priceText = string.Empty;
+    }, null);
+
+    private Task RemoveLineAsync(PurchaseOrderLineDto l) => RunAsync(() => Purchases.RemoveOrderLineAsync(Id, l.ItemId, _order!.RowVersion), null);
+
+    private Task ConfirmAsync() => RunAsync(() => Purchases.ConfirmOrderAsync(Id, _order!.RowVersion), L("Заказ подтверждён."));
+
+    private Task CloseAsync() => RunAsync(() => Purchases.CloseOrderAsync(Id, _order!.RowVersion), L("Заказ закрыт."));
+
+    private Task ReopenAsync() => RunAsync(() => Purchases.ReopenOrderAsync(Id, _order!.RowVersion), L("Заказ снова в работе."));
+
+    private Task CancelAsync() => RunAsync(() => Purchases.CancelOrderAsync(Id, _order!.RowVersion), L("Заказ отменён."));
+
+    private Task ReceiptAsync() => GoAsync(() => Purchases.CreateReceiptAsync(Id));
+
+    private Task ReturnAsync() => GoAsync(() => Purchases.CreateReturnAsync(Id));
+
+    private Task PayAsync() => RunAsync(async () =>
+    {
+        await Purchases.CreatePaymentAsync(DateOnly.FromDateTime(_payDate), _order!.SupplierId, Id, Number(_payText), _payComment);
+        _payText = string.Empty;
+        _payComment = null;
+    }, L("Оплата записана."));
+
+    /// <summary>Создать документ по заказу и открыть его черновик.</summary>
+    private async Task GoAsync(Func<Task<long>> create)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var id = await create();
+            Navigation.NavigateTo($"stock-documents/{id}");
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+            _messageIsError = true;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static decimal Number(string text) =>
+        Quantities.TryParse(text, out var value) ? value : throw new BusinessRuleException("purchase.number", L("Укажите число, например 1 220,50."));
+
+    /// <summary>Одна операция за раз, затем свежий заказ: у вкладки один DbContext.</summary>
+    private async Task RunAsync(Func<Task> action, string? success)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _messageIsError = false;
+        try
+        {
+            await action();
+            _message = success ?? _message;
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+            _messageIsError = true;
+        }
+        finally
+        {
+            try
+            {
+                await LoadAsync();
+            }
+            finally
+            {
+                _busy = false;
+            }
+        }
+    }
+
+    private string Local(DateTime utc) => TimeZones.ToLocal(utc, CurrentAccess.TimeZoneId).ToString("dd.MM.yyyy HH:mm");
+}

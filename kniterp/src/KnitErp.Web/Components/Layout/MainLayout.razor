@@ -108,7 +108,11 @@
         new("home", "Главная", [new("", "Главная", a => true)]),
         new("purchases", "Закупки",
         [
+            new("purchase-orders", "Заказы поставщикам", a => a.Has(Permissions.PurchaseView)),
             new("stock-documents?kind=1", "Поступления", Docs),
+            new("stock-documents?kind=5", "Возвраты поставщикам", Docs),
+            new("supplier-payments", "Оплаты поставщикам", a => a.Has(Permissions.PurchaseView) && a.Has(Permissions.PriceView)),
+            new("reports/supplier-balances", "Расчёты с поставщиками", a => a.Has(Permissions.PurchaseView) && a.Has(Permissions.PriceView)),
             new("counterparties?role=supplier", "Поставщики", a => a.Has(Permissions.CatalogView)),
         ]),
         new("sales", "Продажи",
