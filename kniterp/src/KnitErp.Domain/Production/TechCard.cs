@@ -186,6 +186,26 @@ public sealed class TechCard
         }).ToList();
     }
 
+    /// <summary>
+    /// Себестоимость одного изделия по нормам с отходом (D69): Σ цена материала × норма × (1 + отход) / партия.
+    /// Без округления вверх — это оценка денег, а не выдача со склада. null — цена хотя бы одного материала неизвестна.
+    /// </summary>
+    public decimal? UnitCost(Func<long, decimal?> costOf)
+    {
+        var total = 0m;
+        foreach (var l in _lines)
+        {
+            if (costOf(l.ItemId) is not { } cost)
+            {
+                return null;
+            }
+
+            total += cost * l.Quantity * (1 + l.WastePercent / 100m) / OutputQuantity;
+        }
+
+        return _lines.Count == 0 ? null : total;
+    }
+
     public static string StatusName(TechCardStatus status) => status switch
     {
         TechCardStatus.Draft => "Черновик",

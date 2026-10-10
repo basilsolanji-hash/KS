@@ -243,6 +243,15 @@ app.MapGet("/reports/turnover.xlsx", (long? warehouse, DateOnly from, DateOnly t
 app.MapGet("/reports/inventory-variances.xlsx", (long? warehouse, DateOnly from, DateOnly to, string? search, KnitErp.Web.Exports.ReportExports export, CancellationToken ct) =>
     FileOrForbid(() => export.InventoryVariancesAsync(new InventoryVarianceFilter(warehouse, from, to, search), ct),
         $"otkloneniya-inventarizacii-{from:yyyy-MM-dd}-{to:yyyy-MM-dd}.xlsx"));
+app.MapGet("/reports/sales-by-item.xlsx", (DateOnly from, DateOnly to, string? customer, string? search, KnitErp.Web.Exports.ReportExports export,
+        CancellationToken ct) =>
+    FileOrForbid(() => export.SalesByItemAsync(new KnitErp.Application.Sales.SalesAnalyticsFilter(from, to, customer, search), ct),
+        $"realizacii-{from:yyyy-MM-dd}-{to:yyyy-MM-dd}.xlsx"));
+app.MapGet("/reports/profitability.xlsx", (DateOnly from, DateOnly to, byte? group, string? customer, KnitErp.Web.Exports.ReportExports export,
+        CancellationToken ct) =>
+    FileOrForbid(() => export.ProfitabilityAsync(new KnitErp.Application.Sales.SalesAnalyticsFilter(from, to, customer),
+        group == 2 ? KnitErp.Application.Sales.ProfitGrouping.Customer : KnitErp.Application.Sales.ProfitGrouping.Item, ct),
+        $"pribylnost-{from:yyyy-MM-dd}-{to:yyyy-MM-dd}.xlsx"));
 app.MapGet("/stock-documents.xlsx", (byte? kind, byte? status, DateOnly? from, DateOnly? to, long? warehouse, string? search, int? order,
         KnitErp.Web.Exports.ReportExports export, CancellationToken ct) =>
     FileOrForbid(() => export.StockDocumentsAsync(new StockDocumentListFilter((KnitErp.Domain.Warehousing.StockOperationKind?)kind,

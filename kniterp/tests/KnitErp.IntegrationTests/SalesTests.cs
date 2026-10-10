@@ -203,6 +203,84 @@ public sealed class SalesTests(SqlTestHost host) : IClassFixture<SqlTestHost>
         }
     }
 
+    [SqlFact]
+    public async Task Sales_by_item_and_profitability_use_purchase_and_tech_card_costs()
+    {
+        var f = await SetUpAsync();
+        await using (var s = host.As(f.Org.OwnerUserId, f.Org.OrganizationId))
+        {
+            var units = await s.Catalog.ListUnitsAsync();
+            var yarn = await s.Catalog.CreateItemAsync(new ItemCommand("ПР-1", "Пряжа", ItemType.RawMaterial, units.Single(u => u.Symbol == "кг").Id, null));
+            var hat = await s.Catalog.CreateItemAsync(new ItemCommand("ШП-1", "Шапка", ItemType.Finished, units.Single(u => u.Symbol == "шт").Id, null));
+            var supplier = await s.Counterparties.CreateAsync(new CounterpartyCommand("ООО «Пряжа»", null, null, true, false, null));
+            long? reason;
+            await using (var db = host.NewDb())
+            {
+                reason = await db.OperationReasons.Where(r => r.OrganizationId == f.Org.OrganizationId && r.Kind == StockOperationKind.Receipt)
+                    .Select(r => (long?)r.Id).FirstAsync();
+            }
+
+            // Пряжа: куплено 100 кг по 200 без НДС, 20 кг возвращено — средняя цена 200.
+            var po = await s.Purchases.CreateOrderAsync(new KnitErp.Domain.Purchasing.PurchaseOrderHeader(Day, supplier, f.Store, null, null, false, null));
+            await s.Purchases.SetOrderLineAsync(po, yarn, 100, 200m, 22m, (await s.Purchases.GetOrderAsync(po)).RowVersion);
+            await s.Purchases.ConfirmOrderAsync(po, (await s.Purchases.GetOrderAsync(po)).RowVersion);
+            var receipt = await s.Purchases.CreateReceiptAsync(po);
+            await s.Documents.PostAsync(receipt, (await s.Documents.GetAsync(receipt)).RowVersion);
+            var back = await s.Purchases.CreateReturnAsync(po);
+            await s.Documents.SetLineAsync(back, yarn, 20, (await s.Documents.GetAsync(back)).RowVersion);
+            await s.Documents.PostAsync(back, (await s.Documents.GetAsync(back)).RowVersion);
+
+            // Свитер — по техкарте: 0,5 кг пряжи на штуку, отход 10% → 200 × 0,5 × 1,1 = 110.
+            var card = await s.TechCards.CreateAsync(f.Sweater, 1, null);
+            await s.TechCards.SetLineAsync(card, yarn, 0.5m, 10m, (await s.TechCards.GetAsync(card)).RowVersion);
+            await s.TechCards.ActivateAsync(card, (await s.TechCards.GetAsync(card)).RowVersion);
+
+            var stock = await s.Documents.CreateAsync(StockOperationKind.Receipt, new StockDocumentHeader(f.Store, null, null, reason, Day, null));
+            await s.Documents.SetLineAsync(stock, f.Sweater, 30, (await s.Documents.GetAsync(stock)).RowVersion);
+            await s.Documents.SetLineAsync(stock, hat, 10, (await s.Documents.GetAsync(stock)).RowVersion);
+            await s.Documents.PostAsync(stock, (await s.Documents.GetAsync(stock)).RowVersion);
+
+            // Продано 25 свитеров по 2 000 + НДС 22% и 5 шапок по 500; 2 свитера вернули.
+            var order = await s.Sales.CreateOrderAsync(new SalesOrderHeader(Day, f.Customer, f.Store, null, null, false, null));
+            await s.Sales.SetOrderLineAsync(order, f.Sweater, 25, 2000m, 22m, (await s.Sales.GetOrderAsync(order)).RowVersion);
+            await s.Sales.SetOrderLineAsync(order, hat, 5, 500m, 22m, (await s.Sales.GetOrderAsync(order)).RowVersion);
+            await s.Sales.ConfirmOrderAsync(order, (await s.Sales.GetOrderAsync(order)).RowVersion);
+            var ship = await s.Sales.CreateShipmentAsync(order);
+            await s.Documents.PostAsync(ship, (await s.Documents.GetAsync(ship)).RowVersion);
+            var ret = await s.Sales.CreateReturnAsync(order);
+            await s.Documents.RemoveLineAsync(ret, hat, (await s.Documents.GetAsync(ret)).RowVersion);
+            await s.Documents.SetLineAsync(ret, f.Sweater, 2, (await s.Documents.GetAsync(ret)).RowVersion);
+            await s.Documents.PostAsync(ret, (await s.Documents.GetAsync(ret)).RowVersion);
+
+            var filter = new SalesAnalyticsFilter(Day.AddDays(-30), Day);
+            var byItem = await s.Analytics.SalesByItemAsync(filter);
+            var sw = byItem.Single(r => r.ItemId == f.Sweater);
+            Assert.Equal((23m, 46_000m, 10_120m, 1, 2, 2_000m), (sw.Quantity, sw.Revenue, sw.Vat, sw.Customers, sw.Documents, sw.AveragePrice!.Value));
+            Assert.Equal(2_500m, byItem.Single(r => r.ItemId == hat).Revenue);
+            Assert.Single(await s.Analytics.SalesByItemAsync(filter with { Search = "Шапк" }));
+            Assert.Empty(await s.Analytics.SalesByItemAsync(filter with { Customer = "нет такого" }));
+            Assert.Empty(await s.Analytics.SalesByItemAsync(new SalesAnalyticsFilter(Day.AddDays(1), Day.AddDays(5))));
+            Assert.Equal("report.period", (await Assert.ThrowsAsync<BusinessRuleException>(() =>
+                s.Analytics.SalesByItemAsync(new SalesAnalyticsFilter(Day, Day.AddDays(-1))))).Code);
+
+            var profit = await s.Analytics.ProfitabilityAsync(filter, ProfitGrouping.Item);
+            var swp = profit.Rows.Single(r => r.Id == f.Sweater);
+            Assert.Equal((2_530m, 43_470m, 94.5m, CostSource.TechCard), (swp.Cost, swp.Profit!.Value, swp.MarginPercent!.Value, swp.Source));
+            var hp = profit.Rows.Single(r => r.Id == hat);
+            Assert.Equal((false, (decimal?)null, CostSource.None), (hp.CostComplete, hp.Profit, hp.Source));
+            Assert.Equal((48_500m, 46_000m, 43_470m, 2_500m), (profit.Revenue, profit.CostedRevenue, profit.Profit, profit.UncostedRevenue));
+
+            var byCustomer = await s.Analytics.ProfitabilityAsync(filter, ProfitGrouping.Customer);
+            var cust = byCustomer.Rows.Single();
+            Assert.Equal((f.Customer, 48_500m, 2_530m, false), (cust.Id, cust.Revenue, cust.Cost, cust.CostComplete));
+        }
+
+        await using (var s = host.As(f.Senior, f.Org.OrganizationId))
+        {
+            await Assert.ThrowsAsync<AccessDeniedException>(() => s.Analytics.ProfitabilityAsync(new SalesAnalyticsFilter(Day, Day), ProfitGrouping.Item));
+        }
+    }
+
     private sealed record Fixture(CreatedOrganization Org, long Store, long Sweater, long Customer, long Senior);
 
     private async Task<Fixture> SetUpAsync()

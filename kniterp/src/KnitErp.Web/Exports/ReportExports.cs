@@ -2,6 +2,7 @@ using System.Globalization;
 using KnitErp.Application.Access;
 using KnitErp.Application.Audit;
 using KnitErp.Application.Common;
+using KnitErp.Application.Sales;
 using KnitErp.Application.Warehousing;
 using KnitErp.Web.Components.Shared;
 
@@ -13,7 +14,7 @@ namespace KnitErp.Web.Exports;
 /// </summary>
 public sealed class ReportExports(
     StockService stock, StockReportService reports, AuditQueryService audit, UserAccessService access, ISpreadsheetFormat spreadsheet,
-    StockDocumentService documents, InventoryService inventory, OpeningBalanceService openingBalances)
+    StockDocumentService documents, InventoryService inventory, OpeningBalanceService openingBalances, SalesAnalyticsService analytics)
 {
     public const string ContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
@@ -100,6 +101,31 @@ public sealed class ReportExports(
         return spreadsheet.Write([new SheetData("Журнал входов", ["Время", "Пользователь", "Событие", "Способ", "Подробности", "Адрес"],
             rows.Select(r => Row(Local(r.OccurredAtUtc, tz), r.UserName ?? "—", AuditLabels.Action(r.Action), r.Method ?? "", r.Detail ?? "",
                 r.Address ?? "")).ToList())]);
+    }
+
+    public async Task<byte[]> SalesByItemAsync(SalesAnalyticsFilter filter, CancellationToken ct)
+    {
+        var rows = await analytics.SalesByItemAsync(filter, ct);
+        var title = $"Товары и реализации {filter.From:dd.MM.yyyy}–{filter.To:dd.MM.yyyy}";
+        return spreadsheet.Write([new SheetData("Реализации", ["Код", "Наименование", "Количество", "Ед.", "Средняя цена", "Выручка без НДС", "НДС",
+                "С НДС", "Покупателей", title],
+            rows.Select(r => Row(r.Code, r.Name, Number(r.Quantity), r.UnitSymbol, r.AveragePrice is { } p ? Number(p) : "", Number(r.Revenue),
+                Number(r.Vat), Number(r.RevenueWithVat), r.Customers.ToString(CultureInfo.InvariantCulture), "")).ToList(), Numeric(2, 4, 5, 6, 7, 8))]);
+    }
+
+    public async Task<byte[]> ProfitabilityAsync(SalesAnalyticsFilter filter, ProfitGrouping grouping, CancellationToken ct)
+    {
+        var data = await analytics.ProfitabilityAsync(filter, grouping, ct);
+        var title = $"Прибыльность {filter.From:dd.MM.yyyy}–{filter.To:dd.MM.yyyy}";
+        var source = new Dictionary<KnitErp.Domain.Sales.CostSource, string>
+        {
+            [KnitErp.Domain.Sales.CostSource.Purchases] = "закупкам", [KnitErp.Domain.Sales.CostSource.TechCard] = "техкарте",
+        };
+        return spreadsheet.Write([new SheetData("Прибыльность", [grouping == ProfitGrouping.Item ? "Позиция" : "Покупатель", "Код", "Количество",
+                "Выручка без НДС", "Себестоимость", "Себестоимость полная", "Прибыль", "Маржа, %", "Себестоимость по", title],
+            data.Rows.Select(r => Row(r.Name, r.Code ?? "", r.Quantity is { } q ? Number(q) : "", Number(r.Revenue), Number(r.Cost),
+                r.CostComplete ? "да" : "нет", r.Profit is { } p ? Number(p) : "", r.MarginPercent is { } m ? Number(m) : "",
+                source.GetValueOrDefault(r.Source, ""), "")).ToList(), Numeric(2, 3, 4, 6, 7))]);
     }
 
     /// <summary>Начало местных суток организации в UTC — граница фильтра по дате.</summary>
