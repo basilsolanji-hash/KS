@@ -1,14 +1,18 @@
 @page "/"
 @using System.Globalization
+@using KnitErp.Application.Finance
+@using KnitErp.Domain.Organizations
+@using KnitErp.Application.Workspace
 @using KnitErp.Web.Components.Shared
 @inject DashboardService Dashboard
+@inject PersonalToolsService Personal
 
 <PageTitle>@L("Главная") — knitERP</PageTitle>
 
 @*
-    Главный экран (D74): приветствие и дата → ключевые показатели (деньги за 30 дней и долги) → динамика по дням →
-    что требует внимания и крупнейшие должники → последние документы, склад за месяц, справочно.
-    Каждый блок — только при правах на его данные; без прав на деньги показатели — операционные.
+    Главный экран (D74, D80): приветствие и дата → блоки в порядке пользователя (показатели, деньги на счетах и в кассах,
+    что требует внимания, должники, динамика, документы, склад за месяц, справочно). Порядок и видимость блоков — личная
+    настройка («Настроить»). Каждый блок — только при правах на его данные; без прав на деньги показатели — операционные.
 *@
 @if (_denied is not null)
 {
@@ -24,77 +28,349 @@ else
     var f = _data.Finance;
     var sales = _data.Charts.FirstOrDefault(c => c.Href == "reports/customer-balances");
     var receipts = _data.Charts.FirstOrDefault(c => c.Href == "customer-payments");
+    var layout = _data.Layout ?? DashboardBlocks.Default;
 
     <div class="dash-head">
         <div>
             <h1>@Greeting(now.Hour), @CurrentAccess.DisplayName</h1>
             <div class="muted">@_data.OrganizationName · @now.ToString("dddd, d MMMM yyyy", CultureInfo.CurrentCulture)</div>
         </div>
-        @if (_data.ReadinessPercent is { } ready && ready < 100)
+        <div class="dash-tools">
+            @if (layout.Shows(DashboardBlocks.Readiness) && _data.ReadinessPercent is { } ready && ready < 100)
+            {
+                <a class="readiness" href="launch">
+                    <span>@L("Готовность к запуску")</span>
+                    <span class="bar"><span style="width: @(ready)%"></span></span>
+                    <b>@ready%</b>
+                </a>
+            }
+            <span class="muted small" title="@L("Данные главного экрана обновляются раз в минуту")">@L("на {0}", TimeZones.ToLocal(_data.CachedAtUtc, CurrentAccess.TimeZoneId).ToString("HH:mm"))</span>
+            <button type="button" class="secondary icon" @onclick="RefreshAsync" disabled="@_busy" title="@L("Обновить")" aria-label="@L("Обновить")">⟳</button>
+            <button type="button" class="secondary" @onclick="ToggleSetup" disabled="@_busy" aria-expanded="@(_setup is not null)">@L("Настроить")</button>
+        </div>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="flash error" role="alert">@_message</div>
+    }
+
+    @if (_setup is not null)
+    {
+        <section class="dash-box dash-setup">
+            <h2>@L("Блоки главного экрана")</h2>
+            <p class="muted">@L("Отметьте, что показывать, и расставьте стрелками. Настройка — только ваша; скрытые блоки не считаются, экран открывается быстрее.")</p>
+            <ul>
+                @for (var i = 0; i < _setup.Count; i++)
+                {
+                    var index = i;
+                    var block = _setup[i];
+                    <li @key="block.Key">
+                        <label class="inline"><input type="checkbox" checked="@block.Visible" @onchange="e => block.Visible = e.Value is true" /> @BlockName(block.Key)</label>
+                        @if (block.Key != DashboardBlocks.Readiness)
+                        {
+                            <span>
+                                <button type="button" class="secondary icon" @onclick="() => Move(index, -1)" disabled="@(index == 0)" title="@L("Выше")" aria-label="@L("Выше: {0}", BlockName(block.Key))">↑</button>
+                                <button type="button" class="secondary icon" @onclick="() => Move(index, 1)" disabled="@(index >= _setup.Count - 2)" title="@L("Ниже")" aria-label="@L("Ниже: {0}", BlockName(block.Key))">↓</button>
+                            </span>
+                        }
+                    </li>
+                }
+            </ul>
+            <div class="actions">
+                <button type="button" @onclick="SaveSetupAsync" disabled="@_busy">@L("Сохранить")</button>
+                <button type="button" class="secondary" @onclick="ResetSetupAsync" disabled="@_busy">@L("Как было по умолчанию")</button>
+                <button type="button" class="secondary" @onclick="() => _setup = null">@L("Отмена")</button>
+            </div>
+        </section>
+    }
+
+    <div class="dash-blocks">
+        @foreach (var block in layout.Visible)
         {
-            <a class="readiness" href="launch">
-                <span>@L("Готовность к запуску")</span>
-                <span class="bar"><span style="width: @(ready)%"></span></span>
-                <b>@ready%</b>
-            </a>
+            @switch (block)
+            {
+                case DashboardBlocks.Kpi:
+                    @Kpis(f, sales, receipts)
+                    break;
+                case DashboardBlocks.Money:
+                    @MoneyBlock(f)
+                    break;
+                case DashboardBlocks.Attention:
+                    @AttentionBlock(f)
+                    break;
+                case DashboardBlocks.Debtors:
+                    @DebtorsBlock(f)
+                    break;
+                case DashboardBlocks.Charts:
+                    @if (_data.Charts.Count > 0)
+                    {
+                        <section class="wide">
+                            <h2 class="section-title">@L("Динамика за 30 дней")</h2>
+                            <div class="charts charts-large">
+                                @foreach (var c in _data.Charts)
+                                {
+                                    <LineChart Chart="c" Large="true" />
+                                }
+                            </div>
+                        </section>
+                    }
+                    break;
+                case DashboardBlocks.Recent:
+                    @RecentBlock()
+                    break;
+                case DashboardBlocks.Month:
+                    @if (_data.Month is { } m)
+                    {
+                        <section class="dash-box">
+                            <h2>@L("Склад за месяц") <span class="muted">@m.From.ToString("dd.MM") – @m.To.ToString("dd.MM.yyyy")</span></h2>
+                            <div class="mini-stats">
+                                <a href="stock-documents?kind=1"><b>@m.Receipts</b><span>@L("Поступления")</span></a>
+                                <a href="stock-documents?kind=3"><b>@m.Transfers</b><span>@L("Перемещения")</span></a>
+                                <a href="stock-documents?kind=2"><b>@m.WriteOffs</b><span>@L("Списания")</span></a>
+                                <a href="inventory"><b>@m.Inventories</b><span>@L("Инвентаризации")</span></a>
+                            </div>
+                        </section>
+                    }
+                    break;
+                case DashboardBlocks.Reference:
+                    var reference = _data.Tiles.Where(t => !AttentionHrefs.Contains(t.Href)).ToList();
+                    @if (reference.Count > 0)
+                    {
+                        <section class="dash-box">
+                            <h2>@L("Справочно")</h2>
+                            <div class="mini-stats">
+                                @foreach (var t in reference)
+                                {
+                                    <a href="@t.Href" title="@L(t.Hint)"><b>@t.Value</b><span>@L(t.Title)</span></a>
+                                }
+                            </div>
+                        </section>
+                    }
+                    break;
+            }
         }
     </div>
 
-    @if (sales is not null || f is { CustomerDebt: not null } or { SupplierDebt: not null })
+    @if (_data.Tiles.Count == 0 && f is null)
     {
-        <div class="kpis">
-            @if (sales is not null)
-            {
-                <KpiTile Label="@L("Продажи за 30 дней")" Value="@Amounts.Format(sales.Total)" Href="reports/sales-by-item" Accent="--sec-sales"
-                         Delta="Change(sales)" Points="sales.Points" Hint="@L("отгружено − возвраты, с НДС")" />
-            }
-            @if (receipts is not null)
-            {
-                <KpiTile Label="@L("Поступило денег")" Value="@Amounts.Format(receipts.Total)" Href="customer-payments" Accent="--sec-warehouse"
-                         Delta="Change(receipts)" Points="receipts.Points" Hint="@L("оплаты покупателей за 30 дней")" />
-            }
-            @if (f?.CustomerDebt is { } cd)
-            {
-                <KpiTile Label="@L("Нам должны покупатели")" Value="@Amounts.Format(cd)" Href="reports/customer-balances" Accent="--sec-crm"
-                         Hint="@(f.OverdueAmount is > 0 ? L("просрочено по счетам: {0}", Amounts.Format(f.OverdueAmount)) : L("просроченных счетов нет"))" />
-            }
-            @if (f?.SupplierDebt is { } sd)
-            {
-                <KpiTile Label="@L("Мы должны поставщикам")" Value="@Amounts.Format(sd)" Href="reports/supplier-balances" Accent="--sec-purchases"
-                         Hint="@(f.SupplierToPay is > 0 ? L("к оплате по счетам: {0}", Amounts.Format(f.SupplierToPay)) : L("неоплаченных счетов нет"))" />
-            }
-        </div>
+        <p class="muted">@L("Для вашей роли показателей пока нет. Разделы, доступные вам, — в меню слева.")</p>
+    }
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    /// <summary>Плитки сервиса, которые означают «ждёт действия», — в блок «Требует внимания»; остальные — «Справочно».</summary>
+    private static readonly HashSet<string> AttentionHrefs = ["stock-documents?status=1", "inventory", "opening-balances"];
+
+    private DashboardDto? _data;
+    private string? _denied;
+    private string? _message;
+    private bool _busy;
+    private List<SetupRow>? _setup;
+
+    /// <summary>Строка панели «Настроить»: блок и его видимость.</summary>
+    private sealed class SetupRow(string key, bool visible)
+    {
+        public string Key { get; } = key;
+        public bool Visible { get; set; } = visible;
     }
 
-    @if (_data.Charts.Count > 0)
+    protected override async Task OnInitializedAsync()
     {
-        <h2 class="section-title">@L("Динамика за 30 дней")</h2>
-        <div class="charts charts-large">
-            @foreach (var c in _data.Charts)
-            {
-                <LineChart Chart="c" Large="true" />
-            }
-        </div>
+        try
+        {
+            _data = await Dashboard.GetAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
     }
 
-    <div class="dash-grid">
+    private Task RefreshAsync() => RunAsync(async () => _data = await Dashboard.GetAsync(refresh: true));
+
+    private void ToggleSetup()
+    {
+        if (_setup is not null)
+        {
+            _setup = null;
+            return;
+        }
+
+        var layout = _data?.Layout ?? DashboardBlocks.Default;
+        _setup = [.. layout.Order.Select(b => new SetupRow(b, layout.Shows(b))), new SetupRow(DashboardBlocks.Readiness, layout.Shows(DashboardBlocks.Readiness))];
+    }
+
+    /// <summary>«Готовность к запуску» всегда последняя строка: она в шапке и не переставляется.</summary>
+    private void Move(int index, int delta)
+    {
+        var target = index + delta;
+        if (_setup is null || target < 0 || target >= _setup.Count - 1)
+        {
+            return;
+        }
+
+        (_setup[index], _setup[target]) = (_setup[target], _setup[index]);
+    }
+
+    private Task SaveSetupAsync() => RunAsync(async () =>
+    {
+        var rows = _setup!;
+        await Personal.SaveDashboardLayoutAsync(new DashboardLayout(
+            rows.Where(r => r.Key != DashboardBlocks.Readiness).Select(r => r.Key).ToList(),
+            rows.Where(r => !r.Visible).Select(r => r.Key).ToList()));
+        _setup = null;
+        _data = await Dashboard.GetAsync();
+    });
+
+    private Task ResetSetupAsync() => RunAsync(async () =>
+    {
+        await Personal.ResetDashboardLayoutAsync();
+        _setup = null;
+        _data = await Dashboard.GetAsync();
+    });
+
+    /// <summary>Одна операция за раз: у вкладки один DbContext.</summary>
+    private async Task RunAsync(Func<Task> action)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        try
+        {
+            await action();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string BlockName(string block) => block switch
+    {
+        DashboardBlocks.Kpi => L("Ключевые показатели"),
+        DashboardBlocks.Money => L("Деньги на счетах и в кассах"),
+        DashboardBlocks.Attention => L("Требует внимания"),
+        DashboardBlocks.Debtors => L("Крупнейшие должники"),
+        DashboardBlocks.Charts => L("Динамика за 30 дней"),
+        DashboardBlocks.Recent => L("Последние документы"),
+        DashboardBlocks.Month => L("Склад за месяц"),
+        DashboardBlocks.Reference => L("Справочно"),
+        DashboardBlocks.Readiness => L("Готовность к запуску"),
+        _ => block,
+    };
+
+    private RenderFragment Kpis(DashboardFinanceDto? f, DashboardChartDto? sales, DashboardChartDto? receipts) => __builder =>
+    {
+        @if (sales is not null || f is { CustomerDebt: not null } or { SupplierDebt: not null } or { Accounts: not null })
+        {
+            <div class="kpis wide">
+                @if (f?.AccountsTotal is { } money)
+                {
+                    <KpiTile Label="@L("Деньги на счетах и в кассах")" Value="@Amounts.Format(money)" Href="legal-entities" Accent="--sec-home"
+                             Hint="@L("все юрлица, на сегодня")" />
+                }
+                @if (sales is not null)
+                {
+                    <KpiTile Label="@L("Продажи за 30 дней")" Value="@Amounts.Format(sales.Total)" Href="reports/sales-by-item" Accent="--sec-sales"
+                             Delta="Change(sales)" Points="sales.Points" Hint="@L("отгружено − возвраты, с НДС")" />
+                }
+                @if (receipts is not null)
+                {
+                    <KpiTile Label="@L("Поступило денег")" Value="@Amounts.Format(receipts.Total)" Href="customer-payments" Accent="--sec-warehouse"
+                             Delta="Change(receipts)" Points="receipts.Points" Hint="@L("оплаты покупателей за 30 дней")" />
+                }
+                @if (f?.CustomerDebt is { } cd)
+                {
+                    <KpiTile Label="@L("Нам должны покупатели")" Value="@Amounts.Format(cd)" Href="reports/customer-balances" Accent="--sec-crm"
+                             Hint="@(f.OverdueAmount is > 0 ? L("просрочено по счетам: {0}", Amounts.Format(f.OverdueAmount)) : L("просроченных счетов нет"))" />
+                }
+                @if (f?.SupplierDebt is { } sd)
+                {
+                    <KpiTile Label="@L("Мы должны поставщикам")" Value="@Amounts.Format(sd)" Href="reports/supplier-balances" Accent="--sec-purchases"
+                             Hint="@(f.SupplierToPay is > 0 ? L("к оплате по счетам: {0}", Amounts.Format(f.SupplierToPay)) : L("неоплаченных счетов нет"))" />
+                }
+            </div>
+        }
+    };
+
+    /// <summary>Остатки денег по юрлицам (D80): итог, по каждому юрлицу — его счета и кассы; минус — красным.</summary>
+    private RenderFragment MoneyBlock(DashboardFinanceDto? f) => __builder =>
+    {
+        @if (f?.Accounts is { } accounts)
+        {
+            <section class="dash-box">
+                <h2>@L("Деньги на счетах и в кассах") <span class="muted">@Amounts.Format(f.AccountsTotal)</span></h2>
+                @if (accounts.Count == 0)
+                {
+                    <p class="muted">@L("Счетов и касс пока нет.") <a href="legal-entities">@L("Добавить")</a></p>
+                }
+                else
+                {
+                    var entities = accounts.GroupBy(a => a.LegalEntity).ToList();
+                    var several = entities.Count(g => g.Key.Length > 0) > 1;
+                    <table class="compact money">
+                        <tbody>
+                            @foreach (var g in entities)
+                            {
+                                @if (several && g.Key.Length > 0)
+                                {
+                                    <tr class="group"><td>@g.Key</td><td class="num">@Amounts.Format(g.Sum(a => a.Balance))</td></tr>
+                                }
+                                @foreach (var a in g)
+                                {
+                                    <tr>
+                                        <td>
+                                            <span class="tag">@(a.Kind == MoneyAccountKind.Cash ? L("касса") : a.Kind is null ? L("без счёта") : L("банк"))</span>
+                                            @(a.AccountId is null ? L("Оплаты без счёта") : a.Name)
+                                        </td>
+                                        <td class="num @(a.Balance < 0 ? "neg" : null)"><b>@Amounts.Format(a.Balance)</b></td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                }
+                <p class="muted small"><a href="legal-entities">@L("Счета, кассы и начальные остатки")</a></p>
+            </section>
+        }
+    };
+
+    private RenderFragment AttentionBlock(DashboardFinanceDto? f) => __builder =>
+    {
         <section class="dash-box">
             <h2>@L("Требует внимания")</h2>
             <ul class="attention">
-                @foreach (var t in _data.Tiles.Where(t => AttentionHrefs.Contains(t.Href)))
+                @foreach (var t in _data!.Tiles.Where(t => AttentionHrefs.Contains(t.Href)))
                 {
                     @Attention(L(t.Title), t.Value, L(t.Hint), t.Href, null)
                 }
                 @if (f is not null)
                 {
+                    @if (f.OverdueShipments is { } ls) { @Attention(L("Просроченные отгрузки"), ls, L("дата отгрузки прошла, отгружено не всё"), "sales-orders?overdue=1", null) }
                     @if (f.OverdueInvoices is { } oi) { @Attention(L("Просроченные счета покупателям"), oi, L("оплата не поступила в срок"), "customer-invoices", f.OverdueAmount) }
+                    @if (f.OverdueReceipts is { } lr) { @Attention(L("Просроченные поступления"), lr, L("поставщик не привёз в срок"), "purchase-orders?overdue=1", null) }
                     @if (f.OrdersToShip is { } os) { @Attention(L("Заказы ждут отгрузки"), os, L("подтверждены, отгружены не полностью"), "sales-orders", null) }
                     @if (f.SupplierInvoicesToPay is { } sp) { @Attention(L("Счета поставщиков к оплате"), sp, L("не оплачены полностью"), "supplier-invoices", f.SupplierToPay) }
                     @if (f.ReceiptsWithoutVatInvoice is { } rv) { @Attention(L("Приёмки без счёта-фактуры"), rv, L("зарегистрируйте документ поставщика"), "vat-invoices/received", null) }
                 }
             </ul>
         </section>
+    };
 
+    private RenderFragment DebtorsBlock(DashboardFinanceDto? f) => __builder =>
+    {
         @if (f is { TopDebtors.Count: > 0 })
         {
             <section class="dash-box">
@@ -114,10 +390,11 @@ else
                 <p class="muted"><a href="reports/customer-balances">@L("Все расчёты с покупателями")</a></p>
             </section>
         }
-    </div>
+    };
 
-    <div class="dash-grid">
-        @if (_data.Recent.Count > 0)
+    private RenderFragment RecentBlock() => __builder =>
+    {
+        @if (_data!.Recent.Count > 0)
         {
             <section class="dash-box">
                 <h2>@L("Последние документы")</h2>
@@ -137,59 +414,7 @@ else
                 </table>
             </section>
         }
-
-        <section class="dash-box">
-            @if (_data.Month is { } m)
-            {
-                <h2>@L("Склад за месяц") <span class="muted">@m.From.ToString("dd.MM") – @m.To.ToString("dd.MM.yyyy")</span></h2>
-                <div class="mini-stats">
-                    <a href="stock-documents?kind=1"><b>@m.Receipts</b><span>@L("Поступления")</span></a>
-                    <a href="stock-documents?kind=3"><b>@m.Transfers</b><span>@L("Перемещения")</span></a>
-                    <a href="stock-documents?kind=2"><b>@m.WriteOffs</b><span>@L("Списания")</span></a>
-                    <a href="inventory"><b>@m.Inventories</b><span>@L("Инвентаризации")</span></a>
-                </div>
-            }
-            @{ var reference = _data.Tiles.Where(t => !AttentionHrefs.Contains(t.Href)).ToList(); }
-            @if (reference.Count > 0)
-            {
-                <h2 style="margin-top: 14px">@L("Справочно")</h2>
-                <div class="mini-stats">
-                    @foreach (var t in reference)
-                    {
-                        <a href="@t.Href" title="@L(t.Hint)"><b>@t.Value</b><span>@L(t.Title)</span></a>
-                    }
-                </div>
-            }
-        </section>
-    </div>
-
-    @if (_data.Tiles.Count == 0 && f is null)
-    {
-        <p class="muted">@L("Для вашей роли показателей пока нет. Разделы, доступные вам, — в меню слева.")</p>
-    }
-}
-
-@code {
-    [CascadingParameter]
-    public CurrentAccessDto CurrentAccess { get; set; } = default!;
-
-    /// <summary>Плитки сервиса, которые означают «ждёт действия», — в блок «Требует внимания»; остальные — «Справочно».</summary>
-    private static readonly HashSet<string> AttentionHrefs = ["stock-documents?status=1", "inventory", "opening-balances"];
-
-    private DashboardDto? _data;
-    private string? _denied;
-
-    protected override async Task OnInitializedAsync()
-    {
-        try
-        {
-            _data = await Dashboard.GetAsync();
-        }
-        catch (AccessDeniedException ex)
-        {
-            _denied = UiErrors.Message(ex);
-        }
-    }
+    };
 
     private static string Greeting(int hour) => hour switch
     {

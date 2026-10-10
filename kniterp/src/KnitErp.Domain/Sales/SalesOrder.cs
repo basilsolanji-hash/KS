@@ -393,6 +393,9 @@ public sealed class CustomerPayment
     /// </summary>
     public string? DocumentNumber { get; private set; }
 
+    /// <summary>Расчётный счёт или касса своего юрлица, куда пришли (откуда ушли) деньги (D80).</summary>
+    public long? MoneyAccountId { get; private set; }
+
     public string? Comment { get; private set; }
     public CustomerPaymentStatus Status { get; private set; }
     public long CreatedByUserId { get; private set; }
@@ -404,7 +407,7 @@ public sealed class CustomerPayment
 
     public static CustomerPayment Create(
         long organizationId, string number, DateOnly date, long customerId, long? orderId, decimal amount, string? comment, long userId, DateTime nowUtc,
-        string? documentNumber = null)
+        string? documentNumber = null, long? moneyAccountId = null)
     {
         if (amount <= 0 || Money.Round(amount) != amount)
         {
@@ -419,6 +422,7 @@ public sealed class CustomerPayment
             PaymentDate = date,
             CustomerId = customerId,
             SalesOrderId = orderId,
+            MoneyAccountId = moneyAccountId,
             Amount = amount,
             Comment = DomainText.Optional(comment, CommentMaxLength, "Комментарий"),
             Status = CustomerPaymentStatus.Posted,

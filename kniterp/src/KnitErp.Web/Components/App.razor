@@ -443,6 +443,19 @@
         .chart-large .chart-axis { padding-left: 52px; }
         .dash-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 12px; margin-top: 14px; align-items: start; }
         .dash-box h2 { font-size: 14px; margin: 0 0 8px; }
+        .dash-blocks { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; align-items: start; }
+        .dash-blocks > .wide { grid-column: 1 / -1; }
+        .dash-blocks .section-title { margin-top: 0; }
+        .dash-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .dash-setup { margin-bottom: 12px; max-width: 520px; }
+        .dash-setup ul { list-style: none; margin: 0 0 8px; padding: 0; }
+        .dash-setup li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--line); }
+        .dash-box table.compact { width: 100%; min-width: 0; }
+        .dash-box table.compact td, .dash-box table.compact th { padding-right: 8px; }
+        table.money tr.group td { font-weight: 600; background: var(--field); }
+        td.neg, td.late { color: var(--bad); }
+        td.late { font-weight: 600; }
+        .small { font-size: 12px; }
         .attention { list-style: none; margin: 0; padding: 0; }
         .attention li a { display: flex; align-items: center; gap: 10px; padding: 7px 4px; border-bottom: 1px solid var(--line); color: var(--text); text-decoration: none; }
         .attention li:last-child a { border-bottom: 0; }

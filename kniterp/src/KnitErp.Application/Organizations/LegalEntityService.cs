@@ -1,5 +1,6 @@
 using KnitErp.Application.Access;
 using KnitErp.Application.Common;
+using KnitErp.Application.Warehousing;
 using KnitErp.Domain.Access;
 using KnitErp.Domain.Audit;
 using KnitErp.Domain.Common;
@@ -9,10 +10,13 @@ using Microsoft.EntityFrameworkCore;
 namespace KnitErp.Application.Organizations;
 
 public sealed record LegalEntityAccountDto(
-    long Id, string BankName, string Bic, string Account, string? CorrAccount, bool IsDefault, bool IsArchived, byte[] RowVersion)
+    long Id, string BankName, string Bic, string Account, string? CorrAccount, bool IsDefault, bool IsArchived, byte[] RowVersion,
+    MoneyAccountKind Kind = MoneyAccountKind.Bank, decimal OpeningBalance = 0, DateOnly? OpeningDate = null)
 {
-    /// <summary>«Сбербанк, р/с …0001» — для выбора в заказе.</summary>
-    public string Label => $"{BankName}, р/с …{Account[^Math.Min(4, Account.Length)..]}";
+    public bool IsCash => Kind == MoneyAccountKind.Cash;
+
+    /// <summary>«Сбербанк, р/с …0001» или «Касса «Цех»» — для выбора в заказе и оплате.</summary>
+    public string Label => KnitErp.Application.Finance.MoneyService.Label(Kind, BankName, Account);
 }
 
 public sealed record LegalEntityDto(
@@ -51,7 +55,7 @@ public sealed class LegalEntityService(IKnitErpDbContext db, IAccessGuard guard,
         return entities.Select(e => new LegalEntityDto(e.Id, e.Kind, e.Name, e.ShortName, e.Inn, e.Kpp, e.Ogrn, e.LegalAddress, e.DirectorPosition,
                 e.DirectorName, e.AccountantName, e.VatExempt, e.IsDefault, e.IsArchived, orders.GetValueOrDefault(e.Id),
                 accounts[e.Id].Select(a => new LegalEntityAccountDto(a.Id, a.BankName, a.Bic, a.Account, a.CorrAccount, a.IsDefault, a.IsArchived,
-                    a.RowVersion)).ToList(), e.RowVersion))
+                    a.RowVersion, a.Kind, a.OpeningBalance, a.OpeningDate)).ToList(), e.RowVersion))
             .ToList();
     }
 
@@ -64,7 +68,9 @@ public sealed class LegalEntityService(IKnitErpDbContext db, IAccessGuard guard,
 
     internal static async Task<IReadOnlyList<LegalEntityOptionDto>> OptionsAsync(IKnitErpDbContext db, long organizationId, CancellationToken ct)
     {
-        var accounts = (await db.LegalEntityAccounts.AsNoTracking().Where(a => a.OrganizationId == organizationId && !a.IsArchived)
+        // Счёт на оплату — только расчётный счёт, кассы сюда не попадают (D80).
+        var accounts = (await db.LegalEntityAccounts.AsNoTracking()
+                .Where(a => a.OrganizationId == organizationId && !a.IsArchived && a.Kind == MoneyAccountKind.Bank)
                 .OrderByDescending(a => a.IsDefault).ThenBy(a => a.Id).ToListAsync(ct))
             .ToLookup(a => a.LegalEntityId);
         var entities = await db.LegalEntities.AsNoTracking().Where(e => e.OrganizationId == organizationId && !e.IsArchived)
@@ -162,11 +168,8 @@ public sealed class LegalEntityService(IKnitErpDbContext db, IAccessGuard guard,
                      ?? throw new NotFoundException("Юрлицо");
         entity.EnsureActive();
         var accounts = db.LegalEntityAccounts.Where(a => a.OrganizationId == ctx.OrganizationId && a.LegalEntityId == legalEntityId && !a.IsArchived);
-        if (await accounts.CountAsync(ct) >= LegalEntityAccount.MaxAccounts)
-        {
-            throw new BusinessRuleException("legal_entity.accounts_too_many", $"Действующих счетов у юрлица не больше {LegalEntityAccount.MaxAccounts}.");
-        }
-
+        await EnsureRoomAsync(accounts, ct);
+        accounts = accounts.Where(a => a.Kind == MoneyAccountKind.Bank);
         var account = LegalEntityAccount.Create(ctx.OrganizationId, legalEntityId, await CountryAsync(ctx, ct), cmd.BankName, cmd.Bic, cmd.Account,
             cmd.CorrAccount, isDefault: !await accounts.AnyAsync(a => a.IsDefault, ct));
         await EnsureAccountFreeAsync(legalEntityId, account.Account, null, ct);
@@ -178,6 +181,61 @@ public sealed class LegalEntityService(IKnitErpDbContext db, IAccessGuard guard,
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return account.Id;
+    }
+
+    /// <summary>Новая касса юрлица (D80): наличные деньги, только название.</summary>
+    public async Task<long> AddCashAsync(long legalEntityId, string? name, CancellationToken ct = default)
+    {
+        var ctx = await guard.DemandAsync(Permissions.OrganizationEdit, ct);
+        var entity = await db.LegalEntities.SingleOrDefaultAsync(e => e.Id == legalEntityId && e.OrganizationId == ctx.OrganizationId, ct)
+                     ?? throw new NotFoundException("Юрлицо");
+        entity.EnsureActive();
+        await EnsureRoomAsync(db.LegalEntityAccounts.Where(a => a.OrganizationId == ctx.OrganizationId && a.LegalEntityId == legalEntityId && !a.IsArchived), ct);
+        var cash = LegalEntityAccount.CreateCash(ctx.OrganizationId, legalEntityId, name);
+        if (await db.LegalEntityAccounts.AnyAsync(a => a.LegalEntityId == legalEntityId && !a.IsArchived && a.Kind == MoneyAccountKind.Cash
+                                                       && a.BankName == cash.BankName, ct))
+        {
+            throw new BusinessRuleException("money.cash_duplicate", $"Касса «{cash.BankName}» у этого юрлица уже есть.");
+        }
+
+        db.LegalEntityAccounts.Add(cash);
+        await using var tx = await db.BeginTransactionAsync(ct);
+        await db.SaveChangesAsync(ct);
+        Audit(ctx, AuditActions.CatalogCreated, nameof(LegalEntityAccount), cash.Id, null, $"Касса «{cash.BankName}»", $"Касса: {entity.ShortName}");
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        return cash.Id;
+    }
+
+    public async Task RenameCashAsync(long id, string? name, byte[] rowVersion, CancellationToken ct = default)
+    {
+        var (ctx, cash) = await LoadAccountAsync(id, rowVersion, ct);
+        var before = cash.BankName;
+        cash.RenameCash(name);
+        Audit(ctx, AuditActions.CatalogChanged, nameof(LegalEntityAccount), id, before, cash.BankName, "Касса");
+        await db.SaveOrConflictAsync(ct);
+    }
+
+    /// <summary>
+    /// Начальный остаток счёта или кассы на дату (D80) — с этой даты knitERP считает движения. Влияет на остатки денег,
+    /// поэтому дата не может попасть в закрытый период.
+    /// </summary>
+    public async Task SetOpeningAsync(long id, DateOnly? date, decimal amount, byte[] rowVersion, CancellationToken ct = default)
+    {
+        var (ctx, account) = await LoadAccountAsync(id, rowVersion, ct);
+        foreach (var d in new[] { account.OpeningDate, date })
+        {
+            if (d is { } day)
+            {
+                await ClosedPeriod.EnsureOpenAsync(db, ctx.OrganizationId, day, ct);
+            }
+        }
+
+        var before = $"{account.OpeningBalance:0.00} на {account.OpeningDate:dd.MM.yyyy}";
+        account.SetOpening(date, amount);
+        Audit(ctx, AuditActions.CatalogChanged, nameof(LegalEntityAccount), id, before, $"{account.OpeningBalance:0.00} на {account.OpeningDate:dd.MM.yyyy}",
+            "Начальный остаток");
+        await db.SaveOrConflictAsync(ct);
     }
 
     public async Task UpdateAccountAsync(long id, LegalEntityAccountCommand cmd, byte[] rowVersion, CancellationToken ct = default)
@@ -199,6 +257,7 @@ public sealed class LegalEntityService(IKnitErpDbContext db, IAccessGuard guard,
             return;
         }
 
+        account.EnsureCanBeDefault();
         var current = await db.LegalEntityAccounts.Where(a => a.LegalEntityId == account.LegalEntityId && a.IsDefault).ToListAsync(ct);
         foreach (var a in current)
         {
@@ -217,7 +276,7 @@ public sealed class LegalEntityService(IKnitErpDbContext db, IAccessGuard guard,
     public async Task SetAccountArchivedAsync(long id, bool archived, byte[] rowVersion, CancellationToken ct = default)
     {
         var (ctx, account) = await LoadAccountAsync(id, rowVersion, ct);
-        if (!archived)
+        if (!archived && !account.IsCash)
         {
             await EnsureAccountFreeAsync(account.LegalEntityId, account.Account, id, ct);
         }
@@ -225,12 +284,13 @@ public sealed class LegalEntityService(IKnitErpDbContext db, IAccessGuard guard,
         var wasDefault = account.IsDefault;
         account.SetArchived(archived);
         Audit(ctx, archived ? AuditActions.CatalogArchived : AuditActions.CatalogRestored, nameof(LegalEntityAccount), id,
-            archived ? account.Account : "в архиве", archived ? "в архиве" : account.Account, "Расчётный счёт");
+            archived ? account.BankName + " " + account.Account : "в архиве", archived ? "в архиве" : account.BankName + " " + account.Account,
+            account.IsCash ? "Касса" : "Расчётный счёт");
         await db.SaveOrConflictAsync(ct);
         var hasDefault = await db.LegalEntityAccounts.AnyAsync(a => a.LegalEntityId == account.LegalEntityId && a.IsDefault, ct);
         if ((wasDefault || !archived) && !hasDefault)
         {
-            var next = await db.LegalEntityAccounts.Where(a => a.LegalEntityId == account.LegalEntityId && !a.IsArchived)
+            var next = await db.LegalEntityAccounts.Where(a => a.LegalEntityId == account.LegalEntityId && !a.IsArchived && a.Kind == MoneyAccountKind.Bank)
                 .OrderBy(a => a.Id).FirstOrDefaultAsync(ct);
             next?.SetDefault(true);
             await db.SaveOrConflictAsync(ct);
@@ -270,9 +330,18 @@ public sealed class LegalEntityService(IKnitErpDbContext db, IAccessGuard guard,
         }
     }
 
+    private static async Task EnsureRoomAsync(IQueryable<LegalEntityAccount> active, CancellationToken ct)
+    {
+        if (await active.CountAsync(ct) >= LegalEntityAccount.MaxAccounts)
+        {
+            throw new BusinessRuleException("legal_entity.accounts_too_many", $"Действующих счетов и касс у юрлица не больше {LegalEntityAccount.MaxAccounts}.");
+        }
+    }
+
     private async Task EnsureAccountFreeAsync(long legalEntityId, string account, long? exceptId, CancellationToken ct)
     {
-        if (await db.LegalEntityAccounts.AnyAsync(a => a.LegalEntityId == legalEntityId && !a.IsArchived && a.Account == account && a.Id != exceptId, ct))
+        if (await db.LegalEntityAccounts.AnyAsync(a => a.LegalEntityId == legalEntityId && !a.IsArchived && a.Kind == MoneyAccountKind.Bank && a.Account == account
+                                                    && a.Id != exceptId, ct))
         {
             throw new BusinessRuleException("legal_entity.account_duplicate", $"Счёт {account} у этого юрлица уже есть.");
         }

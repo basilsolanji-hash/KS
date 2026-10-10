@@ -112,6 +112,7 @@ else
         <label>@L("С") <input type="date" @bind="_from" /></label>
         <label>@L("По") <input type="date" @bind="_to" /></label>
         <label>@L("Поиск") <input @bind="_search" placeholder="@L("Номер, покупатель, договор")" /></label>
+        <label class="inline"><input type="checkbox" @bind="_overdue" /> @L("Только просроченные")</label>
         <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
     </form>
 
@@ -151,7 +152,7 @@ else
                             <td class="num @(o.Unpaid > 0 ? "warn-text" : null)">@Amounts.Format(o.Unpaid)</td>
                             <td class="num @(shippedFull ? "cell-good" : o.ShippedValue > 0 ? "cell-part" : null)">@Amounts.Format(o.ShippedValue)</td>
                         }
-                        <td>@(o.ShipDate?.ToString("dd.MM.yyyy") ?? "—")</td>
+                        <td class="@(IsLate(o) ? "late" : null)">@(o.ShipDate?.ToString("dd.MM.yyyy") ?? "—")</td>
                         <td><StageChip Stage="o.Stage" /></td>
                         <td><span class="tag @StatusClass(o.Status)">@L(o.StatusName)</span> <span class="muted">@ShippedName(o.Shipped)</span></td>
                     </tr>
@@ -187,7 +188,11 @@ else
     private bool _busy;
     private string? _denied;
     private string? _error;
+    [SupplyParameterFromQuery(Name = "overdue")]
+    public int? OverdueQuery { get; set; }
+
     private string _status = string.Empty;
+    private bool _overdue;
     private string _stage = string.Empty;
     private IReadOnlyList<SalesStageDto> _stages = [];
     private string _search = string.Empty;
@@ -207,6 +212,7 @@ else
     {
         try
         {
+            _overdue = OverdueQuery == 1;
             _stages = await StageList.ListAsync();
             await LoadAsync();
         }
@@ -220,7 +226,13 @@ else
         _rows = await Sales.ListOrdersAsync(new SalesOrderFilter(
             byte.TryParse(_status, out var st) ? (SalesOrderStatus)st : null, _search,
             _from is { } f ? DateOnly.FromDateTime(f) : null, _to is { } t ? DateOnly.FromDateTime(t) : null,
-            long.TryParse(_stage, out var stage) ? stage : null));
+            long.TryParse(_stage, out var stage) ? stage : null, _overdue ? Today : null));
+
+    private DateOnly Today => DateOnly.FromDateTime(TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId));
+
+    /// <summary>Дата отгрузки прошла, а отгружено не всё (D80) — дата красным.</summary>
+    private bool IsLate(SalesOrderRowDto o) =>
+        o.Status == SalesOrderStatus.Confirmed && o.ShipDate < Today && o.Shipped != ShipmentState.Full;
 
     private Task ReloadAsync() => RunAsync(LoadAsync);
 

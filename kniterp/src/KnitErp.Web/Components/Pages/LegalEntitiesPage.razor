@@ -93,13 +93,13 @@ else
             <h3>@L("Расчётные счета")</h3>
             <div class="scroll">
                 <table class="compact">
-                    <thead><tr><th>@L("Банк")</th><th>@L("БИК")</th><th>@L("Расчётный счёт")</th><th class="opt">@L("Корр. счёт")</th>@if (CanEdit) { <th></th> }</tr></thead>
+                    <thead><tr><th>@L("Банк")</th><th>@L("БИК")</th><th>@L("Расчётный счёт")</th><th class="opt">@L("Корр. счёт")</th><th class="num opt">@L("Остаток на начало")</th>@if (CanEdit) { <th></th> }</tr></thead>
                     <tbody>
-                        @if (e.Accounts.Count == 0)
+                        @if (!e.Accounts.Any(a => !a.IsCash))
                         {
-                            <tr><td colspan="5" class="muted">@L("Счетов пока нет — в счёте на оплату банк не напечатается.")</td></tr>
+                            <tr><td colspan="6" class="muted">@L("Счетов пока нет — в счёте на оплату банк не напечатается.")</td></tr>
                         }
-                        @foreach (var a in e.Accounts)
+                        @foreach (var a in e.Accounts.Where(a => !a.IsCash))
                         {
                             <tr class="@(a.IsArchived ? "archived" : null)">
                                 @if (_account?.Id == a.Id)
@@ -116,12 +116,14 @@ else
                                     <td>@a.Bic</td>
                                     <td>@a.Account</td>
                                     <td>@(a.CorrAccount ?? "—")</td>
+                                    <td class="num">@Opening(a)</td>
                                     @if (CanEdit)
                                     {
                                         <td>
                                             @if (!a.IsArchived && !e.IsArchived)
                                             {
                                                 <button type="button" class="secondary" @onclick="() => StartAccount(e, a)" disabled="@_busy">@L("Изменить")</button>
+                                                <button type="button" class="secondary" @onclick="() => StartOpening(a)" disabled="@_busy">@L("Остаток")</button>
                                                 @if (!a.IsDefault)
                                                 {
                                                     <button type="button" class="secondary" @onclick="() => MakeDefaultAccountAsync(a)" disabled="@_busy">@L("Сделать основным")</button>
@@ -136,11 +138,16 @@ else
                                     }
                                 }
                             </tr>
+                            @if (_opening?.Id == a.Id)
+                            {
+                                <tr><td colspan="6">@OpeningEditor()</td></tr>
+                            }
                         }
                         @if (_account is { Id: null } && _account.EntityId == e.Id)
                         {
                             <tr>
                                 @AccountCells()
+                                <td></td>
                                 <td>
                                     <button type="button" @onclick="SaveAccountAsync" disabled="@_busy">@L("Добавить")</button>
                                     <button type="button" class="secondary" @onclick="() => _account = null">@L("Отмена")</button>
@@ -153,6 +160,72 @@ else
             @if (CanEdit && !e.IsArchived && _account is null)
             {
                 <button type="button" class="secondary" @onclick="() => StartAccount(e, null)" disabled="@_busy">@L("Добавить счёт")</button>
+            }
+
+            <h3 style="margin-top: 14px">@L("Кассы")</h3>
+            <div class="scroll">
+                <table class="compact">
+                    <thead><tr><th>@L("Касса")</th><th class="num">@L("Остаток на начало")</th>@if (CanEdit) { <th></th> }</tr></thead>
+                    <tbody>
+                        @if (!e.Accounts.Any(a => a.IsCash))
+                        {
+                            <tr><td colspan="3" class="muted">@L("Касс пока нет. Наличные учитываются, если завести кассу.")</td></tr>
+                        }
+                        @foreach (var a in e.Accounts.Where(a => a.IsCash))
+                        {
+                            <tr class="@(a.IsArchived ? "archived" : null)">
+                                @if (_cash?.Id == a.Id)
+                                {
+                                    <td><input @bind="_cash.Name" maxlength="@LegalEntityAccount.BankNameMaxLength" aria-label="@L("Название кассы")" /></td>
+                                    <td class="num">@Opening(a)</td>
+                                    <td>
+                                        <button type="button" @onclick="SaveCashAsync" disabled="@_busy">@L("Сохранить")</button>
+                                        <button type="button" class="secondary" @onclick="() => _cash = null">@L("Отмена")</button>
+                                    </td>
+                                }
+                                else
+                                {
+                                    <td>@a.BankName @if (a.IsArchived) { <span class="tag">@L("архив")</span> }</td>
+                                    <td class="num">@Opening(a)</td>
+                                    @if (CanEdit)
+                                    {
+                                        <td>
+                                            @if (!a.IsArchived && !e.IsArchived)
+                                            {
+                                                <button type="button" class="secondary" @onclick="() => _cash = new CashDraft { Id = a.Id, EntityId = e.Id, Name = a.BankName, RowVersion = a.RowVersion }" disabled="@_busy">@L("Переименовать")</button>
+                                                <button type="button" class="secondary" @onclick="() => StartOpening(a)" disabled="@_busy">@L("Остаток")</button>
+                                                <button type="button" class="secondary" @onclick="() => ArchiveAccountAsync(a, true)" disabled="@_busy">@L("В архив")</button>
+                                            }
+                                            else if (a.IsArchived && !e.IsArchived)
+                                            {
+                                                <button type="button" class="secondary" @onclick="() => ArchiveAccountAsync(a, false)" disabled="@_busy">@L("Вернуть")</button>
+                                            }
+                                        </td>
+                                    }
+                                }
+                            </tr>
+                            @if (_opening?.Id == a.Id)
+                            {
+                                <tr><td colspan="3">@OpeningEditor()</td></tr>
+                            }
+                        }
+                        @if (_cash is { Id: null } && _cash.EntityId == e.Id)
+                        {
+                            <tr>
+                                <td><input @bind="_cash.Name" maxlength="@LegalEntityAccount.BankNameMaxLength" placeholder="@L("Касса цеха")" aria-label="@L("Название кассы")" /></td>
+                                <td></td>
+                                <td>
+                                    <button type="button" @onclick="SaveCashAsync" disabled="@_busy">@L("Добавить")</button>
+                                    <button type="button" class="secondary" @onclick="() => _cash = null">@L("Отмена")</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            @if (CanEdit && !e.IsArchived && _cash is null)
+            {
+                <button type="button" class="secondary" @onclick="() => _cash = new CashDraft { EntityId = e.Id }" disabled="@_busy">@L("Добавить кассу")</button>
             }
         </section>
     }
@@ -189,6 +262,26 @@ else
         public bool VatExempt { get; set; }
 
         public LegalEntityData Data => new(Kind, Name, ShortName, Inn, Kpp, Ogrn, LegalAddress, DirectorPosition, DirectorName, AccountantName, VatExempt);
+    }
+
+    private CashDraft? _cash;
+    private OpeningDraft? _opening;
+
+    private sealed class CashDraft
+    {
+        public long? Id { get; init; }
+        public long EntityId { get; init; }
+        public byte[] RowVersion { get; init; } = [];
+        public string? Name { get; set; }
+    }
+
+    /// <summary>Начальный остаток счёта или кассы (D80): с этой даты knitERP считает поступления и выплаты.</summary>
+    private sealed class OpeningDraft
+    {
+        public long Id { get; init; }
+        public byte[] RowVersion { get; init; } = [];
+        public DateTime? Date { get; set; }
+        public string Amount { get; set; } = string.Empty;
     }
 
     private sealed class AccountDraft
@@ -369,6 +462,57 @@ else
 
         _account = null;
     }, L("Счёт сохранён."));
+
+    private string Opening(LegalEntityAccountDto a) =>
+        a.OpeningDate is { } d ? $"{Amounts.Format(a.OpeningBalance)} {L("на {0}", d.ToString("dd.MM.yyyy"))}" : "—";
+
+    private void StartOpening(LegalEntityAccountDto a) =>
+        _opening = _opening?.Id == a.Id
+            ? null
+            : new OpeningDraft
+            {
+                Id = a.Id, RowVersion = a.RowVersion,
+                Date = a.OpeningDate?.ToDateTime(TimeOnly.MinValue) ?? TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId).Date,
+                Amount = a.OpeningBalance.ToString("0.##", System.Globalization.CultureInfo.CurrentCulture),
+            };
+
+    private RenderFragment OpeningEditor() => __builder =>
+    {
+        var o = _opening!;
+        <form class="inline-form" style="margin: 0" @onsubmit="SaveOpeningAsync">
+            <label>@L("Дата начала учёта") <input type="date" @bind="o.Date" required /></label>
+            <label>@L("Остаток на эту дату") <input @bind="o.Amount" inputmode="decimal" size="14" required /></label>
+            <button type="submit" disabled="@_busy">@L("Сохранить")</button>
+            <button type="button" class="secondary" @onclick="() => _opening = null">@L("Отмена")</button>
+            <span class="muted small">@L("Деньги на счёте или в кассе на утро этой даты; оплаты считаются с неё.")</span>
+        </form>
+    };
+
+    private Task SaveOpeningAsync() => RunAsync(async () =>
+    {
+        var o = _opening!;
+        var amount = decimal.TryParse(o.Amount.Replace(" ", string.Empty).Replace("\u00A0", string.Empty).Replace(',', '.'), System.Globalization.NumberStyles.Number,
+            System.Globalization.CultureInfo.InvariantCulture, out var v)
+            ? v
+            : throw new BusinessRuleException("money.opening", L("Начальный остаток — число, например 125000,50."));
+        await Entities.SetOpeningAsync(o.Id, o.Date is { } d ? DateOnly.FromDateTime(d) : null, amount, o.RowVersion);
+        _opening = null;
+    }, L("Начальный остаток сохранён."));
+
+    private Task SaveCashAsync() => RunAsync(async () =>
+    {
+        var c = _cash!;
+        if (c.Id is { } id)
+        {
+            await Entities.RenameCashAsync(id, c.Name, c.RowVersion);
+        }
+        else
+        {
+            await Entities.AddCashAsync(c.EntityId, c.Name);
+        }
+
+        _cash = null;
+    }, L("Касса сохранена."));
 
     private Task MakeDefaultAsync(LegalEntityDto e) =>
         RunAsync(() => Entities.MakeDefaultAsync(e.Id, e.RowVersion), L("«{0}» — основное юрлицо.", e.ShortName));

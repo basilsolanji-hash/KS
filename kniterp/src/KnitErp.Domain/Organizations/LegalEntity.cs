@@ -193,6 +193,13 @@ public sealed class LegalEntity
     private static string Digits(string? value) => (value ?? string.Empty).Replace(" ", string.Empty, StringComparison.Ordinal).Trim();
 }
 
+/// <summary>Вид денежного счёта (D80): расчётный счёт в банке или касса (наличные).</summary>
+public enum MoneyAccountKind : byte
+{
+    Bank = 1,
+    Cash = 2,
+}
+
 /// <summary>
 /// Расчётный счёт юрлица (D78). Для России БИК и счета проверяются по контрольному ключу; для других стран — длина и символы.
 /// Один счёт юрлица — основной: его подставляет заказ, если счёт не выбран. Не удаляется — архивируется.
@@ -215,9 +222,55 @@ public sealed class LegalEntityAccount
     public string Bic { get; private set; } = string.Empty;
     public string Account { get; private set; } = string.Empty;
     public string? CorrAccount { get; private set; }
+
+    /// <summary>Банк или касса (D80). У кассы нет БИК и номера счёта; BankName — её название («Касса цеха»).</summary>
+    public MoneyAccountKind Kind { get; private set; } = MoneyAccountKind.Bank;
+
+    /// <summary>Остаток на начало учёта в knitERP (D80); движения считаются с <see cref="OpeningDate"/> включительно.</summary>
+    public decimal OpeningBalance { get; private set; }
+
+    public DateOnly? OpeningDate { get; private set; }
+
     public bool IsDefault { get; private set; }
     public bool IsArchived { get; private set; }
     public byte[] RowVersion { get; private set; } = [];
+
+    public bool IsCash => Kind == MoneyAccountKind.Cash;
+
+    /// <summary>Касса юрлица: только название. Основной для счетов на оплату касса не бывает.</summary>
+    public static LegalEntityAccount CreateCash(long organizationId, long legalEntityId, string? name) =>
+        new()
+        {
+            OrganizationId = organizationId, LegalEntityId = legalEntityId, Kind = MoneyAccountKind.Cash,
+            BankName = DomainText.Require(name, BankNameMaxLength, "Название кассы"),
+        };
+
+    public void RenameCash(string? name)
+    {
+        if (!IsCash)
+        {
+            throw new BusinessRuleException("money.not_cash", "Это расчётный счёт, не касса.");
+        }
+
+        BankName = DomainText.Require(name, BankNameMaxLength, "Название кассы");
+    }
+
+    /// <summary>Начальный остаток на дату (D80): может быть и отрицательным (овердрафт), до копеек.</summary>
+    public void SetOpening(DateOnly? date, decimal amount)
+    {
+        if (Money.Round(amount) != amount || Math.Abs(amount) > 999_999_999_999m)
+        {
+            throw new BusinessRuleException("money.opening", "Начальный остаток — до копеек.");
+        }
+
+        if (amount != 0 && date is null)
+        {
+            throw new BusinessRuleException("money.opening_date", "Укажите дату начального остатка.");
+        }
+
+        OpeningBalance = amount;
+        OpeningDate = date;
+    }
 
     public static LegalEntityAccount Create(long organizationId, long legalEntityId, string countryCode, string? bankName, string? bic, string? account,
         string? corrAccount, bool isDefault)
@@ -232,6 +285,11 @@ public sealed class LegalEntityAccount
         if (IsArchived)
         {
             throw new BusinessRuleException("legal_entity.account_archived", "Счёт в архиве.");
+        }
+
+        if (IsCash)
+        {
+            throw new BusinessRuleException("money.not_bank", "Это касса — у неё нет банковских реквизитов.");
         }
 
         var name = DomainText.Require(bankName, BankNameMaxLength, "Банк");
@@ -264,12 +322,26 @@ public sealed class LegalEntityAccount
 
     public void SetDefault(bool isDefault)
     {
-        if (isDefault && IsArchived)
+        if (isDefault)
         {
-            throw new BusinessRuleException("legal_entity.account_archived", "Счёт в архиве.");
+            EnsureCanBeDefault();
         }
 
         IsDefault = isDefault;
+    }
+
+    /// <summary>Проверка до снятия признака с прежнего основного счёта: иначе неудача оставила бы юрлицо без основного.</summary>
+    public void EnsureCanBeDefault()
+    {
+        if (IsCash)
+        {
+            throw new BusinessRuleException("money.cash_default", "Касса не может быть основным счётом для оплаты по счетам.");
+        }
+
+        if (IsArchived)
+        {
+            throw new BusinessRuleException("legal_entity.account_archived", "Счёт в архиве.");
+        }
     }
 
     public void SetArchived(bool archived)

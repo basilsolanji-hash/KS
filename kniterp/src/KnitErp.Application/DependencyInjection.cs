@@ -39,6 +39,7 @@ public static class DependencyInjection
         services.AddScoped<Sales.SalesSettingsService>();
         services.AddScoped<Organizations.LegalEntityService>();
         services.AddScoped<Catalog.NomenclatureService>();
+        services.AddScoped<Finance.MoneyService>();
         services.AddScoped<Common.RequisitesLookupService>();
         services.AddScoped<Sales.SalesAnalyticsService>();
         services.AddScoped<Taxes.VatInvoiceService>();
@@ -46,6 +47,8 @@ public static class DependencyInjection
         services.AddScoped<RecoveryCodeService>();
         services.AddScoped<Structure.EmployeeExchangeService>();
         services.AddScoped<Organizations.LaunchReadinessService>();
+        // Кэш главного экрана (DashboardService): общий на процесс, ключ — организация, пользователь и его права.
+        services.AddMemoryCache();
         services.AddScoped<Organizations.DashboardService>();
         services.AddScoped<OpeningBalanceService>();
         services.AddScoped<StockDocumentService>();

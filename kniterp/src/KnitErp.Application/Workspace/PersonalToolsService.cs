@@ -41,6 +41,9 @@ public sealed class PersonalToolsService(IKnitErpDbContextFactory factory, ICurr
     private const string FavoritesKind = "favorites";
     private const string WeatherKind = "weather";
 
+    /// <summary>Настройка главного экрана; её же читает <see cref="Organizations.DashboardService"/> вместе с данными экрана.</summary>
+    public const string DashboardKind = "dashboard";
+
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     // --- Панель быстрого доступа -------------------------------------------------------------
@@ -78,6 +81,34 @@ public sealed class PersonalToolsService(IKnitErpDbContextFactory factory, ICurr
         var pinned = (s.Pinned ?? []).Where(id => ToolCatalog.Find(id) is not null && !ToolCatalog.Fixed.Contains(id))
             .Distinct().Take(ToolCatalog.MaxPinned).ToList();
         return new PanelSettings(pinned, Math.Clamp(s.Visible, 0, ToolCatalog.MaxVisible));
+    }
+
+    // --- Главный экран ------------------------------------------------------------------------
+
+    public async Task<DashboardLayout> GetDashboardLayoutAsync(CancellationToken ct = default) =>
+        DashboardBlocks.Clean(await LoadAsync<DashboardLayout>(DashboardKind, ct));
+
+    public async Task<DashboardLayout> SaveDashboardLayoutAsync(DashboardLayout layout, CancellationToken ct = default)
+    {
+        var clean = DashboardBlocks.Clean(layout);
+        await SaveAsync(DashboardKind, clean, ct);
+        return clean;
+    }
+
+    /// <summary>«Сбросить по умолчанию»: личная запись удаляется — дальше экран следует порядку по умолчанию.</summary>
+    public async Task<DashboardLayout> ResetDashboardLayoutAsync(CancellationToken ct = default)
+    {
+        await using var db = factory.Create();
+        var ctx = await new AccessGuard(db, currentUser, clock).CurrentAsync(ct);
+        var row = await db.UserToolData
+            .SingleOrDefaultAsync(d => d.OrganizationId == ctx.OrganizationId && d.UserId == ctx.UserId && d.Kind == DashboardKind, ct);
+        if (row is not null)
+        {
+            db.UserToolData.Remove(row);
+            await db.SaveChangesAsync(ct);
+        }
+
+        return DashboardBlocks.Default;
     }
 
     // --- Задачи и календарь ------------------------------------------------------------------

@@ -73,6 +73,10 @@ public sealed class SqlTestHost : IAsyncLifetime
 
     public IUiText UiText { get; set; } = new RussianUiText();
 
+    /// <summary>Кэш главного экрана — общий для всех сессий тест-класса, как в приложении общий на процесс.</summary>
+    public Microsoft.Extensions.Caching.Memory.IMemoryCache DashboardCache { get; } =
+        new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions());
+
     /// <summary>Фабрика контекстов для инструментов панели — как в приложении, свой контекст на операцию.</summary>
     public IKnitErpDbContextFactory Factory => new TestDbFactory(this);
 
@@ -84,6 +88,11 @@ public sealed class SqlTestHost : IAsyncLifetime
     public KnitErpDbContext NewDb() =>
         new(new DbContextOptionsBuilder<KnitErpDbContext>()
             .UseSqlServer(_connectionString, KnitErp.Infrastructure.DependencyInjection.ConfigureSqlServer).Options);
+
+    /// <summary>Контекст с перехватчиками EF — например, чтобы считать SQL-команды.</summary>
+    public KnitErpDbContext NewDb(params Microsoft.EntityFrameworkCore.Diagnostics.IInterceptor[] interceptors) =>
+        new(new DbContextOptionsBuilder<KnitErpDbContext>()
+            .UseSqlServer(_connectionString, KnitErp.Infrastructure.DependencyInjection.ConfigureSqlServer).AddInterceptors(interceptors).Options);
 
     /// <summary>Набор сервисов от имени пользователя. Каждый вызов — новый DbContext, как отдельный HTTP-запрос.</summary>
     public Services As(long? userId, long? organizationId)
@@ -123,10 +132,7 @@ public sealed class SqlTestHost : IAsyncLifetime
             new RecoveryCodeService(db, user, Clock),
             new VatRateService(db, guard, user, Clock),
             new KnitErp.Application.Production.TechCardService(db, guard, user, Clock),
-            new DashboardService(db, guard, Clock, new LaunchReadinessService(db, guard, Clock),
-                new KnitErp.Application.Sales.SalesService(db, guard, user, Clock, new StockDocumentService(db, guard, Spreadsheet, user, Clock)),
-                new KnitErp.Application.Purchasing.PurchaseService(db, guard, user, Clock, new StockDocumentService(db, guard, Spreadsheet, user, Clock)),
-                new KnitErp.Application.Sales.CustomerInvoiceService(db, guard, user, Clock), new KnitErp.Application.Taxes.VatInvoiceService(db, guard, user, Clock)),
+            new DashboardService(db, guard, Clock, new LaunchReadinessService(db, guard, Clock), DashboardCache),
             new KnitErp.Application.Purchasing.PurchaseService(db, guard, user, Clock, new StockDocumentService(db, guard, Spreadsheet, user, Clock)),
             new KnitErp.Application.Sales.SalesService(db, guard, user, Clock, new StockDocumentService(db, guard, Spreadsheet, user, Clock)),
             new KnitErp.Application.Sales.CustomerInvoiceService(db, guard, user, Clock),
@@ -137,7 +143,8 @@ public sealed class SqlTestHost : IAsyncLifetime
             new KnitErp.Application.Sales.SalesSettingsService(db, guard, user, Clock),
             new KnitErp.Application.Organizations.LegalEntityService(db, guard, user, Clock),
             new KnitErp.Application.Common.RequisitesLookupService(new FakeRequisitesLookup(), guard),
-            new KnitErp.Application.Catalog.NomenclatureService(db, guard, user, Clock));
+            new KnitErp.Application.Catalog.NomenclatureService(db, guard, user, Clock),
+            new KnitErp.Application.Finance.MoneyService(db, guard));
     }
 
     private static readonly IPasswordHasher<UserAccount> Hasher = new PasswordHasher<UserAccount>();
@@ -211,7 +218,8 @@ public sealed record Services(
     KnitErp.Application.Sales.SalesSettingsService SalesSettings,
     KnitErp.Application.Organizations.LegalEntityService LegalEntities,
     KnitErp.Application.Common.RequisitesLookupService Requisites,
-    KnitErp.Application.Catalog.NomenclatureService Nomenclature) : IAsyncDisposable
+    KnitErp.Application.Catalog.NomenclatureService Nomenclature,
+    KnitErp.Application.Finance.MoneyService Money) : IAsyncDisposable
 {
     public ValueTask DisposeAsync() => Db.DisposeAsync();
 }

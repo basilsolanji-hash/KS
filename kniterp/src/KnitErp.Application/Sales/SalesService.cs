@@ -6,6 +6,7 @@ using KnitErp.Domain.Access;
 using KnitErp.Domain.Audit;
 using KnitErp.Domain.Catalog;
 using KnitErp.Domain.Common;
+using KnitErp.Domain.Organizations;
 using KnitErp.Domain.Sales;
 using KnitErp.Domain.Warehousing;
 using Microsoft.EntityFrameworkCore;
@@ -22,7 +23,8 @@ public enum ShipmentState : byte
 
 /// <summary>StageId: null — все, 0 — без этапа, иначе — этап.</summary>
 public sealed record SalesOrderFilter(
-    SalesOrderStatus? Status = null, string? Search = null, DateOnly? From = null, DateOnly? To = null, long? StageId = null);
+    SalesOrderStatus? Status = null, string? Search = null, DateOnly? From = null, DateOnly? To = null, long? StageId = null,
+    DateOnly? OverdueOn = null);
 
 /// <summary>Этап заказа (D75) — название и цвет из справочника.</summary>
 public sealed record SalesStageRefDto(long Id, string Name, string Color);
@@ -153,6 +155,12 @@ public sealed class SalesService(
             q = stageId == 0 ? q.Where(o => o.StageId == null) : q.Where(o => o.StageId == stageId);
         }
 
+        // Просроченные на дату (D80): подтверждён, дата отгрузки прошла; отгруженные полностью отсеиваются ниже.
+        if (filter.OverdueOn is { } overdueOn)
+        {
+            q = q.Where(o => o.Status == SalesOrderStatus.Confirmed && o.ShipDate != null && o.ShipDate < overdueOn);
+        }
+
         var rows = from o in q
                    join s in db.Counterparties.AsNoTracking() on o.CustomerId equals s.Id
                    join w in db.Warehouses.AsNoTracking() on o.WarehouseId equals w.Id
@@ -193,6 +201,7 @@ public sealed class SalesService(
                 prices ? invoiced.GetValueOrDefault(o.Id) : null,
                 prices ? paid.GetValueOrDefault(o.Id) : null,
                 prices ? Money.Round(o.Lines.Sum(l => Net(moved, o.Id, l.ItemId) * (l.Quantity == 0 ? 0 : l.Amount / l.Quantity))) : null))
+            .Where(r => filter.OverdueOn is null || r.Shipped != ShipmentState.Full)
             .ToList();
     }
 
@@ -320,7 +329,8 @@ public sealed class SalesService(
         if (details.BankAccountId is { } accountId && accountId != order.BankAccountId)
         {
             var account = await db.LegalEntityAccounts.AsNoTracking()
-                              .SingleOrDefaultAsync(a => a.Id == accountId && a.OrganizationId == ctx.OrganizationId && a.LegalEntityId == order.LegalEntityId, ct)
+                              .SingleOrDefaultAsync(a => a.Id == accountId && a.OrganizationId == ctx.OrganizationId && a.LegalEntityId == order.LegalEntityId
+                                           && a.Kind == MoneyAccountKind.Bank, ct)
                           ?? throw new NotFoundException("Расчётный счёт");
             if (account.IsArchived)
             {
@@ -600,11 +610,15 @@ public sealed class SalesService(
 
     /// <summary>Оплата от покупателя: сразу уменьшает его долг. Заказ — по желанию, того же покупателя.</summary>
     public async Task<long> CreatePaymentAsync(DateOnly date, long customerId, long? orderId, decimal amount, string? comment, CancellationToken ct = default) =>
-        await CreatePaymentAsync(date, customerId, orderId, amount, comment, null, ct);
+        await CreatePaymentAsync(date, customerId, orderId, amount, comment, null, null, ct);
 
-    /// <summary>documentNumber — номер платёжного поручения покупателя: нужен для строки 5 счёта-фактуры при предоплате.</summary>
+    /// <summary>
+    /// documentNumber — номер платёжного поручения покупателя: нужен для строки 5 счёта-фактуры при предоплате.
+    /// moneyAccountId — счёт или касса, куда пришли деньги (D80); не указан — счёт заказа или основной счёт юрлица.
+    /// </summary>
     public async Task<long> CreatePaymentAsync(
-        DateOnly date, long customerId, long? orderId, decimal amount, string? comment, string? documentNumber, CancellationToken ct = default)
+        DateOnly date, long customerId, long? orderId, decimal amount, string? comment, string? documentNumber, long? moneyAccountId = null,
+        CancellationToken ct = default)
     {
         var ctx = await DemandEditAsync(ct);
         var customer = await db.Counterparties.AsNoTracking().SingleOrDefaultAsync(c => c.Id == customerId && c.OrganizationId == ctx.OrganizationId, ct)
@@ -614,6 +628,7 @@ public sealed class SalesService(
             throw new BusinessRuleException("stock.document.not_customer", $"«{customer.Name}» не отмечен как покупатель.");
         }
 
+        long? entityId = null, orderAccount = null;
         if (orderId is { } oid)
         {
             var order = await db.SalesOrders.AsNoTracking().SingleOrDefaultAsync(o => o.Id == oid && o.OrganizationId == ctx.OrganizationId, ct)
@@ -622,12 +637,16 @@ public sealed class SalesService(
             {
                 throw new BusinessRuleException("sales.payment.order", $"Заказ {order.Number} другого покупателя или не подтверждён.");
             }
+
+            (entityId, orderAccount) = (order.LegalEntityId, order.BankAccountId);
         }
 
+        var account = await KnitErp.Application.Finance.MoneyService.ResolveAsync(db, ctx.OrganizationId, moneyAccountId, entityId, orderAccount, ct);
         await ClosedPeriod.EnsureOpenAsync(db, ctx.OrganizationId, date, ct);
         await using var tx = await db.BeginTransactionAsync(ct);
         var number = await DocumentNumbers.NextAsync(db, ctx.OrganizationId, CustomerPayment.NumberPrefix, ct);
-        var payment = CustomerPayment.Create(ctx.OrganizationId, number, date, customerId, orderId, amount, comment, ctx.UserId, clock.UtcNow, documentNumber);
+        var payment = CustomerPayment.Create(ctx.OrganizationId, number, date, customerId, orderId, amount, comment, ctx.UserId, clock.UtcNow, documentNumber,
+            account);
         db.CustomerPayments.Add(payment);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.CustomerPaymentCreated, nameof(CustomerPayment), payment.Id, null, $"{payment.Amount:0.00}",

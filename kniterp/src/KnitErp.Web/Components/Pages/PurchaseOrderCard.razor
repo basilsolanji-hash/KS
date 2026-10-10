@@ -3,6 +3,7 @@
 @using KnitErp.Domain.Purchasing
 @using KnitErp.Domain.Warehousing
 @inject PurchaseService Purchases
+@inject KnitErp.Application.Finance.MoneyService Money
 @inject NavigationManager Navigation
 
 <PageTitle>@(_order?.Number ?? L("Заказ поставщику")) — knitERP</PageTitle>
@@ -245,6 +246,16 @@ else
             <form class="inline-form" @onsubmit="PayAsync">
                 <label>@L("Дата") <input type="date" @bind="_payDate" /></label>
                 <label>@L("Сумма") <input @bind="_payText" inputmode="decimal" size="12" /></label>
+<label>
+                    @L("Счёт или касса")
+                    <select @bind="_payAccount">
+                        <option value="">@L("основной счёт")</option>
+                        @foreach (var a in _accounts)
+                        {
+                            <option value="@a.Id">@a.Label</option>
+                        }
+                    </select>
+                </label>
                 <label>@L("Комментарий") <input @bind="_payComment" maxlength="@SupplierPayment.CommentMaxLength" placeholder="@L("п/п № 101")" /></label>
                 <button type="submit" disabled="@_busy">@L("Записать оплату")</button>
             </form>
@@ -291,6 +302,11 @@ else
     private DateTime _payDate = DateTime.Today;
     private string _payText = string.Empty;
     private string? _payComment;
+    private string _payAccount = string.Empty;
+    private IReadOnlyList<KnitErp.Application.Finance.MoneyAccountOptionDto> _accounts = [];
+
+    private static long? AccountId(string value) => long.TryParse(value, out var id) ? id : null;
+
 
     private sealed class HeaderForm
     {
@@ -313,6 +329,7 @@ else
             if (_order!.CanEdit)
             {
                 _options = await Purchases.GetOptionsAsync(_order.OrderDate);
+                _accounts = CurrentAccess.Has(Permissions.PriceView) ? await Money.OptionsAsync() : [];
                 _vatText = _options.VatRates.FirstOrDefault()?.Percent?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
             }
 
@@ -410,7 +427,7 @@ else
 
     private Task PayAsync() => RunAsync(async () =>
     {
-        await Purchases.CreatePaymentAsync(DateOnly.FromDateTime(_payDate), _order!.SupplierId, Id, Number(_payText), _payComment);
+        await Purchases.CreatePaymentAsync(DateOnly.FromDateTime(_payDate), _order!.SupplierId, Id, Number(_payText), _payComment, AccountId(_payAccount));
         _payText = string.Empty;
         _payComment = null;
     }, L("Оплата записана."));

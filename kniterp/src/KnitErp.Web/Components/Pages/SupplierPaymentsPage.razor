@@ -2,6 +2,7 @@
 @using KnitErp.Application.Purchasing
 @using KnitErp.Domain.Purchasing
 @inject PurchaseService Purchases
+@inject KnitErp.Application.Finance.MoneyService Money
 
 <PageTitle>@L("Оплаты поставщикам") — knitERP</PageTitle>
 
@@ -39,6 +40,16 @@ else
                 </label>
                 <label>@L("Дата") <input type="date" @bind="_date" /></label>
                 <label>@L("Сумма") <input @bind="_amount" inputmode="decimal" size="12" /></label>
+<label>
+                    @L("Счёт или касса")
+                    <select @bind="_account">
+                        <option value="">@L("основной счёт")</option>
+                        @foreach (var a in _accounts)
+                        {
+                            <option value="@a.Id">@a.Label</option>
+                        }
+                    </select>
+                </label>
                 <label>@L("Комментарий") <input @bind="_comment" maxlength="@SupplierPayment.CommentMaxLength" placeholder="@L("п/п № 101")" /></label>
                 <button type="submit" disabled="@_busy">@L("Записать оплату")</button>
             </form>
@@ -119,6 +130,10 @@ else
     private DateTime _date = DateTime.Today;
     private string _amount = string.Empty;
     private string? _comment;
+    private string _account = string.Empty;
+    private IReadOnlyList<KnitErp.Application.Finance.MoneyAccountOptionDto> _accounts = [];
+    private static long? AccountId(string value) => long.TryParse(value, out var id) ? id : null;
+
     private long? _cancelId;
     private string _reason = string.Empty;
 
@@ -133,6 +148,7 @@ else
             {
                 _options = await Purchases.GetOptionsAsync();
                 _supplier = _options.Suppliers.FirstOrDefault()?.Id.ToString() ?? string.Empty;
+                _accounts = await Money.OptionsAsync();
             }
 
             _date = TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId).Date;
@@ -160,7 +176,7 @@ else
             throw new BusinessRuleException("purchase.number", L("Укажите число, например 1 220,50."));
         }
 
-        await Purchases.CreatePaymentAsync(DateOnly.FromDateTime(_date), supplier, null, amount, _comment);
+        await Purchases.CreatePaymentAsync(DateOnly.FromDateTime(_date), supplier, null, amount, _comment, AccountId(_account));
         _amount = string.Empty;
         _comment = null;
     }, L("Оплата записана."));

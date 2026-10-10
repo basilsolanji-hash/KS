@@ -271,6 +271,9 @@ public sealed class SupplierPayment
     public long SupplierId { get; private set; }
     public long? PurchaseOrderId { get; private set; }
     public decimal Amount { get; private set; }
+    /// <summary>Расчётный счёт или касса своего юрлица, куда пришли (откуда ушли) деньги (D80).</summary>
+    public long? MoneyAccountId { get; private set; }
+
     public string? Comment { get; private set; }
     public SupplierPaymentStatus Status { get; private set; }
     public long CreatedByUserId { get; private set; }
@@ -281,7 +284,7 @@ public sealed class SupplierPayment
     public byte[] RowVersion { get; private set; } = [];
 
     public static SupplierPayment Create(
-        long organizationId, string number, DateOnly date, long supplierId, long? orderId, decimal amount, string? comment, long userId, DateTime nowUtc)
+        long organizationId, string number, DateOnly date, long supplierId, long? orderId, decimal amount, string? comment, long userId, DateTime nowUtc, long? moneyAccountId = null)
     {
         if (amount <= 0 || Money.Round(amount) != amount)
         {
@@ -295,6 +298,7 @@ public sealed class SupplierPayment
             PaymentDate = date,
             SupplierId = supplierId,
             PurchaseOrderId = orderId,
+            MoneyAccountId = moneyAccountId,
             Amount = amount,
             Comment = DomainText.Optional(comment, CommentMaxLength, "Комментарий"),
             Status = SupplierPaymentStatus.Posted,

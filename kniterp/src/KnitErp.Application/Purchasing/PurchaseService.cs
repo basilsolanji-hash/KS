@@ -20,7 +20,8 @@ public enum ReceiptState : byte
     Full = 2,
 }
 
-public sealed record PurchaseOrderFilter(PurchaseOrderStatus? Status = null, string? Search = null, DateOnly? From = null, DateOnly? To = null);
+public sealed record PurchaseOrderFilter(
+    PurchaseOrderStatus? Status = null, string? Search = null, DateOnly? From = null, DateOnly? To = null, DateOnly? OverdueOn = null);
 
 /// <summary>Total — null, если у пользователя нет права «Цены и суммы».</summary>
 public sealed record PurchaseOrderRowDto(
@@ -152,6 +153,12 @@ public sealed class PurchaseService(
             q = q.Where(o => o.OrderDate <= to);
         }
 
+        // Просроченные на дату (D80): подтверждён, ожидаемая дата прошла; принятые полностью отсеиваются ниже.
+        if (filter.OverdueOn is { } overdueOn)
+        {
+            q = q.Where(o => o.Status == PurchaseOrderStatus.Confirmed && o.ExpectedDate != null && o.ExpectedDate < overdueOn);
+        }
+
         var rows = from o in q
                    join s in db.Counterparties.AsNoTracking() on o.SupplierId equals s.Id
                    join w in db.Warehouses.AsNoTracking() on o.WarehouseId equals w.Id
@@ -173,6 +180,7 @@ public sealed class PurchaseService(
         return list.Select(o => new PurchaseOrderRowDto(o.Id, o.Number, o.OrderDate, o.Supplier, o.Warehouse, o.ExpectedDate, o.Status,
                 StateOf(o.Lines.Select(l => (l.Quantity, Net(moved, o.Id, l.ItemId)))),
                 prices ? o.Lines.Sum(l => l.Amount) : null))
+            .Where(r => filter.OverdueOn is null || r.Received != ReceiptState.Full)
             .ToList();
     }
 
@@ -392,8 +400,12 @@ public sealed class PurchaseService(
         return await PaymentsQuery(ctx, from: from, to: to, search: search).ToListAsync(ct);
     }
 
-    /// <summary>Оплата поставщику: сразу уменьшает долг. Заказ — по желанию, того же поставщика.</summary>
-    public async Task<long> CreatePaymentAsync(DateOnly date, long supplierId, long? orderId, decimal amount, string? comment, CancellationToken ct = default)
+    /// <summary>
+    /// Оплата поставщику: сразу уменьшает долг. Заказ — по желанию, того же поставщика.
+    /// moneyAccountId — счёт или касса, откуда ушли деньги (D80); не указан — основной счёт основного юрлица.
+    /// </summary>
+    public async Task<long> CreatePaymentAsync(DateOnly date, long supplierId, long? orderId, decimal amount, string? comment,
+        long? moneyAccountId = null, CancellationToken ct = default)
     {
         var ctx = await DemandEditAsync(ct);
         var supplier = await db.Counterparties.AsNoTracking().SingleOrDefaultAsync(c => c.Id == supplierId && c.OrganizationId == ctx.OrganizationId, ct)
@@ -413,10 +425,11 @@ public sealed class PurchaseService(
             }
         }
 
+        var account = await KnitErp.Application.Finance.MoneyService.ResolveAsync(db, ctx.OrganizationId, moneyAccountId, null, null, ct);
         await ClosedPeriod.EnsureOpenAsync(db, ctx.OrganizationId, date, ct);
         await using var tx = await db.BeginTransactionAsync(ct);
         var number = await DocumentNumbers.NextAsync(db, ctx.OrganizationId, SupplierPayment.NumberPrefix, ct);
-        var payment = SupplierPayment.Create(ctx.OrganizationId, number, date, supplierId, orderId, amount, comment, ctx.UserId, clock.UtcNow);
+        var payment = SupplierPayment.Create(ctx.OrganizationId, number, date, supplierId, orderId, amount, comment, ctx.UserId, clock.UtcNow, account);
         db.SupplierPayments.Add(payment);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.SupplierPaymentCreated, nameof(SupplierPayment), payment.Id, null, $"{payment.Amount:0.00}",

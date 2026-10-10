@@ -81,20 +81,30 @@ internal sealed class LegalEntityAccountConfiguration : IEntityTypeConfiguration
 {
     public void Configure(EntityTypeBuilder<LegalEntityAccount> b)
     {
-        b.ToTable("legal_entity_accounts", t => t.HasCheckConstraint("ck_legal_entity_accounts_default", "[IsDefault] = 0 OR [IsArchived] = 0"));
+        b.ToTable("legal_entity_accounts", t =>
+        {
+            t.HasCheckConstraint("ck_legal_entity_accounts_default", "[IsDefault] = 0 OR [IsArchived] = 0");
+            // D80: вид — банк (1) или касса (2); у банка БИК и счёт обязательны, касса основной не бывает.
+            t.HasCheckConstraint("ck_legal_entity_accounts_kind",
+                "([Kind] = 1 AND LEN([Bic]) > 0 AND LEN([Account]) > 0) OR ([Kind] = 2 AND [IsDefault] = 0)");
+        });
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).UseIdentityColumn();
         b.Property(x => x.BankName).HasMaxLength(LegalEntityAccount.BankNameMaxLength).IsRequired();
         b.Property(x => x.Bic).HasColumnType("varchar(11)").IsRequired();
         b.Property(x => x.Account).HasColumnType("varchar(34)").IsRequired();
         b.Property(x => x.CorrAccount).HasColumnType("varchar(34)");
+        b.Property(x => x.Kind).HasConversion<byte>().HasDefaultValue(MoneyAccountKind.Bank);
+        b.Property(x => x.OpeningBalance).HasColumnType("decimal(19,4)").HasDefaultValue(0m);
+        b.Ignore(x => x.IsCash);
         b.Property(x => x.RowVersion).IsRowVersion();
         b.HasAlternateKey(x => new { x.OrganizationId, x.LegalEntityId, x.Id }).HasName("ak_legal_entity_accounts_org_entity_id");
+        b.HasAlternateKey(x => new { x.OrganizationId, x.Id }).HasName("ak_legal_entity_accounts_org_id");
         b.HasOne<LegalEntity>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.LegalEntityId })
             .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("fk_legal_entity_accounts_entity");
         b.HasIndex(x => x.LegalEntityId).IsUnique().HasFilter("[IsDefault] = 1").HasDatabaseName("ux_legal_entity_accounts_entity_default");
-        b.HasIndex(x => new { x.LegalEntityId, x.Account }).IsUnique().HasFilter("[IsArchived] = 0")
+        b.HasIndex(x => new { x.LegalEntityId, x.Account }).IsUnique().HasFilter("[IsArchived] = 0 AND [Kind] = 1")
             .HasDatabaseName("ux_legal_entity_accounts_entity_account_active");
     }
 }
@@ -808,6 +818,9 @@ internal sealed class SupplierPaymentConfiguration : IEntityTypeConfiguration<Su
             t.HasCheckConstraint("ck_supplier_payments_cancelled",
                 "([Status] = 9 AND [CancelledByUserId] IS NOT NULL AND [CancelReason] IS NOT NULL) OR ([Status] = 2 AND [CancelledByUserId] IS NULL)");
         });
+        b.HasOne<LegalEntityAccount>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.MoneyAccountId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_supplier_payments_money_account");
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).UseIdentityColumn();
         b.Property(x => x.Number).HasMaxLength(30).IsRequired();
@@ -1008,6 +1021,9 @@ internal sealed class CustomerPaymentConfiguration : IEntityTypeConfiguration<Cu
             t.HasCheckConstraint("ck_customer_payments_cancelled",
                 "([Status] = 9 AND [CancelledByUserId] IS NOT NULL AND [CancelReason] IS NOT NULL) OR ([Status] = 2 AND [CancelledByUserId] IS NULL)");
         });
+        b.HasOne<LegalEntityAccount>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.MoneyAccountId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_customer_payments_money_account");
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).UseIdentityColumn();
         b.Property(x => x.Number).HasMaxLength(30).IsRequired();
