@@ -27,6 +27,8 @@ public static class Permissions
     public const string WarehouseReportView = "warehouse.report.view";
     public const string AuditLogView = "audit.log.view";
     public const string CatalogImport = "catalog.import.run";
+    public const string PurchaseView = "purchase.document.view";
+    public const string PurchaseEdit = "purchase.document.edit";
 
     private static readonly Dictionary<string, string> Labels = new(StringComparer.Ordinal)
     {
@@ -52,6 +54,8 @@ public static class Permissions
         [WarehouseReportView] = "Отчёты склада: просмотр",
         [AuditLogView] = "Журнал аудита и входов: просмотр",
         [CatalogImport] = "Шаблонный импорт справочников",
+        [PurchaseView] = "Закупки: просмотр",
+        [PurchaseEdit] = "Закупки: заказы поставщикам и оплаты",
     };
 
     public static IReadOnlyCollection<string> All => Labels.Keys;

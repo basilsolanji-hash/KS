@@ -67,6 +67,10 @@ public static class RoleMatrixP0
         (Permissions.WarehouseReportView,     [Full, Full, Scoped, Scoped, Scoped, Full, Full, None]),
         (Permissions.AuditLogView,            [Full, Full, None, None, None, None, Full, OwnOnly]),
         (Permissions.CatalogImport,           [Full, Full, None, None, None, None, None, None]),
+        // Допущение D64 (после P0): закупки ведут Владелец, Администратор и Бухгалтер; Старший кладовщик и Аудитор видят заказы.
+        // Цены и суммы в них видны только с правом «Цены и суммы». Администратору права нужны и для выдачи роли Бухгалтера.
+        (Permissions.PurchaseView,            [Full, Full, None, Full, None, Full, Full, None]),
+        (Permissions.PurchaseEdit,            [Full, Full, None, None, None, Full, None, None]),
     ];
 
     public static IReadOnlyList<string> PermissionCodes { get; } = Rows.Select(r => r.Code).ToArray();

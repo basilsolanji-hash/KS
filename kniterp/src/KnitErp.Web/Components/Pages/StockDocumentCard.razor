@@ -55,9 +55,13 @@ else
             {
                 <dt>@L("Куда")</dt><dd>@_doc.TargetWarehouseName</dd>
             }
-            @if (_doc.Kind == StockOperationKind.Receipt)
+            @if (_doc.Kind is StockOperationKind.Receipt or StockOperationKind.ReturnToSupplier)
             {
                 <dt>@L("Поставщик")</dt><dd>@(_doc.CounterpartyName ?? "—")</dd>
+            }
+            @if (_doc.PurchaseOrderId is { } orderId)
+            {
+                <dt>@L("Заказ поставщику")</dt><dd><a href="purchase-orders/@orderId">@_doc.PurchaseOrderNumber</a></dd>
             }
             <dt>@L("Причина")</dt><dd>@(_doc.ReasonName is { } reason ? L(reason) : L("не указана"))@(_doc.ReasonRequiresComment ? " " + L("(нужно пояснение)") : "")</dd>
             @if (_doc.Comment is not null)

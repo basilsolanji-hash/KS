@@ -9,12 +9,16 @@ public enum StockOperationKind : byte
     WriteOff = 2,
     Transfer = 3,
     Inventory = 4,
+
+    /// <summary>Возврат поставщику: расход со склада с поставщиком, обычно по заказу поставщику (D64).</summary>
+    ReturnToSupplier = 5,
 }
 
 public static class StockOperationKinds
 {
     public static readonly IReadOnlyList<StockOperationKind> All =
-        [StockOperationKind.Receipt, StockOperationKind.WriteOff, StockOperationKind.Transfer, StockOperationKind.Inventory];
+        [StockOperationKind.Receipt, StockOperationKind.WriteOff, StockOperationKind.Transfer, StockOperationKind.Inventory,
+         StockOperationKind.ReturnToSupplier];
 
     public static string Name(StockOperationKind kind) => kind switch
     {
@@ -22,6 +26,7 @@ public static class StockOperationKinds
         StockOperationKind.WriteOff => "Списание",
         StockOperationKind.Transfer => "Перемещение",
         StockOperationKind.Inventory => "Инвентаризация",
+        StockOperationKind.ReturnToSupplier => "Возврат поставщику",
         _ => kind.ToString(),
     };
 }
@@ -58,6 +63,7 @@ public sealed class OperationReason
         (StockOperationKind.Transfer, "Перемещение между складами", false),
         (StockOperationKind.Inventory, "Излишек по инвентаризации", false),
         (StockOperationKind.Inventory, "Недостача по инвентаризации", true),
+        (StockOperationKind.ReturnToSupplier, "Возврат поставщику", false),
     ];
 
     public static OperationReason Create(long organizationId, StockOperationKind kind, string name, bool requiresComment)

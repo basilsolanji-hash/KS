@@ -22,7 +22,7 @@ public sealed class StockDocument
 
     /// <summary>Виды операций, которые оформляются этим документом. Инвентаризация — отдельный документ.</summary>
     public static readonly IReadOnlyList<StockOperationKind> Kinds =
-        [StockOperationKind.Receipt, StockOperationKind.Transfer, StockOperationKind.WriteOff];
+        [StockOperationKind.Receipt, StockOperationKind.Transfer, StockOperationKind.WriteOff, StockOperationKind.ReturnToSupplier];
 
     private readonly List<StockDocumentLine> _lines = [];
 
@@ -41,8 +41,11 @@ public sealed class StockDocument
     /// <summary>Склад-получатель — только у перемещения.</summary>
     public long? TargetWarehouseId { get; private set; }
 
-    /// <summary>Поставщик — только у поступления, необязателен (выпуск из производства идёт без поставщика).</summary>
+    /// <summary>Поставщик: у поступления необязателен (выпуск из производства идёт без поставщика), у возврата обязателен.</summary>
     public long? CounterpartyId { get; private set; }
+
+    /// <summary>Заказ поставщику, по которому оформлено поступление или возврат (D64): по нему считаются суммы и долг.</summary>
+    public long? PurchaseOrderId { get; private set; }
 
     public long? ReasonId { get; private set; }
     public DateOnly DocumentDate { get; private set; }
@@ -63,6 +66,7 @@ public sealed class StockDocument
         StockOperationKind.Receipt => "ПТ",
         StockOperationKind.WriteOff => "СП",
         StockOperationKind.Transfer => "ПМ",
+        StockOperationKind.ReturnToSupplier => "ВП",
         _ => throw new BusinessRuleException("stock.document.kind", "Выберите вид документа."),
     };
 
@@ -190,6 +194,7 @@ public sealed class StockDocument
                     result.Add((WarehouseId, line.ItemId, line.Quantity));
                     break;
                 case StockOperationKind.WriteOff:
+                case StockOperationKind.ReturnToSupplier:
                     result.Add((WarehouseId, line.ItemId, -line.Quantity));
                     break;
                 case StockOperationKind.Transfer:
@@ -232,14 +237,26 @@ public sealed class StockDocument
             throw new BusinessRuleException("stock.document.target_not_allowed", "Склад-получатель указывается только в перемещении.");
         }
 
-        if (Kind != StockOperationKind.Receipt && h.CounterpartyId is not null)
+        var withSupplier = Kind is StockOperationKind.Receipt or StockOperationKind.ReturnToSupplier;
+        if (!withSupplier && h.CounterpartyId is not null)
         {
-            throw new BusinessRuleException("stock.document.counterparty_not_allowed", "Поставщик указывается только в поступлении.");
+            throw new BusinessRuleException("stock.document.counterparty_not_allowed", "Поставщик указывается только в поступлении и возврате.");
+        }
+
+        if (Kind == StockOperationKind.ReturnToSupplier && h.CounterpartyId is null)
+        {
+            throw new BusinessRuleException("stock.document.supplier_required", "Укажите поставщика, которому возвращается товар.");
+        }
+
+        if (!withSupplier && h.PurchaseOrderId is not null)
+        {
+            throw new BusinessRuleException("stock.document.order_not_allowed", "Заказ поставщику указывается только в поступлении и возврате.");
         }
 
         WarehouseId = h.WarehouseId;
         TargetWarehouseId = h.TargetWarehouseId;
         CounterpartyId = h.CounterpartyId;
+        PurchaseOrderId = h.PurchaseOrderId;
         ReasonId = h.ReasonId;
         DocumentDate = h.DocumentDate;
         Comment = DomainText.Optional(h.Comment, CommentMaxLength, "Комментарий");
@@ -258,7 +275,8 @@ public sealed class StockDocument
 
 /// <summary>Шапка документа. Справочники (склады, поставщик, причина) проверяет сервис — домен проверяет сочетания.</summary>
 public sealed record StockDocumentHeader(
-    long WarehouseId, long? TargetWarehouseId, long? CounterpartyId, long? ReasonId, DateOnly DocumentDate, string? Comment);
+    long WarehouseId, long? TargetWarehouseId, long? CounterpartyId, long? ReasonId, DateOnly DocumentDate, string? Comment,
+    long? PurchaseOrderId = null);
 
 public sealed class StockDocumentLine
 {

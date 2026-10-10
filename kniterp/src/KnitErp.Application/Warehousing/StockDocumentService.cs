@@ -26,7 +26,8 @@ public sealed record StockDocumentDto(
     long? CounterpartyId, string? CounterpartyName, long? ReasonId, string? ReasonName, bool ReasonRequiresComment, string? Comment,
     string CreatedBy, DateTime CreatedAtUtc, string? PostedBy, DateTime? PostedAtUtc,
     string? ReversedBy, DateTime? ReversedAtUtc, string? ReversalReason,
-    IReadOnlyList<StockDocumentLineDto> Lines, byte[] RowVersion, bool CanEdit, bool CanPost, bool CanReverse)
+    IReadOnlyList<StockDocumentLineDto> Lines, byte[] RowVersion, bool CanEdit, bool CanPost, bool CanReverse,
+    long? PurchaseOrderId = null, string? PurchaseOrderNumber = null)
 {
     public string KindName => StockDocument.KindName(Kind);
     public string StatusName => StockDocument.StatusName(Status);
@@ -159,6 +160,9 @@ public sealed class StockDocumentService(
         var reason = doc.ReasonId is { } rid
             ? await db.OperationReasons.AsNoTracking().Where(r => r.Id == rid).Select(r => new { r.Name, r.RequiresComment }).SingleAsync(ct)
             : null;
+        var orderNumber = doc.PurchaseOrderId is { } oid
+            ? await db.PurchaseOrders.AsNoTracking().Where(o => o.Id == oid).Select(o => o.Number).SingleAsync(ct)
+            : null;
 
         // Остаток на складе-отправителе — подсказка в черновике расходного документа.
         Dictionary<long, decimal>? available = null;
@@ -185,7 +189,7 @@ public sealed class StockDocumentService(
             users[doc.CreatedByUserId], doc.CreatedAtUtc,
             doc.PostedByUserId is { } p ? users[p] : null, doc.PostedAtUtc,
             doc.ReversedByUserId is { } r ? users[r] : null, doc.ReversedAtUtc, doc.ReversalReason,
-            lines, doc.RowVersion, canEdit, canPost, canReverse);
+            lines, doc.RowVersion, canEdit, canPost, canReverse, doc.PurchaseOrderId, orderNumber);
     }
 
     /// <summary>Справочники формы. Склады документа — из области права на черновик, получатель — любой действующий склад.</summary>
@@ -196,7 +200,7 @@ public sealed class StockDocumentService(
         var all = await db.Warehouses.AsNoTracking().Where(w => w.OrganizationId == ctx.OrganizationId && !w.IsArchived)
             .OrderBy(w => w.Name).Select(w => new LookupWarehouseDto(w.Id, w.Name)).ToListAsync(ct);
         var own = all.Where(w => visible is null || visible.Contains(w.Id)).ToList();
-        var suppliers = kind == StockOperationKind.Receipt
+        var suppliers = kind is StockOperationKind.Receipt or StockOperationKind.ReturnToSupplier
             ? await db.Counterparties.AsNoTracking().Where(c => c.OrganizationId == ctx.OrganizationId && !c.IsArchived && c.IsSupplier)
                 .OrderBy(c => c.Name).Select(c => new LookupDto(c.Id, c.Name)).ToListAsync(ct)
             : [];
@@ -223,6 +227,28 @@ public sealed class StockDocumentService(
         db.StockDocuments.Add(doc);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.StockDocumentCreated, doc, null, $"{StockDocument.KindName(kind)} от {header.DocumentDate:dd.MM.yyyy}", null);
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        return doc.Id;
+    }
+
+    /// <summary>
+    /// Документ сразу со строками — для оформления по заказу поставщику (поступление остатка, возврат).
+    /// Права и области — те же, что у обычного черновика.
+    /// </summary>
+    public async Task<long> CreateWithLinesAsync(
+        StockOperationKind kind, StockDocumentHeader header, IReadOnlyList<(long ItemId, decimal Quantity)> lines, CancellationToken ct = default)
+    {
+        var ctx = await guard.DemandAsync(Permissions.WarehouseDocumentCreate, ct);
+        await ValidateHeaderAsync(ctx, kind, header, ct);
+        await using var tx = await db.BeginTransactionAsync(ct);
+        var number = await DocumentNumbers.NextAsync(db, ctx.OrganizationId, StockDocument.NumberPrefix(kind), ct);
+        var doc = StockDocument.Create(ctx.OrganizationId, number, kind, header, ctx.UserId, clock.UtcNow);
+        doc.ReplaceLines(lines);
+        db.StockDocuments.Add(doc);
+        await db.SaveChangesAsync(ct);
+        Audit(ctx, AuditActions.StockDocumentCreated, doc, null, $"{StockDocument.KindName(kind)} от {header.DocumentDate:dd.MM.yyyy}",
+            $"строк: {lines.Count}");
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return doc.Id;
@@ -320,6 +346,11 @@ public sealed class StockDocumentService(
 
         var requiresComment = doc.ReasonId is { } rid
                               && await db.OperationReasons.AsNoTracking().Where(r => r.Id == rid).Select(r => r.RequiresComment).SingleAsync(ct);
+        if (doc.Kind == StockOperationKind.ReturnToSupplier && doc.PurchaseOrderId is { } orderId)
+        {
+            await EnsureReturnWithinReceivedAsync(ctx, doc, orderId, ct);
+        }
+
         doc.Post(ctx.UserId, requiresComment, clock.UtcNow);
         await WriteMovementsAsync(ctx, doc, doc.MovementDeltas(), StockSource.StockDocument, ct);
         Audit(ctx, AuditActions.StockDocumentPosted, doc, "Черновик", "Проведён", $"строк: {doc.Lines.Count}");
@@ -382,6 +413,28 @@ public sealed class StockDocumentService(
         }
     }
 
+    /// <summary>Возврат по заказу — не больше, чем поступило по этому заказу за вычетом прежних возвратов (D64).</summary>
+    private async Task EnsureReturnWithinReceivedAsync(AccessContext ctx, StockDocument doc, long orderId, CancellationToken ct)
+    {
+        var itemIds = doc.Lines.Select(l => l.ItemId).ToList();
+        var moved = await db.StockDocuments.AsNoTracking()
+            .Where(d => d.OrganizationId == ctx.OrganizationId && d.PurchaseOrderId == orderId && d.Status == StockDocumentStatus.Posted)
+            .SelectMany(d => d.Lines.Select(l => new { d.Kind, l.ItemId, l.Quantity }))
+            .Where(x => itemIds.Contains(x.ItemId))
+            .ToListAsync(ct);
+        var over = doc.Lines.Select(l => (l.ItemId, l.Quantity,
+                Left: moved.Where(m => m.ItemId == l.ItemId && m.Kind == StockOperationKind.Receipt).Sum(m => m.Quantity)
+                      - moved.Where(m => m.ItemId == l.ItemId && m.Kind == StockOperationKind.ReturnToSupplier).Sum(m => m.Quantity)))
+            .Where(x => x.Quantity > x.Left).ToList();
+        if (over.Count > 0)
+        {
+            var codes = await db.Items.AsNoTracking().Where(i => itemIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id, i => i.Code, ct);
+            throw new BusinessRuleException("purchase.return.exceeds",
+                "Возврат больше полученного по заказу — " + string.Join("; ", over.Take(10).Select(x =>
+                    $"{codes[x.ItemId]}: возвращается {Quantities.Format(x.Quantity)}, получено {Quantities.Format(x.Left)}")) + ".");
+        }
+    }
+
     /// <summary>Склады, поставщик и причина — своей организации и действующие; склад документа — в области пользователя.</summary>
     private async Task ValidateHeaderAsync(AccessContext ctx, StockOperationKind kind, StockDocumentHeader h, CancellationToken ct)
     {
@@ -403,6 +456,24 @@ public sealed class StockDocumentService(
             if (!c.IsSupplier)
             {
                 throw new BusinessRuleException("stock.document.not_supplier", $"«{c.Name}» не отмечен как поставщик.");
+            }
+        }
+
+        if (h.PurchaseOrderId is { } orderId)
+        {
+            var order = await db.PurchaseOrders.AsNoTracking().SingleOrDefaultAsync(o => o.Id == orderId && o.OrganizationId == ctx.OrganizationId, ct)
+                        ?? throw new NotFoundException("Заказ поставщику");
+            var allowed = kind == StockOperationKind.Receipt
+                ? order.Status == KnitErp.Domain.Purchasing.PurchaseOrderStatus.Confirmed
+                : order.Status is KnitErp.Domain.Purchasing.PurchaseOrderStatus.Confirmed or KnitErp.Domain.Purchasing.PurchaseOrderStatus.Closed;
+            if (!allowed)
+            {
+                throw new BusinessRuleException("purchase.order.not_confirmed", $"Заказ {order.Number} не подтверждён или закрыт.");
+            }
+
+            if (h.CounterpartyId != order.SupplierId)
+            {
+                throw new BusinessRuleException("purchase.order.supplier", $"Поставщик документа не совпадает с поставщиком заказа {order.Number}.");
             }
         }
 
@@ -460,7 +531,7 @@ public sealed class StockDocumentService(
     }
 
     private static StockDocumentHeader Header(StockDocument d) =>
-        new(d.WarehouseId, d.TargetWarehouseId, d.CounterpartyId, d.ReasonId, d.DocumentDate, d.Comment);
+        new(d.WarehouseId, d.TargetWarehouseId, d.CounterpartyId, d.ReasonId, d.DocumentDate, d.Comment, d.PurchaseOrderId);
 
     private async Task<AccessContext> DemandAnyAsync(CancellationToken ct)
     {

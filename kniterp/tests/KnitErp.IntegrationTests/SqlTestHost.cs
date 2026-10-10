@@ -123,7 +123,8 @@ public sealed class SqlTestHost : IAsyncLifetime
             new RecoveryCodeService(db, user, Clock),
             new VatRateService(db, guard, user, Clock),
             new KnitErp.Application.Production.TechCardService(db, guard, user, Clock),
-            new DashboardService(db, guard, Clock, new LaunchReadinessService(db, guard, Clock)));
+            new DashboardService(db, guard, Clock, new LaunchReadinessService(db, guard, Clock)),
+            new KnitErp.Application.Purchasing.PurchaseService(db, guard, user, Clock, new StockDocumentService(db, guard, Spreadsheet, user, Clock)));
     }
 
     private static readonly IPasswordHasher<UserAccount> Hasher = new PasswordHasher<UserAccount>();
@@ -186,7 +187,8 @@ public sealed record Services(
     RecoveryCodeService Recovery,
     VatRateService VatRates,
     KnitErp.Application.Production.TechCardService TechCards,
-    DashboardService Dashboard) : IAsyncDisposable
+    DashboardService Dashboard,
+    KnitErp.Application.Purchasing.PurchaseService Purchases) : IAsyncDisposable
 {
     public ValueTask DisposeAsync() => Db.DisposeAsync();
 }

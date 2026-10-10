@@ -18,7 +18,7 @@ else if (_rows is null)
 else
 {
     <div class="page-head">
-        <h1>@(KindQuery == "1" ? L("Поступления") : L("Складские документы"))</h1>
+        <h1>@(KindQuery switch { "1" => L("Поступления"), "5" => L("Возвраты поставщикам"), _ => L("Складские документы") })</h1>
         @if (CurrentAccess.Has(Permissions.WarehouseDocumentCreate) && _form is null)
         {
             <div class="actions">
@@ -241,6 +241,7 @@ else
         StockOperationKind.Receipt => L("Новое поступление"),
         StockOperationKind.Transfer => L("Новое перемещение"),
         StockOperationKind.WriteOff => L("Новое списание"),
+        StockOperationKind.ReturnToSupplier => L("Новый возврат поставщику"),
         _ => L("Новый документ"),
     };
 

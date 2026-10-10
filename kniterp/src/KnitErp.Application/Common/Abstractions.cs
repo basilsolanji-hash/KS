@@ -61,6 +61,8 @@ public interface IKnitErpDbContext : IAsyncDisposable
     DbSet<Counterparty> Counterparties { get; }
     DbSet<VatRate> VatRates { get; }
     DbSet<KnitErp.Domain.Production.TechCard> TechCards { get; }
+    DbSet<KnitErp.Domain.Purchasing.PurchaseOrder> PurchaseOrders { get; }
+    DbSet<KnitErp.Domain.Purchasing.SupplierPayment> SupplierPayments { get; }
     DbSet<OperationReason> OperationReasons { get; }
     DbSet<OpeningBalance> OpeningBalances { get; }
     DbSet<StockMovement> StockMovements { get; }

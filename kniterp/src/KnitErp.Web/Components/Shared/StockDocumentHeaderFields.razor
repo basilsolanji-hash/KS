@@ -24,12 +24,12 @@
         </select>
     </label>
 }
-@if (Kind == StockOperationKind.Receipt)
+@if (Kind is StockOperationKind.Receipt or StockOperationKind.ReturnToSupplier)
 {
     <label>
         @L("Поставщик")
-        <select @bind="Form.CounterpartyId">
-            <option value="">@L("— без поставщика —")</option>
+        <select @bind="Form.CounterpartyId" disabled="@(Form.PurchaseOrderId is not null)">
+            <option value="">@(Kind == StockOperationKind.Receipt ? L("— без поставщика —") : L("— выберите поставщика —"))</option>
             @foreach (var c in Options.Suppliers)
             {
                 <option value="@c.Id">@c.Name</option>
@@ -85,6 +85,9 @@
             return model;
         }
 
+        /// <summary>Заказ поставщику — не правится в шапке: документ по заказу остаётся привязан к нему и к его поставщику.</summary>
+        public long? PurchaseOrderId { get; set; }
+
         public static Model From(StockDocumentDto d) => new()
         {
             WarehouseId = d.WarehouseId.ToString(),
@@ -93,6 +96,7 @@
             ReasonId = d.ReasonId?.ToString() ?? string.Empty,
             Date = d.DocumentDate.ToDateTime(TimeOnly.MinValue),
             Comment = d.Comment,
+            PurchaseOrderId = d.PurchaseOrderId,
         };
 
         public StockDocumentHeader ToHeader() => new(
@@ -101,6 +105,7 @@
             long.TryParse(CounterpartyId, out var c) ? c : null,
             long.TryParse(ReasonId, out var r) ? r : null,
             DateOnly.FromDateTime(Date),
-            Comment);
+            Comment,
+            PurchaseOrderId);
     }
 }
