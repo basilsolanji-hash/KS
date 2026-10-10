@@ -64,6 +64,13 @@ public sealed class SalesTests(SqlTestHost host) : IClassFixture<SqlTestHost>
             dto = await s.Sales.GetOrderAsync(order);
             Assert.Equal((61_000m, 4_880m, 40_000m, 16_120m), (dto.ShippedValue!.Value, dto.ReturnedValue!.Value, dto.Paid!.Value, dto.Debt!.Value));
             Assert.Equal(16_120m, (await s.Sales.BalancesAsync()).Single(b => b.CustomerId == f.Customer).Debt);
+
+            // Динамика на главной: продажи за день = отгружено 61 000 − возвращено 4 880; поступления — 40 000.
+            var charts = (await s.Dashboard.GetAsync()).Charts;
+            var sales = charts.Single(c => c.Title == "Продажи");
+            Assert.Equal((DashboardService.ChartDays, Day, 56_120m, 56_120m, 0m), (sales.Points.Count, sales.From.AddDays(sales.Points.Count - 1), sales.Points[^1], sales.Total, sales.PreviousTotal));
+            Assert.Equal(40_000m, charts.Single(c => c.Title == "Поступления от покупателей").Total);
+            Assert.Equal(0m, charts.Single(c => c.Title == "Закупки").Total);
         }
 
         await using (var s = host.As(f.Senior, f.Org.OrganizationId))
@@ -71,6 +78,7 @@ public sealed class SalesTests(SqlTestHost host) : IClassFixture<SqlTestHost>
             var dto = await s.Sales.GetOrderAsync(order);
             Assert.Null(dto.Total);
             Assert.False(dto.CanEdit);
+            Assert.Empty((await s.Dashboard.GetAsync()).Charts);
             await Assert.ThrowsAsync<AccessDeniedException>(() => s.Sales.BalancesAsync());
         }
 

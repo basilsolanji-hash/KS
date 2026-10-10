@@ -2,7 +2,10 @@ using KnitErp.Application.Access;
 using KnitErp.Application.Common;
 using KnitErp.Application.Warehousing;
 using KnitErp.Domain.Access;
+using KnitErp.Domain.Common;
 using KnitErp.Domain.Production;
+using KnitErp.Domain.Purchasing;
+using KnitErp.Domain.Sales;
 using KnitErp.Domain.Warehousing;
 using Microsoft.EntityFrameworkCore;
 
@@ -16,9 +19,14 @@ public sealed record DashboardDocumentDto(DateOnly Date, string Kind, string Num
 /// <summary>Документы склада за месяц по видам — количество проведённых.</summary>
 public sealed record DashboardMonthDto(int Receipts, int Transfers, int WriteOffs, int Inventories, DateOnly From, DateOnly To);
 
+/// <summary>
+/// Динамика за последние дни: сумма по дням (Points[0] — день From), итог периода и итог такого же периода перед ним.
+/// </summary>
+public sealed record DashboardChartDto(string Title, string Href, DateOnly From, IReadOnlyList<decimal> Points, decimal Total, decimal PreviousTotal);
+
 public sealed record DashboardDto(
     string OrganizationName, IReadOnlyList<DashboardTileDto> Tiles, DashboardMonthDto? Month, IReadOnlyList<DashboardDocumentDto> Recent,
-    int? ReadinessPercent);
+    int? ReadinessPercent, IReadOnlyList<DashboardChartDto> Charts);
 
 /// <summary>
 /// Главный экран: показатели, что ждёт действия, последние документы. Каждый блок — только при праве на его данные
@@ -26,6 +34,9 @@ public sealed record DashboardDto(
 /// </summary>
 public sealed class DashboardService(IKnitErpDbContext db, IAccessGuard guard, IClock clock, LaunchReadinessService readiness)
 {
+    /// <summary>Дней в графике динамики.</summary>
+    public const int ChartDays = 30;
+
     private static readonly string[] DocumentPermissions =
         [Permissions.WarehouseDocumentCreate, Permissions.WarehouseDocumentPost, Permissions.WarehouseReportView];
 
@@ -100,6 +111,83 @@ public sealed class DashboardService(IKnitErpDbContext db, IAccessGuard guard, I
             readinessPercent = checkable.Count == 0 ? 100 : checkable.Count(i => i.Done == true) * 100 / checkable.Count;
         }
 
-        return new DashboardDto(org.ShortName, tiles, month, recent, readinessPercent);
+        var charts = new List<DashboardChartDto>();
+        if (ctx.Permissions.Has(Permissions.PriceView))
+        {
+            charts.AddRange(await ChartsAsync(ctx, today, ct));
+        }
+
+        return new DashboardDto(org.ShortName, tiles, month, recent, readinessPercent, charts);
+    }
+
+    /// <summary>
+    /// Денежная динамика за 30 дней (D67): продажи (отгружено − возвращено по ценам заказов), поступления от покупателей,
+    /// закупки (принято − возвращено поставщику), оплаты поставщикам. Только проведённые документы и оплаты.
+    /// </summary>
+    private async Task<IReadOnlyList<DashboardChartDto>> ChartsAsync(AccessContext ctx, DateOnly today, CancellationToken ct)
+    {
+        var org = ctx.OrganizationId;
+        var from = today.AddDays(-(2 * ChartDays - 1));
+        var charts = new List<DashboardChartDto>();
+
+        if (ctx.Permissions.Has(Permissions.SalesView))
+        {
+            var moved = await db.StockDocuments.AsNoTracking()
+                .Where(d => d.OrganizationId == org && d.SalesOrderId != null && d.Status == StockDocumentStatus.Posted
+                            && d.DocumentDate >= from && d.DocumentDate <= today)
+                .SelectMany(d => d.Lines.Select(l => new { d.DocumentDate, d.Kind, OrderId = d.SalesOrderId!.Value, l.ItemId, l.Quantity }))
+                .ToListAsync(ct);
+            var ids = moved.Select(m => m.OrderId).Distinct().ToList();
+            var orders = await db.SalesOrders.AsNoTracking().Include(o => o.Lines).Where(o => ids.Contains(o.Id)).ToDictionaryAsync(o => o.Id, ct);
+            charts.Add(Chart("Продажи", "reports/customer-balances", today, moved.Select(m => (m.DocumentDate,
+                (m.Kind == StockOperationKind.CustomerReturn ? -1 : 1) * m.Quantity * orders[m.OrderId].UnitCostWithVat(m.ItemId)))));
+
+            var paid = await db.CustomerPayments.AsNoTracking()
+                .Where(p => p.OrganizationId == org && p.Status == CustomerPaymentStatus.Posted && p.PaymentDate >= from && p.PaymentDate <= today)
+                .GroupBy(p => p.PaymentDate).Select(g => new { g.Key, Sum = g.Sum(p => p.Amount) }).ToListAsync(ct);
+            charts.Add(Chart("Поступления от покупателей", "customer-payments", today, paid.Select(p => (p.Key, p.Sum))));
+        }
+
+        if (ctx.Permissions.Has(Permissions.PurchaseView))
+        {
+            var moved = await db.StockDocuments.AsNoTracking()
+                .Where(d => d.OrganizationId == org && d.PurchaseOrderId != null && d.Status == StockDocumentStatus.Posted
+                            && d.DocumentDate >= from && d.DocumentDate <= today)
+                .SelectMany(d => d.Lines.Select(l => new { d.DocumentDate, d.Kind, OrderId = d.PurchaseOrderId!.Value, l.ItemId, l.Quantity }))
+                .ToListAsync(ct);
+            var ids = moved.Select(m => m.OrderId).Distinct().ToList();
+            var orders = await db.PurchaseOrders.AsNoTracking().Include(o => o.Lines).Where(o => ids.Contains(o.Id)).ToDictionaryAsync(o => o.Id, ct);
+            charts.Add(Chart("Закупки", "reports/supplier-balances", today, moved.Select(m => (m.DocumentDate,
+                (m.Kind == StockOperationKind.ReturnToSupplier ? -1 : 1) * m.Quantity * orders[m.OrderId].UnitCostWithVat(m.ItemId)))));
+
+            var paid = await db.SupplierPayments.AsNoTracking()
+                .Where(p => p.OrganizationId == org && p.Status == SupplierPaymentStatus.Posted && p.PaymentDate >= from && p.PaymentDate <= today)
+                .GroupBy(p => p.PaymentDate).Select(g => new { g.Key, Sum = g.Sum(p => p.Amount) }).ToListAsync(ct);
+            charts.Add(Chart("Оплаты поставщикам", "supplier-payments", today, paid.Select(p => (p.Key, p.Sum))));
+        }
+
+        return charts;
+    }
+
+    /// <summary>Раскладывает суммы по дням последних ChartDays дней; всё, что раньше, — в итог предыдущего периода.</summary>
+    private static DashboardChartDto Chart(string title, string href, DateOnly today, IEnumerable<(DateOnly Date, decimal Amount)> rows)
+    {
+        var from = today.AddDays(-(ChartDays - 1));
+        var points = new decimal[ChartDays];
+        var previous = 0m;
+        foreach (var (date, amount) in rows)
+        {
+            if (date >= from)
+            {
+                points[date.DayNumber - from.DayNumber] += amount;
+            }
+            else
+            {
+                previous += amount;
+            }
+        }
+
+        var rounded = points.Select(Money.Round).ToList();
+        return new DashboardChartDto(title, href, from, rounded, rounded.Sum(), Money.Round(previous));
     }
 }

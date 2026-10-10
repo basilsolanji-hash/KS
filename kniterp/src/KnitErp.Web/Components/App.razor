@@ -147,8 +147,24 @@
         .warn-text { color: #F0CF7A; }
         tfoot td { border-top: 1px solid #3A3A40; border-bottom: 0; }
         .tile-hint { font-size: 11px; color: #8A8A92; }
+        .charts-title { font-size: 13px; margin: 4px 0 6px; color: #A6A6AE; font-weight: 600; }
+        .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; margin-bottom: 14px; }
+        .chart { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid #2E2E33; border-radius: 6px; background: #202023; color: inherit; text-decoration: none; }
+        .chart:hover { border-color: #2BA89A; }
+        .chart-head { display: flex; justify-content: space-between; gap: 6px; }
+        .chart-total { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+        .chart-change { font-size: 11px; font-variant-numeric: tabular-nums; }
+        .chart-change.up { color: #5CC48A; }
+        .chart-change.down { color: #E57A6E; }
+        .chart svg { width: 100%; height: 70px; display: block; margin-top: 4px; }
+        .chart-line { fill: none; stroke: #2BA89A; stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+        .chart-area { fill: rgba(43, 168, 154, .15); stroke: none; }
+        .chart-hit { fill: transparent; }
+        .chart-hit:hover { fill: rgba(255, 255, 255, .06); }
+        .chart-axis { display: flex; justify-content: space-between; font-size: 10px; color: #8A8A92; font-variant-numeric: tabular-nums; }
+        @@media (max-width: 599px) { .charts { grid-template-columns: 1fr 1fr; } .chart { padding: 8px; } .chart-total { font-size: 15px; } .chart svg { height: 48px; } .chart-axis span:nth-child(2) { display: none; } }
         .dash-cols { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(320px, 2fr); gap: 12px; align-items: start; }
-        .dash-box { border: 1px solid #2E2E33; border-radius: 6px; background: #1E1E21; padding: 10px 12px; }
+        .dash-box { min-width: 0; overflow-x: auto; border: 1px solid #2E2E33; border-radius: 6px; background: #1E1E21; padding: 10px 12px; }
         .readiness { display: flex; align-items: center; gap: 10px; text-decoration: none; color: #C8C8CE; margin: 6px 0; }
         .readiness .bar { flex: 0 1 240px; height: 6px; background: #2E2E33; border-radius: 3px; overflow: hidden; }
         .readiness .bar span { display: block; height: 100%; background: #2BA89A; }

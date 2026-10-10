@@ -174,6 +174,11 @@ public sealed partial class TranslationCoverageTests
             keys.Add(m.Groups[2].Value);
         }
 
+        foreach (Match m in DashboardChart().Matches(dashboard))
+        {
+            keys.Add(m.Groups[1].Value);
+        }
+
         // Пункты «Готовности к запуску».
         var readiness = File.ReadAllText(Path.Combine(FindRoot(), "src", "KnitErp.Application", "Organizations", "LaunchReadinessService.cs"));
         foreach (Match m in ReadinessTitle().Matches(readiness))
@@ -240,6 +245,9 @@ public sealed partial class TranslationCoverageTests
 
     [GeneratedRegex(@"new DashboardTileDto\(""([^""]+)"", \w+, ""([^""]+)""")]
     private static partial Regex DashboardTile();
+
+    [GeneratedRegex(@"charts\.Add\(Chart\(""([^""]+)""")]
+    private static partial Regex DashboardChart();
 
     [GeneratedRegex("""BusinessRuleException\(\s*"[^"]+",\s*(\$?)"((?:[^"\\]|\\.)*)"\s*\)""")]
     private static partial Regex RuleMessage();

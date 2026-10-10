@@ -42,6 +42,17 @@ else
         </div>
     }
 
+    @if (_data.Charts.Count > 0)
+    {
+        <h2 class="charts-title">@L("Динамика за 30 дней")</h2>
+        <div class="charts">
+            @foreach (var c in _data.Charts)
+            {
+                <LineChart Chart="c" />
+            }
+        </div>
+    }
+
     <div class="dash-cols">
         @if (_data.Month is { } m)
         {

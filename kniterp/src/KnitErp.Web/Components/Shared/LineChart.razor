@@ -1,0 +1,47 @@
+@using System.Globalization
+@* Линия динамики по дням: SVG без библиотек, подсказка с датой и суммой при наведении на день. *@
+
+<a class="chart" href="@Chart.Href">
+    <span class="chart-head">
+        <span class="tile-title">@L(Chart.Title)</span>
+        <span class="chart-change @ChangeClass">@ChangeText</span>
+    </span>
+    <span class="chart-total">@Amounts.Format(Chart.Total)</span>
+    <svg viewBox="0 0 @Width @Height" preserveAspectRatio="none" role="img" aria-label="@L(Chart.Title)">
+        <polygon class="chart-area" points="@($"0,{Height} {Line} {Width},{Height}")" />
+        <polyline class="chart-line" points="@Line" />
+        @for (var i = 0; i < Chart.Points.Count; i++)
+        {
+            var day = Chart.From.AddDays(i);
+            <rect class="chart-hit" x="@X(i - 0.5m)" y="0" width="@Num(Step)" height="@Height"><title>@day.ToString("dd.MM") — @Amounts.Format(Chart.Points[i])</title></rect>
+        }
+    </svg>
+    <span class="chart-axis"><span>@Chart.From.ToString("dd.MM")</span><span>@L("макс.") @Amounts.Format(Max)</span><span>@Chart.From.AddDays(Chart.Points.Count - 1).ToString("dd.MM")</span></span>
+</a>
+
+@code {
+    private const int Width = 300;
+    private const int Height = 70;
+
+    [Parameter, EditorRequired]
+    public DashboardChartDto Chart { get; set; } = default!;
+
+    private decimal Max => Chart.Points.Count == 0 ? 0 : Chart.Points.Max();
+
+    private decimal Step => Chart.Points.Count > 1 ? (decimal)Width / (Chart.Points.Count - 1) : Width;
+
+    private string X(decimal i) => Num(i * Step);
+
+    /// <summary>Отрицательные дни (возвратов больше, чем отгрузок) прижимаются к нулю: линия показывает оборот, а не сальдо.</summary>
+    private string Line => string.Join(' ', Chart.Points.Select((p, i) =>
+        $"{X(i)},{Num(Height - 4 - (Max > 0 ? Math.Max(p, 0) / Max * (Height - 8) : 0))}"));
+
+    private static string Num(decimal v) => Math.Round(v, 2).ToString(CultureInfo.InvariantCulture);
+
+    private string ChangeClass => Chart.Total >= Chart.PreviousTotal ? "up" : "down";
+
+    /// <summary>Изменение к предыдущим 30 дням; без данных за прошлый период — пусто.</summary>
+    private string ChangeText => Chart.PreviousTotal == 0
+        ? string.Empty
+        : $"{(Chart.Total >= Chart.PreviousTotal ? "▲" : "▼")} {Math.Abs((Chart.Total - Chart.PreviousTotal) / Chart.PreviousTotal * 100):0}%";
+}
