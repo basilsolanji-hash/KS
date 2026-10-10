@@ -290,8 +290,9 @@ app.MapGet("/reports/profitability.xlsx", (DateOnly from, DateOnly to, byte? gro
 app.MapGet("/vat-invoices/issued.xlsx", (DateOnly from, DateOnly to, string? search, long? entity, KnitErp.Web.Exports.ReportExports export, CancellationToken ct) =>
     FileOrForbid(() => export.IssuedVatInvoicesAsync(new KnitErp.Application.Taxes.VatJournalFilter(from, to, search, LegalEntityId: entity), ct),
         $"scheta-faktury-vydannye-{from:yyyy-MM-dd}-{to:yyyy-MM-dd}.xlsx"));
-app.MapGet("/vat-invoices/received.xlsx", (DateOnly from, DateOnly to, string? search, KnitErp.Web.Exports.ReportExports export, CancellationToken ct) =>
-    FileOrForbid(() => export.ReceivedVatInvoicesAsync(new KnitErp.Application.Taxes.VatJournalFilter(from, to, search), ct),
+app.MapGet("/vat-invoices/received.xlsx", (DateOnly from, DateOnly to, string? search, long? entity, KnitErp.Web.Exports.ReportExports export,
+        CancellationToken ct) =>
+    FileOrForbid(() => export.ReceivedVatInvoicesAsync(new KnitErp.Application.Taxes.VatJournalFilter(from, to, search, LegalEntityId: entity), ct),
         $"scheta-faktury-poluchennye-{from:yyyy-MM-dd}-{to:yyyy-MM-dd}.xlsx"));
 app.MapGet("/stock-documents.xlsx", (byte? kind, byte? status, DateOnly? from, DateOnly? to, long? warehouse, string? search, int? order,
         KnitErp.Web.Exports.ReportExports export, CancellationToken ct) =>

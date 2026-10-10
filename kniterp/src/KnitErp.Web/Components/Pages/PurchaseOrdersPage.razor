@@ -51,6 +51,18 @@ else
                                 }
                             </select>
                         </label>
+                        @if (_options.LegalEntities is { Count: > 1 } entities)
+                        {
+                            <label>
+                                @L("Юрлицо (покупатель)")
+                                <select @bind="_entity">
+                                    @foreach (var le in entities)
+                                    {
+                                        <option value="@le.Id">@le.ShortName</option>
+                                    }
+                                </select>
+                            </label>
+                        }
                         <label>
                             @L("Склад поступления")
                             <select @bind="_warehouse">
@@ -145,6 +157,7 @@ else
 
     private string _status = string.Empty;
     private bool _overdue;
+    private string _entity = string.Empty;
     private string _search = string.Empty;
     private DateTime? _from;
     private DateTime? _to;
@@ -188,6 +201,7 @@ else
         _options = await Purchases.GetOptionsAsync();
         _supplier = _options.Suppliers.FirstOrDefault()?.Id.ToString() ?? string.Empty;
         _warehouse = _options.Warehouses.FirstOrDefault()?.Id.ToString() ?? string.Empty;
+        _entity = _options.LegalEntities?.FirstOrDefault()?.Id.ToString() ?? string.Empty;
         _date = TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId).Date;
         _expected = null;
         _invoice = null;
@@ -197,7 +211,7 @@ else
     private Task CreateAsync() => RunAsync(async () =>
     {
         var id = await Purchases.CreateOrderAsync(new PurchaseOrderHeader(DateOnly.FromDateTime(_date), long.Parse(_supplier), long.Parse(_warehouse),
-            _expected is { } e ? DateOnly.FromDateTime(e) : null, _invoice, _withVat, null));
+            _expected is { } e ? DateOnly.FromDateTime(e) : null, _invoice, _withVat, null, long.TryParse(_entity, out var le) ? le : null));
         Navigation.NavigateTo($"purchase-orders/{id}");
     });
 

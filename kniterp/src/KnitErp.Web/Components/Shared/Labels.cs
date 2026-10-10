@@ -19,6 +19,8 @@ public static class AuditLabels
         [AuditActions.RecoveryCodesIssued] = "Выданы резервные коды входа",
         [AuditActions.RecoveryCodeUsed] = "Вход по резервному коду",
         [AuditActions.DeviceTrusted] = "Устройство стало доверенным",
+        [AuditActions.MoneyOperationCreated] = "Проведена денежная операция",
+        [AuditActions.MoneyOperationCancelled] = "Отменена денежная операция",
         [AuditActions.DeviceRevoked] = "Доверие устройству отозвано",
         [AuditActions.PasswordResetRequested] = "Запрошена смена пароля",
         [AuditActions.PasswordReset] = "Пароль сменён по ссылке",

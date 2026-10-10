@@ -34,6 +34,9 @@ public sealed class PurchaseOrder
     public DateOnly OrderDate { get; private set; }
     public long SupplierId { get; private set; }
 
+    /// <summary>Своё юрлицо-покупатель (D84): от его имени заказ, на него счета-фактуры поставщика и с его счёта оплата.</summary>
+    public long LegalEntityId { get; private set; }
+
     /// <summary>Склад, куда поступит товар.</summary>
     public long WarehouseId { get; private set; }
 
@@ -196,6 +199,10 @@ public sealed class PurchaseOrder
         SupplierInvoice = DomainText.Optional(h.SupplierInvoice, InvoiceMaxLength, "Счёт поставщика");
         PricesIncludeVat = h.PricesIncludeVat;
         Comment = DomainText.Optional(h.Comment, CommentMaxLength, "Комментарий");
+        if (h.LegalEntityId is { } entity)
+        {
+            LegalEntityId = entity;
+        }
     }
 
     private void EnsureDraft()
@@ -208,7 +215,8 @@ public sealed class PurchaseOrder
 }
 
 public sealed record PurchaseOrderHeader(
-    DateOnly OrderDate, long SupplierId, long WarehouseId, DateOnly? ExpectedDate, string? SupplierInvoice, bool PricesIncludeVat, string? Comment);
+    DateOnly OrderDate, long SupplierId, long WarehouseId, DateOnly? ExpectedDate, string? SupplierInvoice, bool PricesIncludeVat, string? Comment,
+    long? LegalEntityId = null);
 
 /// <summary>Строка заказа: количество, цена, процент НДС; сумма и НДС считаются и хранятся с округлением до копеек.</summary>
 public sealed class PurchaseOrderLine

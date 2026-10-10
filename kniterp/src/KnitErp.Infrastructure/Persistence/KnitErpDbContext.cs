@@ -24,6 +24,7 @@ public sealed class KnitErpDbContext(DbContextOptions<KnitErpDbContext> options)
     public DbSet<Characteristic> Characteristics => Set<Characteristic>();
     public DbSet<ItemCharacteristicValue> ItemCharacteristicValues => Set<ItemCharacteristicValue>();
     public DbSet<ItemPhoto> ItemPhotos => Set<ItemPhoto>();
+    public DbSet<KnitErp.Domain.Finance.MoneyOperation> MoneyOperations => Set<KnitErp.Domain.Finance.MoneyOperation>();
     public DbSet<OrganizationMember> OrganizationMembers => Set<OrganizationMember>();
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<RoleAssignment> RoleAssignments => Set<RoleAssignment>();

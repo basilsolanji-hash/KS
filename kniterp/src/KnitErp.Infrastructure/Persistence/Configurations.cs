@@ -831,6 +831,41 @@ internal sealed class StockMovementConfiguration : IEntityTypeConfiguration<Stoc
     }
 }
 
+internal sealed class MoneyOperationConfiguration : IEntityTypeConfiguration<KnitErp.Domain.Finance.MoneyOperation>
+{
+    public void Configure(EntityTypeBuilder<KnitErp.Domain.Finance.MoneyOperation> b)
+    {
+        b.ToTable("money_operations", t =>
+        {
+            t.HasCheckConstraint("ck_money_operations_kind", "[Kind] IN (1, 2, 3)");
+            t.HasCheckConstraint("ck_money_operations_status", "[Status] IN (1, 9)");
+            t.HasCheckConstraint("ck_money_operations_amount", "[Amount] > 0");
+            t.HasCheckConstraint("ck_money_operations_target",
+                "([Kind] = 3 AND [TargetAccountId] IS NOT NULL AND [TargetAccountId] <> [AccountId]) OR ([Kind] <> 3 AND [TargetAccountId] IS NULL)");
+            t.HasCheckConstraint("ck_money_operations_cancel",
+                "([Status] = 9 AND [CancelledAtUtc] IS NOT NULL AND [CancelReason] IS NOT NULL) OR ([Status] = 1 AND [CancelledAtUtc] IS NULL)");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Number).HasMaxLength(30).IsRequired();
+        b.Property(x => x.Kind).HasConversion<byte>();
+        b.Property(x => x.Status).HasConversion<byte>();
+        b.Property(x => x.Amount).HasColumnType("decimal(19,4)");
+        b.Property(x => x.Party).HasMaxLength(KnitErp.Domain.Finance.MoneyOperation.PartyMaxLength);
+        b.Property(x => x.Basis).HasMaxLength(KnitErp.Domain.Finance.MoneyOperation.BasisMaxLength).IsRequired();
+        b.Property(x => x.Comment).HasMaxLength(KnitErp.Domain.Finance.MoneyOperation.CommentMaxLength);
+        b.Property(x => x.CancelReason).HasMaxLength(KnitErp.Domain.Finance.MoneyOperation.ReasonMaxLength);
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<LegalEntityAccount>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.AccountId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict).HasConstraintName("fk_money_operations_account");
+        b.HasOne<LegalEntityAccount>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.TargetAccountId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict).HasConstraintName("fk_money_operations_target");
+        b.HasIndex(x => new { x.OrganizationId, x.Number }).IsUnique().HasDatabaseName("ux_money_operations_org_number");
+        b.HasIndex(x => new { x.OrganizationId, x.OperationDate }).HasDatabaseName("ix_money_operations_org_date");
+    }
+}
+
 internal sealed class PurchaseOrderConfiguration : IEntityTypeConfiguration<PurchaseOrder>
 {
     public void Configure(EntityTypeBuilder<PurchaseOrder> b)
@@ -844,6 +879,11 @@ internal sealed class PurchaseOrderConfiguration : IEntityTypeConfiguration<Purc
         });
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).UseIdentityColumn();
+        // Юрлицо-покупатель (D84): только своё юрлицо организации.
+        b.HasOne<LegalEntity>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.LegalEntityId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_purchase_orders_legal_entity");
+        b.HasIndex(x => new { x.OrganizationId, x.LegalEntityId }).HasDatabaseName("ix_purchase_orders_org_legal_entity");
         b.Property(x => x.Number).HasMaxLength(30).IsRequired();
         b.Property(x => x.Status).HasConversion<byte>();
         b.Property(x => x.SupplierInvoice).HasMaxLength(PurchaseOrder.InvoiceMaxLength);

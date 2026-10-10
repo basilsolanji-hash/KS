@@ -23,7 +23,7 @@ public sealed record IssuedVatInvoiceDto(
 public sealed record ReceivedVatInvoiceDto(
     long Id, string SupplierNumber, DateOnly Date, long SupplierId, string Supplier, string? Inn, string? Kpp, long ReceiptId, string ReceiptNumber,
     DateOnly ReceiptDate, decimal Amount, decimal VatAmount, decimal ReceiptAmount, string? Comment, ReceivedVatInvoiceStatus Status,
-    string? CancelReason, byte[] RowVersion)
+    string? CancelReason, byte[] RowVersion, string? Buyer = null)
 {
     public decimal AmountWithoutVat => Amount - VatAmount;
 
@@ -88,6 +88,15 @@ public sealed class VatInvoiceService(IKnitErpDbContext db, IAccessGuard guard, 
         }).ToList();
     }
 
+    /// <summary>Свои юрлица — для фильтра журнала полученных: журнал ведёт каждое юрлицо-покупатель (D84).</summary>
+    public async Task<IReadOnlyList<KnitErp.Application.Structure.LookupDto>> BuyersAsync(CancellationToken ct = default)
+    {
+        var ctx = await DemandPurchaseViewAsync(ct);
+        return await db.LegalEntities.AsNoTracking().Where(e => e.OrganizationId == ctx.OrganizationId && !e.IsArchived)
+            .OrderByDescending(e => e.IsDefault).ThenBy(e => e.ShortName)
+            .Select(e => new KnitErp.Application.Structure.LookupDto(e.Id, e.ShortName)).ToListAsync(ct);
+    }
+
     public async Task<IReadOnlyList<ReceivedVatInvoiceDto>> ReceivedAsync(VatJournalFilter filter, CancellationToken ct = default)
     {
         var ctx = await DemandPurchaseViewAsync(ct);
@@ -97,7 +106,10 @@ public sealed class VatInvoiceService(IKnitErpDbContext db, IAccessGuard guard, 
                       && (filter.IncludeCancelled || i.Status == ReceivedVatInvoiceStatus.Registered)
                 join c in db.Counterparties.AsNoTracking() on i.SupplierId equals c.Id
                 join d in db.StockDocuments.AsNoTracking() on i.ReceiptDocumentId equals d.Id
-                select new { i, c.Name, c.Inn, c.Kpp, ReceiptNumber = d.Number, d.DocumentDate };
+                join o in db.PurchaseOrders.AsNoTracking() on d.PurchaseOrderId equals o.Id
+                join e in db.LegalEntities.AsNoTracking() on o.LegalEntityId equals e.Id
+                where filter.LegalEntityId == null || e.Id == filter.LegalEntityId
+                select new { i, c.Name, c.Inn, c.Kpp, ReceiptNumber = d.Number, d.DocumentDate, Buyer = e.ShortName };
         if (!string.IsNullOrWhiteSpace(filter.Search))
         {
             var text = filter.Search.Trim();
@@ -108,7 +120,7 @@ public sealed class VatInvoiceService(IKnitErpDbContext db, IAccessGuard guard, 
         var values = await ReceiptValuesAsync(ctx, rows.Select(r => r.i.ReceiptDocumentId).ToList(), ct);
         return rows.Select(r => new ReceivedVatInvoiceDto(r.i.Id, r.i.SupplierNumber, r.i.InvoiceDate, r.i.SupplierId, r.Name, r.Inn, r.Kpp,
                 r.i.ReceiptDocumentId, r.ReceiptNumber, r.DocumentDate, r.i.Amount, r.i.VatAmount, values.GetValueOrDefault(r.i.ReceiptDocumentId).Amount,
-                r.i.Comment, r.i.Status, r.i.CancelReason, r.i.RowVersion))
+                r.i.Comment, r.i.Status, r.i.CancelReason, r.i.RowVersion, r.Buyer))
             .ToList();
     }
 

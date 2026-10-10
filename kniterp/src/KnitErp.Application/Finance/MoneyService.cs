@@ -54,10 +54,21 @@ public sealed class MoneyService(IKnitErpDbContext db, IAccessGuard guard)
             .Where(p => p.OrganizationId == org && p.Status == SupplierPaymentStatus.Posted && (asOf == null || p.PaymentDate <= asOf))
             .GroupBy(p => new { p.MoneyAccountId, p.PaymentDate }).Select(g => new { g.Key.MoneyAccountId, g.Key.PaymentDate, Sum = g.Sum(p => p.Amount) })
             .ToListAsync(ct);
+        // Прочие поступления, выдачи и перемещения (D84): перемещение — расход со счёта-источника и приход на счёт-получатель.
+        var operations = await db.MoneyOperations.AsNoTracking()
+            .Where(o => o.OrganizationId == org && o.Status == KnitErp.Domain.Finance.MoneyOperationStatus.Posted && (asOf == null || o.OperationDate <= asOf))
+            .GroupBy(o => new { o.Kind, o.AccountId, o.TargetAccountId, o.OperationDate })
+            .Select(g => new { g.Key.Kind, g.Key.AccountId, g.Key.TargetAccountId, g.Key.OperationDate, Sum = g.Sum(o => o.Amount) })
+            .ToListAsync(ct);
+        IEnumerable<(long? Account, DateOnly Day, decimal Sum)> ins = incoming.Select(x => (x.MoneyAccountId, x.PaymentDate, x.Sum))
+            .Concat(operations.Where(o => o.Kind == KnitErp.Domain.Finance.MoneyOperationKind.Income).Select(o => ((long?)o.AccountId, o.OperationDate, o.Sum)))
+            .Concat(operations.Where(o => o.Kind == KnitErp.Domain.Finance.MoneyOperationKind.Transfer).Select(o => (o.TargetAccountId, o.OperationDate, o.Sum)));
+        IEnumerable<(long? Account, DateOnly Day, decimal Sum)> outs = outgoing.Select(x => (x.MoneyAccountId, x.PaymentDate, x.Sum))
+            .Concat(operations.Where(o => o.Kind != KnitErp.Domain.Finance.MoneyOperationKind.Income).Select(o => ((long?)o.AccountId, o.OperationDate, o.Sum)));
         bool Counts(long? accountId, DateOnly day) =>
             accountId is not { } id || !opening.TryGetValue(id, out var from) || from is null || day >= from;
-        var inSum = incoming.Where(x => Counts(x.MoneyAccountId, x.PaymentDate)).GroupBy(x => x.MoneyAccountId ?? 0).ToDictionary(g => g.Key, g => g.Sum(x => x.Sum));
-        var outSum = outgoing.Where(x => Counts(x.MoneyAccountId, x.PaymentDate)).GroupBy(x => x.MoneyAccountId ?? 0).ToDictionary(g => g.Key, g => g.Sum(x => x.Sum));
+        var inSum = ins.Where(x => Counts(x.Account, x.Day)).GroupBy(x => x.Account ?? 0).ToDictionary(g => g.Key, g => g.Sum(x => x.Sum));
+        var outSum = outs.Where(x => Counts(x.Account, x.Day)).GroupBy(x => x.Account ?? 0).ToDictionary(g => g.Key, g => g.Sum(x => x.Sum));
 
         var rows = accounts
             .Where(a => includeArchived || !a.IsArchived || inSum.ContainsKey(a.Id) || outSum.ContainsKey(a.Id) || a.OpeningBalance != 0)
@@ -125,6 +136,27 @@ public sealed class MoneyService(IKnitErpDbContext db, IAccessGuard guard)
         return entity is null ? null : await db.LegalEntityAccounts.AsNoTracking()
             .Where(a => a.OrganizationId == org && a.LegalEntityId == entity && a.IsDefault && !a.IsArchived)
             .Select(a => (long?)a.Id).FirstOrDefaultAsync(ct);
+    }
+
+    /// <summary>
+    /// Касса не уходит в минус (D84): выдача из кассы — только в пределах остатка. Касса блокируется до конца транзакции,
+    /// параллельная выдача ждёт. Для расчётного счёта проверки нет (возможен овердрафт). Вызывать внутри транзакции.
+    /// </summary>
+    internal static async Task EnsureCashAsync(IKnitErpDbContext db, long org, long accountId, decimal amount, CancellationToken ct)
+    {
+        var cash = await db.LegalEntityAccounts.AsNoTracking().SingleAsync(a => a.Id == accountId && a.OrganizationId == org, ct);
+        if (!cash.IsCash)
+        {
+            return;
+        }
+
+        await db.LockAsync($"kniterp.money.account.{cash.Id}", ct);
+        var balance = (await BalancesAsync(db, org, null, includeArchived: true, ct)).FirstOrDefault(b => b.AccountId == cash.Id)?.Balance ?? 0m;
+        if (balance < amount)
+        {
+            throw new BusinessRuleException("money.cash.insufficient",
+                $"В кассе «{cash.BankName}» {balance:0.00}, а нужно {amount:0.00}. Касса не может уйти в минус — сначала оформите поступление.");
+        }
     }
 
     public static string Label(MoneyAccountKind kind, string name, string account) =>

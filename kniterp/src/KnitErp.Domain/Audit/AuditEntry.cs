@@ -92,6 +92,8 @@ public static class AuditActions
     public const string RecoveryCodesIssued = "auth.recovery_codes.issued";
     public const string RecoveryCodeUsed = "auth.recovery_code.used";
     public const string DeviceTrusted = "auth.device.trusted";
+    public const string MoneyOperationCreated = "money.operation.created";
+    public const string MoneyOperationCancelled = "money.operation.cancelled";
     public const string DeviceRevoked = "auth.device.revoked";
     public const string PasswordResetRequested = "auth.password_reset.requested";
     public const string PasswordReset = "auth.password.reset";

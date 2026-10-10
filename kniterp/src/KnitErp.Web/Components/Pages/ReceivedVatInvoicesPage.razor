@@ -64,6 +64,19 @@ else
     <form class="inline-form" @onsubmit="ReloadAsync">
         <label>@L("С") <input type="date" @bind="_from" /></label>
         <label>@L("По") <input type="date" @bind="_to" /></label>
+        @if (_buyers.Count > 1)
+        {
+            <label>
+                @L("Покупатель")
+                <select @bind="_buyer">
+                    <option value="">@L("все юрлица")</option>
+                    @foreach (var b in _buyers)
+                    {
+                        <option value="@b.Id">@b.Name</option>
+                    }
+                </select>
+            </label>
+        }
         <label>@L("Поиск") <input @bind="_search" placeholder="@L("номер, поставщик, ИНН, приёмка")" /></label>
         <label class="inline"><input type="checkbox" @bind="_cancelled" /> @L("Показать отменённые")</label>
         <button type="submit" class="secondary" disabled="@_busy">@L("Показать")</button>
@@ -72,7 +85,7 @@ else
 
     <div class="scroll">
         <table>
-            <thead><tr><th>@L("Номер")</th><th>@L("Дата")</th><th>@L("Поставщик")</th><th class="opt">@L("ИНН/КПП")</th><th class="opt">@L("Приёмка")</th><th class="num">@L("Без НДС")</th><th class="num">@L("НДС")</th><th class="num">@L("Всего")</th><th class="num opt">@L("Расхождение с приёмкой")</th>@if (CanEdit) { <th></th> }</tr></thead>
+            <thead><tr><th>@L("Номер")</th><th>@L("Дата")</th><th>@L("Поставщик")</th><th class="opt">@L("ИНН/КПП")</th><th class="opt">@L("Приёмка")</th>@if (_buyers.Count > 1) { <th class="opt">@L("Покупатель")</th> }<th class="num">@L("Без НДС")</th><th class="num">@L("НДС")</th><th class="num">@L("Всего")</th><th class="num opt">@L("Расхождение с приёмкой")</th>@if (CanEdit) { <th></th> }</tr></thead>
             <tbody>
                 @if (_rows.Count == 0)
                 {
@@ -87,6 +100,7 @@ else
                         <td>@r.Supplier</td>
                         <td>@r.Inn@(r.Kpp is null ? "" : "/" + r.Kpp)</td>
                         <td><a href="stock-documents/@r.ReceiptId">@r.ReceiptNumber</a></td>
+                        @if (_buyers.Count > 1) { <td>@r.Buyer</td> }
                         <td class="num">@Amounts.Format(r.AmountWithoutVat)</td>
                         <td class="num">@Amounts.Format(r.VatAmount)</td>
                         <td class="num"><b>@Amounts.Format(r.Amount)</b></td>
@@ -140,6 +154,7 @@ else
         _date = today;
         try
         {
+            _buyers = await VatInvoices.BuyersAsync();
             await LoadAsync();
         }
         catch (AccessDeniedException ex)
@@ -149,11 +164,16 @@ else
     }
 
     private string ExportHref => KnitErp.Web.Exports.ExportLink.Build("vat-invoices/received.xlsx",
-        ("from", KnitErp.Web.Exports.ExportLink.Date(_from)), ("to", KnitErp.Web.Exports.ExportLink.Date(_to)), ("search", _search));
+        ("from", KnitErp.Web.Exports.ExportLink.Date(_from)), ("to", KnitErp.Web.Exports.ExportLink.Date(_to)), ("search", _search),
+        ("entity", _buyer));
+
+    private string _buyer = string.Empty;
+    private IReadOnlyList<KnitErp.Application.Structure.LookupDto> _buyers = [];
 
     private async Task LoadAsync()
     {
-        _rows = await VatInvoices.ReceivedAsync(new VatJournalFilter(DateOnly.FromDateTime(_from), DateOnly.FromDateTime(_to), _search, _cancelled));
+        _rows = await VatInvoices.ReceivedAsync(new VatJournalFilter(DateOnly.FromDateTime(_from), DateOnly.FromDateTime(_to), _search, _cancelled,
+            long.TryParse(_buyer, out var buyer) ? buyer : null));
         _todo = CanEdit ? await VatInvoices.ReceiptsToRegisterAsync() : null;
     }
 

@@ -50,6 +50,22 @@ else
                             }
                         </select>
                     </label>
+                    @if (_options.LegalEntities is { Count: > 1 } entities)
+                    {
+                        <label>
+                            @L("Юрлицо (покупатель)")
+                            <select @bind="_header.Entity">
+                                @foreach (var le in entities)
+                                {
+                                    <option value="@le.Id">@le.ShortName</option>
+                                }
+                                @if (entities.All(le => le.Id != _order.LegalEntityId))
+                                {
+                                    <option value="@_order.LegalEntityId">@_order.LegalEntity (@L("в архиве"))</option>
+                                }
+                            </select>
+                        </label>
+                    }
                     <label>
                         @L("Склад поступления")
                         <select @bind="_header.Warehouse">
@@ -78,6 +94,10 @@ else
             <dt>@L("Поставщик")</dt><dd>@_order.Supplier</dd>
             <dt>@L("Дата")</dt><dd>@_order.OrderDate.ToString("dd.MM.yyyy")@(_order.ExpectedDate is { } e ? $" · {L("ожидается")} {e:dd.MM.yyyy}" : "")</dd>
             <dt>@L("Склад поступления")</dt><dd>@_order.Warehouse</dd>
+            @if (_order.LegalEntity is not null)
+            {
+                <dt>@L("Покупатель")</dt><dd>@_order.LegalEntity</dd>
+            }
             @if (_order.SupplierInvoice is not null)
             {
                 <dt>@L("Счёт поставщика")</dt><dd>@_order.SupplierInvoice</dd>
@@ -250,7 +270,7 @@ else
                     @L("Счёт или касса")
                     <select @bind="_payAccount">
                         <option value="">@L("основной счёт")</option>
-                        @foreach (var a in _accounts)
+                        @foreach (var a in _accounts.Where(a => a.LegalEntityId == _order.LegalEntityId))
                         {
                             <option value="@a.Id">@a.Label</option>
                         }
@@ -317,6 +337,7 @@ else
         public string? Invoice { get; set; }
         public string? Comment { get; set; }
         public bool WithVat { get; set; }
+        public string Entity { get; set; } = string.Empty;
     }
 
     protected override async Task OnParametersSetAsync()
@@ -353,7 +374,7 @@ else
         {
             Supplier = _order!.SupplierId.ToString(), Warehouse = _order.WarehouseId.ToString(), Date = _order.OrderDate.ToDateTime(TimeOnly.MinValue),
             Expected = _order.ExpectedDate?.ToDateTime(TimeOnly.MinValue), Invoice = _order.SupplierInvoice, Comment = _order.Comment,
-            WithVat = _order.PricesIncludeVat,
+            WithVat = _order.PricesIncludeVat, Entity = _order.LegalEntityId.ToString(),
         };
         return Task.CompletedTask;
     }, null);
@@ -362,7 +383,8 @@ else
     {
         var h = _header!;
         await Purchases.UpdateOrderHeaderAsync(Id, new PurchaseOrderHeader(DateOnly.FromDateTime(h.Date), long.Parse(h.Supplier), long.Parse(h.Warehouse),
-            h.Expected is { } e ? DateOnly.FromDateTime(e) : null, h.Invoice, h.WithVat, h.Comment), _order!.RowVersion);
+            h.Expected is { } e ? DateOnly.FromDateTime(e) : null, h.Invoice, h.WithVat, h.Comment, long.TryParse(h.Entity, out var le) ? le : null),
+            _order!.RowVersion);
         _header = null;
     }, L("Сохранено."));
 

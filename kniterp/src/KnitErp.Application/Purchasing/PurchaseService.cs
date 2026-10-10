@@ -63,7 +63,7 @@ public sealed record PurchaseOrderDto(
     string? SupplierInvoice, bool PricesIncludeVat, PurchaseOrderStatus Status, string? Comment, string CreatedBy, DateTime CreatedAtUtc,
     string? ConfirmedBy, DateTime? ConfirmedAtUtc, IReadOnlyList<PurchaseOrderLineDto> Lines, IReadOnlyList<LinkedDocumentDto> Documents,
     IReadOnlyList<SupplierPaymentDto> Payments, decimal? Total, decimal? VatTotal, decimal? ReceivedValue, decimal? ReturnedValue, decimal? Paid,
-    bool CanEdit, bool CanSeePrices, bool CanCreateDocuments, byte[] RowVersion)
+    bool CanEdit, bool CanSeePrices, bool CanCreateDocuments, byte[] RowVersion, long LegalEntityId = 0, string? LegalEntity = null)
 {
     public string StatusName => PurchaseOrder.StatusName(Status);
     public decimal? Debt => ReceivedValue is { } r && ReturnedValue is { } ret && Paid is { } p ? r - ret - p : null;
@@ -79,7 +79,8 @@ public sealed record VatOptionDto(string Name, decimal? Percent);
 
 public sealed record PurchaseOptionsDto(
     IReadOnlyList<LookupDto> Suppliers, IReadOnlyList<LookupWarehouseDto> Warehouses, IReadOnlyList<PurchaseItemOptionDto> Items,
-    IReadOnlyList<VatOptionDto> VatRates, string CurrencyCode);
+    IReadOnlyList<VatOptionDto> VatRates, string CurrencyCode,
+    IReadOnlyList<KnitErp.Application.Organizations.LegalEntityOptionDto>? LegalEntities = null);
 
 /// <summary>Расчёты с поставщиком: поступило, возвращено, оплачено и долг (плюс — мы должны, минус — аванс поставщику).</summary>
 public sealed record SupplierBalanceDto(long SupplierId, string Supplier, decimal Received, decimal Returned, decimal Paid)
@@ -221,6 +222,7 @@ public sealed class PurchaseService(
             .SelectMany(d => d.Lines).Sum(l => l.Quantity * order.UnitCostWithVat(l.ItemId)));
 
         var canEdit = ctx.Permissions.Has(Permissions.PurchaseEdit) && prices;
+        var buyer = await db.LegalEntities.AsNoTracking().Where(e => e.Id == order.LegalEntityId).Select(e => e.ShortName).SingleOrDefaultAsync(ct);
         var canDocs = order.Status is PurchaseOrderStatus.Confirmed or PurchaseOrderStatus.Closed
                       && WarehouseScope.Covers(ctx, Permissions.WarehouseDocumentCreate, order.WarehouseId);
         return new PurchaseOrderDto(order.Id, order.Number, order.OrderDate, order.SupplierId, supplier, order.WarehouseId, warehouse,
@@ -231,7 +233,7 @@ public sealed class PurchaseService(
             prices ? order.Total : null, prices ? order.VatTotal : null,
             prices ? Value(StockOperationKind.Receipt) : null, prices ? Value(StockOperationKind.ReturnToSupplier) : null,
             prices ? payments.Where(p => p.Status == SupplierPaymentStatus.Posted).Sum(p => p.Amount) : null,
-            canEdit, prices, canDocs, order.RowVersion);
+            canEdit, prices, canDocs, order.RowVersion, order.LegalEntityId, buyer);
     }
 
     /// <summary>Справочники формы заказа: поставщики, склады, позиции с НДС по умолчанию, ставки НДС организации.</summary>
@@ -263,13 +265,13 @@ public sealed class PurchaseService(
             rates.OrderBy(r => r.Kind).ThenBy(r => r.Name).Select(r => new VatOptionDto(r.Name, r.PercentOn(date)))
                 .Where(r => r.Percent is not null || rates.Any(x => x.Kind == VatRateKind.Exempt && x.Name == r.Name))
                 .DistinctBy(r => r.Percent).ToList(),
-            org.CurrencyCode);
+            org.CurrencyCode, await KnitErp.Application.Organizations.LegalEntityService.OptionsAsync(db, ctx.OrganizationId, ct));
     }
 
     public async Task<long> CreateOrderAsync(PurchaseOrderHeader header, CancellationToken ct = default)
     {
         var ctx = await DemandEditAsync(ct);
-        await ValidateHeaderAsync(ctx, header, ct);
+        header = await ValidateHeaderAsync(ctx, header, null, ct);
         await using var tx = await db.BeginTransactionAsync(ct);
         var number = await DocumentNumbers.NextAsync(db, ctx.OrganizationId, PurchaseOrder.NumberPrefix, ct);
         var order = PurchaseOrder.Create(ctx.OrganizationId, number, header, ctx.UserId, clock.UtcNow);
@@ -284,7 +286,7 @@ public sealed class PurchaseService(
     public async Task UpdateOrderHeaderAsync(long id, PurchaseOrderHeader header, byte[] rowVersion, CancellationToken ct = default)
     {
         var (ctx, order) = await LoadForEditAsync(id, rowVersion, ct);
-        await ValidateHeaderAsync(ctx, header, ct);
+        header = await ValidateHeaderAsync(ctx, header, order.LegalEntityId, ct);
         order.UpdateHeader(header);
         Audit(ctx, AuditActions.PurchaseOrderChanged, nameof(PurchaseOrder), id, null, $"{order.OrderDate:dd.MM.yyyy}, счёт {order.SupplierInvoice ?? "—"}",
             $"{order.Number}: шапка");
@@ -315,7 +317,7 @@ public sealed class PurchaseService(
     public async Task ConfirmOrderAsync(long id, byte[] rowVersion, CancellationToken ct = default)
     {
         var (ctx, order) = await LoadForEditAsync(id, rowVersion, ct);
-        await ValidateHeaderAsync(ctx, Header(order), ct);
+        await ValidateHeaderAsync(ctx, Header(order), order.LegalEntityId, ct);
         order.Confirm(ctx.UserId, clock.UtcNow);
         Audit(ctx, AuditActions.PurchaseOrderConfirmed, nameof(PurchaseOrder), id, "Черновик", "Подтверждён", $"{order.Number}: {order.Total:0.00}");
         await db.SaveOrConflictAsync(ct);
@@ -415,6 +417,7 @@ public sealed class PurchaseService(
             throw new BusinessRuleException("stock.document.not_supplier", $"«{supplier.Name}» не отмечен как поставщик.");
         }
 
+        long? entityId = null;
         if (orderId is { } oid)
         {
             var order = await db.PurchaseOrders.AsNoTracking().SingleOrDefaultAsync(o => o.Id == oid && o.OrganizationId == ctx.OrganizationId, ct)
@@ -423,11 +426,19 @@ public sealed class PurchaseService(
             {
                 throw new BusinessRuleException("purchase.payment.order", $"Заказ {order.Number} другого поставщика или не подтверждён.");
             }
+
+            entityId = order.LegalEntityId;
         }
 
-        var account = await KnitErp.Application.Finance.MoneyService.ResolveAsync(db, ctx.OrganizationId, moneyAccountId, null, null, ct);
+        // D84: по заказу платит юрлицо-покупатель заказа — счёт или касса только его.
+        var account = await KnitErp.Application.Finance.MoneyService.ResolveAsync(db, ctx.OrganizationId, moneyAccountId, entityId, null, ct);
         await ClosedPeriod.EnsureOpenAsync(db, ctx.OrganizationId, date, ct);
         await using var tx = await db.BeginTransactionAsync(ct);
+        if (account is { } paidFrom)
+        {
+            await KnitErp.Application.Finance.MoneyService.EnsureCashAsync(db, ctx.OrganizationId, paidFrom, amount, ct);
+        }
+
         var number = await DocumentNumbers.NextAsync(db, ctx.OrganizationId, SupplierPayment.NumberPrefix, ct);
         var payment = SupplierPayment.Create(ctx.OrganizationId, number, date, supplierId, orderId, amount, comment, ctx.UserId, clock.UtcNow, account);
         db.SupplierPayments.Add(payment);
@@ -561,8 +572,25 @@ public sealed class PurchaseService(
         return DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeBySystemTimeZoneId(clock.UtcNow, tz));
     }
 
-    private async Task ValidateHeaderAsync(AccessContext ctx, PurchaseOrderHeader h, CancellationToken ct)
+    /// <summary>Проверка шапки; у нового заказа без юрлица — основное юрлицо, при смене — только действующее своё (D84).</summary>
+    private async Task<PurchaseOrderHeader> ValidateHeaderAsync(AccessContext ctx, PurchaseOrderHeader h, long? currentEntityId, CancellationToken ct)
     {
+        if (h.LegalEntityId is null && currentEntityId is null)
+        {
+            h = h with
+            {
+                LegalEntityId = await db.LegalEntities.AsNoTracking().Where(e => e.OrganizationId == ctx.OrganizationId && e.IsDefault)
+                                    .Select(e => (long?)e.Id).SingleOrDefaultAsync(ct)
+                                ?? throw new BusinessRuleException("legal_entity.no_default", "Нет основного юрлица — добавьте его в разделе «Юрлица и счета»."),
+            };
+        }
+        else if (h.LegalEntityId is { } entityId && entityId != currentEntityId)
+        {
+            var entity = await db.LegalEntities.AsNoTracking().SingleOrDefaultAsync(e => e.Id == entityId && e.OrganizationId == ctx.OrganizationId, ct)
+                         ?? throw new NotFoundException("Юрлицо");
+            entity.EnsureActive();
+        }
+
         var supplier = await db.Counterparties.AsNoTracking().SingleOrDefaultAsync(c => c.Id == h.SupplierId && c.OrganizationId == ctx.OrganizationId, ct)
                        ?? throw new NotFoundException("Контрагент");
         if (supplier.IsArchived)
@@ -581,6 +609,8 @@ public sealed class PurchaseService(
         {
             throw new BusinessRuleException("catalog.archived", $"Склад «{warehouse.Name}» в архиве.");
         }
+
+        return h;
     }
 
     private static PurchaseOrderHeader Header(PurchaseOrder o) =>
