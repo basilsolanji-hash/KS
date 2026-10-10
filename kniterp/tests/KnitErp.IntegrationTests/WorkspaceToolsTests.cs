@@ -66,6 +66,18 @@ public sealed class WorkspaceToolsTests(SqlTestHost host) : IClassFixture<SqlTes
             var notes = await s.Notifications.ListAsync();
             Assert.Equal("Сдать отчёт по пряже — сегодня в 15:00", notes.Single().Text);
 
+            // D81: уведомление можно убрать; новое — появится; «Очистить все» и «Показать скрытые».
+            await s.Notifications.DismissAsync(notes.Single().Key);
+            var list = await s.Notifications.ListWithHiddenAsync();
+            Assert.Equal((0, 1), (list.Items.Count, list.Hidden));
+            await s.Personal.SaveTaskAsync(new TaskItem("", "Позвонить поставщику", today, null, true, false, null));
+            Assert.Equal("Позвонить поставщику — сегодня", (await s.Notifications.ListAsync()).Single().Text);
+            await s.Notifications.DismissAllAsync();
+            Assert.Empty(await s.Notifications.ListAsync());
+            await s.Notifications.RestoreAsync();
+            Assert.Equal(2, (await s.Notifications.ListAsync()).Count);
+            await s.Notifications.DismissAllAsync();
+
             var number = await s.Support.CreateAsync("Не вижу склад цеха", "Нужен доступ к складу цеха", "Остатки");
             Assert.Equal("ОБ-000001", number);
             Assert.False((await s.Support.ListAsync()).CanHandle);

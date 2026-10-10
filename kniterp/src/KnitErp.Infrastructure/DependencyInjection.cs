@@ -15,7 +15,7 @@ public static class DependencyInjection
 
     public static IServiceCollection AddKnitErpInfrastructure(
         this IServiceCollection services, string connectionString, string? assistantApiKey = null, string? assistantModel = null,
-        string? requisitesApiKey = null)
+        string? requisitesApiKey = null, EmailOptions? email = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
         services.AddDbContext<KnitErpDbContext>(o => o.UseSqlServer(connectionString, ConfigureSqlServer));
@@ -30,6 +30,9 @@ public static class DependencyInjection
         services.AddSingleton(new RequisitesLookupOptions(requisitesApiKey));
         services.AddHttpClient<IRequisitesLookup, DaDataRequisitesLookup>(c => c.Timeout = TimeSpan.FromSeconds(6));
         services.AddSingleton<KnitErp.Application.Security.IIntegrityVerifier, Security.IntegrityVerifier>();
+        // Служебная почта (D81): «Забыли пароль». Без настроек — недоступна, вход по ссылке от администратора.
+        services.AddSingleton(email ?? new EmailOptions(null, null, null, null, null));
+        services.AddSingleton<IEmailSender, Email.SmtpEmailSender>();
         return services;
     }
 

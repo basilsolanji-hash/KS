@@ -350,6 +350,32 @@ public sealed class UserAccessService(IKnitErpDbContext db, IAccessGuard guard, 
     }
 
     /// <summary>
+    /// Ссылка смены пароля, если пользователь его забыл, а почта на сервере не настроена (D81). Действует 24 часа и
+    /// передаётся лично; прежний пароль работает, пока не задан новый; 2FA остаётся. Правила — как у сброса 2FA:
+    /// не себе, причина обязательна, для Владельца и Администратора — только Владелец.
+    /// </summary>
+    public async Task<InvitationResult> IssuePasswordResetAsync(long userId, string? reason, CancellationToken ct = default)
+    {
+        var ctx = await guard.DemandAsync(Permissions.UserManage, ct);
+        await RequireMemberAsync(ctx, userId, ct);
+        if (userId == ctx.UserId)
+        {
+            throw new BusinessRuleException("access.password_reset.self", "Свой пароль меняйте через «Забыли пароль» или у другого администратора.");
+        }
+
+        GrantPolicy.EnsureReason(required: true, reason);
+        var targetIsAdmin = await HasActiveRoleAsync(ctx.OrganizationId, userId, SystemRoles.Owner, ct)
+                            || await HasActiveRoleAsync(ctx.OrganizationId, userId, SystemRoles.Administrator, ct);
+        GrantPolicy.EnsureCanGrantAdministrative(ctx.Permissions, targetIsAdmin);
+
+        var user = await db.Users.SingleAsync(u => u.Id == userId, ct);
+        var token = user.IssuePasswordResetToken(clock.UtcNow, SignInPolicy.AdminPasswordResetLifetime);
+        db.AuditEntries.Add(Audit(ctx, AuditActions.PasswordResetIssued, userId, null, $"до {user.SetupTokenExpiresAtUtc:yyyy-MM-dd HH:mm} UTC", reason));
+        await db.SaveChangesAsync(ct);
+        return new InvitationResult(userId, token, user.SetupTokenExpiresAtUtc);
+    }
+
+    /// <summary>
     /// Сброс двухфакторной аутентификации, если пользователь потерял телефон. Сессии пользователя закрываются,
     /// при следующем входе он подключит аутентификатор заново. Сброс у Владельца или Администратора — только Владелец.
     /// </summary>

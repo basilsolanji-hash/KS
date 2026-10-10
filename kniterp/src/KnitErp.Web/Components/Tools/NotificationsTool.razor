@@ -18,13 +18,25 @@ else
     <ul class="plain notice-list">
         @foreach (var n in _items)
         {
-            <li class="notice @n.Level.ToString().ToLowerInvariant()">
+            <li class="notice @n.Level.ToString().ToLowerInvariant()" @key="n.Key">
                 <button type="button" class="link" @onclick="() => OpenAsync(n)">@n.Text</button>
+                <button type="button" class="icon dismiss" @onclick="() => RunAsync(() => Notifications.DismissAsync(n.Key))" disabled="@_busy"
+                        title="@L("Убрать")" aria-label="@L("Убрать уведомление: {0}", n.Text)">✕</button>
             </li>
         }
     </ul>
 }
-<button type="button" class="secondary" @onclick="LoadAsync" disabled="@_busy">@L("Обновить")</button>
+<div class="actions">
+    <button type="button" class="secondary" @onclick="() => RunAsync(() => Task.CompletedTask)" disabled="@_busy">@L("Обновить")</button>
+    @if (_items is { Count: > 0 })
+    {
+        <button type="button" class="secondary" @onclick="() => RunAsync(() => Notifications.DismissAllAsync())" disabled="@_busy">@L("Очистить все")</button>
+    }
+    @if (_hidden > 0)
+    {
+        <button type="button" class="secondary" @onclick="() => RunAsync(() => Notifications.RestoreAsync())" disabled="@_busy">@L("Показать скрытые ({0})", _hidden)</button>
+    }
+</div>
 
 @code {
     [Parameter, EditorRequired]
@@ -37,6 +49,7 @@ else
     public EventCallback<int> OnCount { get; set; }
 
     private IReadOnlyList<NotificationDto>? _items;
+    private int _hidden;
     private string? _error;
     private bool _busy;
     private bool _wasActive;
@@ -45,13 +58,14 @@ else
     {
         if (Active && !_wasActive)
         {
-            await LoadAsync();
+            await RunAsync(() => Task.CompletedTask);
         }
 
         _wasActive = Active;
     }
 
-    private async Task LoadAsync()
+    /// <summary>Действие, затем свежий список; одна операция за раз.</summary>
+    private async Task RunAsync(Func<Task> action)
     {
         if (_busy)
         {
@@ -62,7 +76,9 @@ else
         _error = null;
         try
         {
-            _items = await Notifications.ListAsync();
+            await action();
+            var list = await Notifications.ListWithHiddenAsync();
+            (_items, _hidden) = (list.Items, list.Hidden);
             await OnCount.InvokeAsync(_items.Count);
         }
         catch (Exception ex) when (UiErrors.IsUserFacing(ex))

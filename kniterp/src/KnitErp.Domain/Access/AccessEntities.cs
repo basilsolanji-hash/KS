@@ -56,6 +56,9 @@ public sealed class UserAccount
 
     public DateTime? SetupTokenExpiresAtUtc { get; private set; }
 
+    /// <summary>Когда выдана текущая ссылка установки пароля — для ограничения повторных писем «Забыли пароль».</summary>
+    public DateTime? SetupTokenIssuedAtUtc { get; private set; }
+
     public byte[] RowVersion { get; private set; } = [];
 
     public bool HasPassword => PasswordHash is not null;
@@ -116,9 +119,33 @@ public sealed class UserAccount
             throw new BusinessRuleException("auth.invitation.not_needed", "Пользователь уже установил пароль, приглашение не нужно.");
         }
 
+        return NewSetupToken(nowUtc, SignInPolicy.InvitationLifetime);
+    }
+
+    /// <summary>
+    /// Ссылка смены пароля (D81): по почте «Забыли пароль» или от администратора. Только для активной учётной записи
+    /// с паролем; прежний пароль действует, пока по ссылке не задан новый. Второй фактор ссылка не отменяет.
+    /// </summary>
+    public string IssuePasswordResetToken(DateTime nowUtc, TimeSpan lifetime)
+    {
+        if (Status != UserStatus.Active || !HasPassword)
+        {
+            throw new BusinessRuleException("auth.reset.not_active", "Смена пароля по ссылке — только для активного пользователя с паролем.");
+        }
+
+        return NewSetupToken(nowUtc, lifetime);
+    }
+
+    /// <summary>Недавно выдана ссылка — повторное письмо не отправляется.</summary>
+    public bool ResetRecentlyIssued(DateTime nowUtc) =>
+        SetupTokenIssuedAtUtc is { } issued && nowUtc - issued < SignInPolicy.PasswordResetResendInterval;
+
+    private string NewSetupToken(DateTime nowUtc, TimeSpan lifetime)
+    {
         var token = SetupTokens.Generate();
         SetupTokenHash = SetupTokens.Hash(token);
-        SetupTokenExpiresAtUtc = nowUtc + SignInPolicy.InvitationLifetime;
+        SetupTokenExpiresAtUtc = nowUtc + lifetime;
+        SetupTokenIssuedAtUtc = nowUtc;
         return token;
     }
 
@@ -133,9 +160,7 @@ public sealed class UserAccount
             throw new BusinessRuleException("auth.recovery.archived", "Учётная запись в архиве.");
         }
 
-        var token = SetupTokens.Generate();
-        SetupTokenHash = SetupTokens.Hash(token);
-        SetupTokenExpiresAtUtc = nowUtc + SignInPolicy.InvitationLifetime;
+        var token = NewSetupToken(nowUtc, SignInPolicy.InvitationLifetime);
         FailedSignInCount = 0;
         LockoutEndUtc = null;
         return token;
@@ -158,6 +183,7 @@ public sealed class UserAccount
         PasswordHash = passwordHash;
         SetupTokenHash = null;
         SetupTokenExpiresAtUtc = null;
+        SetupTokenIssuedAtUtc = null;
         FailedSignInCount = 0;
         LockoutEndUtc = null;
         if (Status == UserStatus.Invited)

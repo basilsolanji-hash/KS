@@ -53,7 +53,11 @@ builder.Services.AddKnitErpInfrastructure(
     builder.Configuration["Assistant:ApiKey"] ?? builder.Configuration["ANTHROPIC_API_KEY"],
     builder.Configuration["Assistant:Model"],
     // Заполнение реквизитов по ИНН (DaData, данные ЕГРЮЛ/ЕГРИП) — ключ тоже только из секретов сервера.
-    builder.Configuration["Requisites:ApiKey"]);
+    builder.Configuration["Requisites:ApiKey"],
+    // Служебная почта (D81): ящик и пароль приложения — из секретов сервера; адрес системы для ссылок — из настроек, не из запроса.
+    new KnitErp.Application.Common.EmailOptions(builder.Configuration["Email:Url"], builder.Configuration["Email:User"],
+        builder.Configuration["Email:Password"], builder.Configuration["Email:From"], builder.Configuration["App:PublicUrl"],
+        builder.Configuration["Email:PickupDirectory"]));
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<KnitErp.Application.Workspace.IUiText, KnitErp.Web.Localization.WebUiText>();

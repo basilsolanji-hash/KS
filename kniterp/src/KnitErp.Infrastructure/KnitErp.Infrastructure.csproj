@@ -9,6 +9,7 @@
     <PackageReference Include="ClosedXML" />
     <!-- Официальный SDK Anthropic: ИИ-помощник (включается ключом в настройках, по умолчанию выключен). -->
     <PackageReference Include="Anthropic" />
+    <PackageReference Include="MailKit" />
     <PackageReference Include="Microsoft.Extensions.Http" />
     <!-- Ключи защиты cookie хранятся в базе, зашифрованные мастер-ключом. -->
     <PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" />

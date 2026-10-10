@@ -32,6 +32,36 @@ public sealed class TestClock : IClock
     public DateTime UtcNow { get; set; } = new(2026, 10, 9, 5, 0, 0, DateTimeKind.Utc);
 }
 
+public sealed class FakeEmailSender : IEmailSender
+{
+    public bool IsConfigured { get; set; } = true;
+    public string? PublicUrl => "https://erp.test";
+    public System.Collections.Concurrent.ConcurrentQueue<(string To, string Subject, string Text)> Sent { get; } = new();
+
+    public Task<bool> SendAsync(string to, string subject, string text, CancellationToken ct = default)
+    {
+        Sent.Enqueue((to, subject, text));
+        return Task.FromResult(true);
+    }
+
+    /// <summary>Письмо уходит в фоне — ждём его не дольше 5 секунд.</summary>
+    public async Task<(string To, string Subject, string Text)?> WaitForAsync(string to)
+    {
+        for (var i = 0; i < 50; i++)
+        {
+            var hit = Sent.LastOrDefault(m => m.To == to);
+            if (hit.To is not null)
+            {
+                return hit;
+            }
+
+            await Task.Delay(100);
+        }
+
+        return null;
+    }
+}
+
 public sealed class TestUser : ICurrentUser
 {
     public long? UserId { get; set; }
@@ -64,6 +94,9 @@ public sealed class SqlTestHost : IAsyncLifetime
     }
 
     public TestClock Clock { get; } = new();
+
+    /// <summary>Почта тестов: письма складываются в память.</summary>
+    public FakeEmailSender Mail { get; } = new();
 
     /// <summary>Адрес клиента для журнала входов (как у HTTP-запроса страницы входа).</summary>
     public string? ClientAddress { get; set; }
@@ -144,7 +177,9 @@ public sealed class SqlTestHost : IAsyncLifetime
             new KnitErp.Application.Organizations.LegalEntityService(db, guard, user, Clock),
             new KnitErp.Application.Common.RequisitesLookupService(new FakeRequisitesLookup(), guard),
             new KnitErp.Application.Catalog.NomenclatureService(db, guard, user, Clock),
-            new KnitErp.Application.Finance.MoneyService(db, guard));
+            new KnitErp.Application.Finance.MoneyService(db, guard),
+            new PasswordResetService(db, Hasher, Mail, user, Clock),
+            new TrustedDeviceService(db, user, Clock));
     }
 
     private static readonly IPasswordHasher<UserAccount> Hasher = new PasswordHasher<UserAccount>();
@@ -219,7 +254,9 @@ public sealed record Services(
     KnitErp.Application.Organizations.LegalEntityService LegalEntities,
     KnitErp.Application.Common.RequisitesLookupService Requisites,
     KnitErp.Application.Catalog.NomenclatureService Nomenclature,
-    KnitErp.Application.Finance.MoneyService Money) : IAsyncDisposable
+    KnitErp.Application.Finance.MoneyService Money,
+    PasswordResetService PasswordReset,
+    TrustedDeviceService Devices) : IAsyncDisposable
 {
     public ValueTask DisposeAsync() => Db.DisposeAsync();
 }

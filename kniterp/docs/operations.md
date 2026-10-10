@@ -57,6 +57,8 @@
 | `Security__PreviousMasterKeys` | прежние ключи после смены, через запятую |
 | `Assistant__ApiKey` | необязательно: ключ Anthropic для ИИ-помощника |
 | `Requisites__ApiKey` | необязательно: API-ключ DaData для заполнения реквизитов по ИНН (бесплатный тариф, dadata.ru → личный кабинет → «API-ключ») |
+| `App__PublicUrl` | адрес системы для ссылок в письмах (`https://erp.фабрика.ru`); в Beget — из `KNITERP_DOMAIN` |
+| `Email__Url`, `Email__User`, `Email__Password`, `Email__From` | необязательно: почтовый ящик для писем «Забыли пароль» (D81); в Beget — `SMTP_*` из `.env` |
 | `ASPNETCORE_URLS` | адрес и порт за обратным прокси |
 
 Секреты — в переменных окружения службы или хранилище секретов, не в `appsettings.json`.

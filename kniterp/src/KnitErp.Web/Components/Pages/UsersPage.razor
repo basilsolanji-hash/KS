@@ -39,10 +39,20 @@ else
     @if (_invitation is not null)
     {
         <div class="panel" role="status">
-            <h2>@L("Ссылка приглашения для {0}", _invitation.Name)</h2>
-            <p class="muted">
-                @L("Передайте её пользователю сами: письма система пока не отправляет. Ссылка показывается один раз и действует до {0}.", _invitation.ExpiresAt)
-            </p>
+            @if (_invitation.PasswordReset)
+            {
+                <h2>@L("Ссылка смены пароля для {0}", _invitation.Name)</h2>
+                <p class="muted">
+                    @L("Передайте её пользователю лично (не в общий чат). Ссылка показывается один раз и действует до {0}. Прежний пароль работает, пока не задан новый; код 2FA при входе по-прежнему нужен.", _invitation.ExpiresAt)
+                </p>
+            }
+            else
+            {
+                <h2>@L("Ссылка приглашения для {0}", _invitation.Name)</h2>
+                <p class="muted">
+                    @L("Передайте её пользователю сами: письма система пока не отправляет. Ссылка показывается один раз и действует до {0}.", _invitation.ExpiresAt)
+                </p>
+            }
             <label for="invite-link">@L("Ссылка")</label>
             <input id="invite-link" readonly value="@_invitation.Link" style="width: 100%" onfocus="this.select()" />
             <div class="actions"><button type="button" class="secondary" @onclick="() => _invitation = null">@L("Готово")</button></div>
@@ -153,7 +163,7 @@ else
         </div>
     }
 
-    @if (_mode is Mode.Block or Mode.Unblock or Mode.ResetTwoFactor)
+    @if (_mode is Mode.Block or Mode.Unblock or Mode.ResetTwoFactor or Mode.ResetPassword)
     {
         <div class="panel">
             <h2>@ConfirmTitle</h2>
@@ -224,6 +234,10 @@ else
                                         {
                                             <button type="button" class="secondary" @onclick="() => ReissueAsync(u)" disabled="@(_mode != Mode.None || _busy)">@L("Новая ссылка")</button>
                                         }
+                                        else if (u.MembershipStatus == MembershipStatus.Active)
+                                        {
+                                            <button type="button" class="secondary" @onclick="() => Open(Mode.ResetPassword, u)" disabled="@(_mode != Mode.None)">@L("Сменить пароль")</button>
+                                        }
                                         @if (u.TwoFactorEnabled)
                                         {
                                             <button type="button" class="secondary" @onclick="() => Open(Mode.ResetTwoFactor, u)" disabled="@(_mode != Mode.None)">@L("Сбросить 2FA")</button>
@@ -241,7 +255,7 @@ else
 }
 
 @code {
-    private enum Mode { None, Add, ChangeRole, Block, Unblock, ResetTwoFactor }
+    private enum Mode { None, Add, ChangeRole, Block, Unblock, ResetTwoFactor, ResetPassword }
 
     [CascadingParameter]
     public CurrentAccessDto CurrentAccess { get; set; } = default!;
@@ -433,6 +447,12 @@ else
                     await Access.ResetTwoFactorAsync(target.UserId, _form.Reason);
                     _flash = L("2FA пользователя «{0}» сброшена. Приложение-аутентификатор подключается заново при следующем входе.", target.DisplayName);
                     break;
+                case Mode.ResetPassword:
+                    var reset = await Access.IssuePasswordResetAsync(target.UserId, _form.Reason);
+                    _invitation = new IssuedInvitation(target.DisplayName, $"{Navigation.BaseUri}account/reset-password?token={reset.SetupToken}",
+                        reset.ExpiresAtUtc is { } exp ? $"{TimeZones.ToLocal(exp, CurrentAccess.TimeZoneId):dd.MM.yyyy HH:mm}" : "—", PasswordReset: true);
+                    _flash = L("Выдана ссылка смены пароля. Прежняя ссылка больше не действует.");
+                    break;
             }
         });
 
@@ -500,6 +520,7 @@ else
     {
         Mode.Block => L("Заблокировать: {0}", _target!.DisplayName),
         Mode.Unblock => L("Разблокировать: {0}", _target!.DisplayName),
+        Mode.ResetPassword => L("Сменить пароль: {0}", _target!.DisplayName),
         _ => L("Сбросить 2FA: {0}", _target!.DisplayName),
     };
 
@@ -507,6 +528,7 @@ else
     {
         Mode.Block => L("Пользователь потеряет доступ к этой организации, открытые сессии закроются в течение минуты. Данные и история сохраняются."),
         Mode.Unblock => L("Доступ вернётся с прежней ролью."),
+        Mode.ResetPassword => L("Например, если пользователь забыл пароль, а почта на сервере не настроена. Будет выдана ссылка на 24 часа — передайте её лично."),
         _ => L("Например, если потерян телефон. Пользователь подключит приложение-аутентификатор при следующем входе."),
     };
 
@@ -514,6 +536,7 @@ else
     {
         Mode.Block => L("Заблокировать"),
         Mode.Unblock => L("Разблокировать"),
+        Mode.ResetPassword => L("Выдать ссылку"),
         _ => L("Сбросить 2FA"),
     };
 
@@ -525,7 +548,7 @@ else
     private static string StatusClass(UserRowDto u) =>
         u.MembershipStatus == MembershipStatus.Blocked ? "bad" : !u.HasPassword ? "warn" : "ok";
 
-    private sealed record IssuedInvitation(string Name, string Link, string ExpiresAt);
+    private sealed record IssuedInvitation(string Name, string Link, string ExpiresAt, bool PasswordReset = false);
 
     private sealed class UserForm
     {

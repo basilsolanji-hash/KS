@@ -47,6 +47,12 @@ services:
       ReverseProxy__KnownNetwork: 172.30.0.0/24
       Assistant__ApiKey: ${ASSISTANT_API_KEY:-}
       Requisites__ApiKey: ${REQUISITES_API_KEY:-}
+      # Ссылки в письмах «Забыли пароль» ведут только на этот адрес (D81); почта — тот же ящик, что у оповещений монитора.
+      App__PublicUrl: https://${KNITERP_DOMAIN:?нет KNITERP_DOMAIN}
+      Email__Url: ${SMTP_URL:-}
+      Email__User: ${SMTP_USER:-}
+      Email__Password: ${SMTP_PASSWORD:-}
+      Email__From: ${SMTP_FROM:-}
     ports:
       # Только для Caddy на этом же сервере.
       - "127.0.0.1:8080:8080"

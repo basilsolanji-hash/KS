@@ -61,7 +61,9 @@ public sealed class AuditQueryService(IKnitErpDbContext db, IAccessGuard guard)
 
     public static readonly IReadOnlyList<string> SignInActions =
         [AuditActions.SignedIn, AuditActions.SignInFailed, AuditActions.LockedOut, AuditActions.SignedOut, AuditActions.TwoFactorEnabled,
-         AuditActions.RecoveryCodeUsed, AuditActions.RecoveryCodesIssued, AuditActions.TwoFactorReset, AuditActions.EmergencyAccess];
+         AuditActions.RecoveryCodeUsed, AuditActions.RecoveryCodesIssued, AuditActions.TwoFactorReset, AuditActions.EmergencyAccess,
+         AuditActions.DeviceTrusted, AuditActions.DeviceRevoked, AuditActions.PasswordResetRequested, AuditActions.PasswordReset,
+         AuditActions.PasswordResetIssued];
 
     /// <summary>
     /// Журнал входов: входы, неудачные попытки, блокировки, выходы, подключение 2FA — с адресом, откуда пришёл запрос.

@@ -31,8 +31,12 @@ public sealed record SessionIdentity(
 /// <summary>Состояние между паролем и вторым фактором. Подписано и хранится в отдельной короткой cookie.</summary>
 public sealed record PendingSignIn(long UserId, Guid SecurityStamp);
 
-/// <summary>RecoveryCodesLeft — сколько резервных кодов осталось, если вход был по резервному коду.</summary>
-public sealed record SignInResult(SignInStatus Status, SessionIdentity? Session = null, PendingSignIn? Pending = null, int? RecoveryCodesLeft = null)
+/// <summary>
+/// RecoveryCodesLeft — сколько резервных кодов осталось, если вход был по резервному коду.
+/// DeviceToken — токен доверенного устройства для cookie (D81), если пользователь попросил доверять устройству.
+/// </summary>
+public sealed record SignInResult(
+    SignInStatus Status, SessionIdentity? Session = null, PendingSignIn? Pending = null, int? RecoveryCodesLeft = null, string? DeviceToken = null)
 {
     public static SignInResult Of(SignInStatus status) => new(status);
 }
@@ -57,7 +61,8 @@ public sealed class SignInService(
     private static readonly Lazy<string> DummyHash = new(() =>
         new PasswordHasher<UserAccount>().HashPassword(null!, SetupTokens.Generate()));
 
-    public async Task<SignInResult> PasswordSignInAsync(string? email, string? password, CancellationToken ct = default)
+    /// <param name="deviceToken">Токен доверенного устройства из cookie браузера (D81): действующий — код 2FA не спрашивается.</param>
+    public async Task<SignInResult> PasswordSignInAsync(string? email, string? password, string? deviceToken = null, CancellationToken ct = default)
     {
         var now = clock.UtcNow;
         var normalized = (email ?? string.Empty).Trim().ToUpperInvariant();
@@ -108,6 +113,12 @@ public sealed class SignInService(
 
         if (user.TwoFactorEnabled)
         {
+            if (await TrustedDeviceAsync(user, deviceToken, ct) is { } device)
+            {
+                device.MarkUsed(now);
+                return await SucceedAsync(user, organizations[0], usedTwoFactor: true, ct, "пароль и доверенное устройство");
+            }
+
             await db.SaveChangesAsync(ct);
             return new SignInResult(SignInStatus.TwoFactorRequired, Pending: new PendingSignIn(user.Id, user.SecurityStamp));
         }
@@ -121,8 +132,11 @@ public sealed class SignInService(
         return await SucceedAsync(user, organizations[0], usedTwoFactor: false, ct);
     }
 
-    /// <summary>Второй шаг входа: код из приложения-аутентификатора или одноразовый резервный код (D06).</summary>
-    public async Task<SignInResult> TwoFactorSignInAsync(PendingSignIn pending, string? code, CancellationToken ct = default)
+    /// <summary>
+    /// Второй шаг входа: код из приложения-аутентификатора или одноразовый резервный код (D06).
+    /// trustDeviceLabel — «Доверять этому устройству» (D81): название браузера для списка устройств; null — не доверять.
+    /// </summary>
+    public async Task<SignInResult> TwoFactorSignInAsync(PendingSignIn pending, string? code, string? trustDeviceLabel = null, CancellationToken ct = default)
     {
         var user = await LoadPendingAsync(pending, ct);
         if (user is null || !user.TwoFactorEnabled)
@@ -161,7 +175,45 @@ public sealed class SignInService(
             return SignInResult.Of(SignInStatus.NoOrganization);
         }
 
-        return await SucceedAsync(user, organizations[0], usedTwoFactor: true, ct) with { RecoveryCodesLeft = recoveryLeft };
+        string? deviceToken = null;
+        if (trustDeviceLabel is not null)
+        {
+            deviceToken = await TrustDeviceAsync(user, trustDeviceLabel, ct);
+        }
+
+        return await SucceedAsync(user, organizations[0], usedTwoFactor: true, ct) with { RecoveryCodesLeft = recoveryLeft, DeviceToken = deviceToken };
+    }
+
+    /// <summary>Действующее доверенное устройство этого пользователя по токену из cookie или null.</summary>
+    private async Task<TrustedDevice?> TrustedDeviceAsync(UserAccount user, string? token, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(token) || token.Length > 100)
+        {
+            return null;
+        }
+
+        var hash = SetupTokens.Hash(token);
+        var device = await db.TrustedDevices.SingleOrDefaultAsync(d => d.TokenHash == hash && d.UserId == user.Id, ct);
+        return device is not null && device.IsActive(user.SecurityStamp, clock.UtcNow) ? device : null;
+    }
+
+    /// <summary>
+    /// Новое доверенное устройство (D81). Больше <see cref="SignInPolicy.MaxTrustedDevices"/> — самые давние теряют доверие.
+    /// </summary>
+    private async Task<string> TrustDeviceAsync(UserAccount user, string label, CancellationToken ct)
+    {
+        var now = clock.UtcNow;
+        var (device, token) = TrustedDevice.Create(user.Id, user.SecurityStamp, label, now);
+        var active = (await db.TrustedDevices.Where(d => d.UserId == user.Id && d.RevokedAtUtc == null).ToListAsync(ct))
+            .Where(d => d.IsActive(user.SecurityStamp, now)).OrderByDescending(d => d.CreatedAtUtc).ToList();
+        foreach (var old in active.Skip(SignInPolicy.MaxTrustedDevices - 1))
+        {
+            old.Revoke(now);
+        }
+
+        db.TrustedDevices.Add(device);
+        await AuditAsync(user, AuditActions.DeviceTrusted, $"{device.Label}, до {device.ExpiresAtUtc:yyyy-MM-dd} UTC", ct);
+        return token;
     }
 
     /// <summary>Секрет для приложения-аутентификатора. Доступно только после верного пароля.</summary>
@@ -302,11 +354,11 @@ public sealed class SignInService(
         return SignInResult.Of(user.IsLockedOut(now) ? SignInStatus.LockedOut : SignInStatus.Failed);
     }
 
-    private async Task<SignInResult> SucceedAsync(UserAccount user, long organizationId, bool usedTwoFactor, CancellationToken ct)
+    private async Task<SignInResult> SucceedAsync(UserAccount user, long organizationId, bool usedTwoFactor, CancellationToken ct, string? via = null)
     {
         user.RegisterSuccessfulSignIn();
         db.AuditEntries.Add(AuditEntry.Create(clock.UtcNow, organizationId, user.Id, AuditActions.SignedIn, nameof(UserAccount),
-            user.Id.ToString(), after: usedTwoFactor ? "пароль и 2FA" : "пароль", reason: WithAddress(null), correlationId: currentUser.CorrelationId));
+            user.Id.ToString(), after: via ?? (usedTwoFactor ? "пароль и 2FA" : "пароль"), reason: WithAddress(null), correlationId: currentUser.CorrelationId));
         await db.SaveChangesAsync(ct);
         return new SignInResult(SignInStatus.Succeeded,
             new SessionIdentity(user.Id, user.DisplayName, user.SecurityStamp, organizationId, usedTwoFactor, user.Language));

@@ -153,6 +153,25 @@ internal sealed class RecoveryCodeConfiguration : IEntityTypeConfiguration<Recov
     }
 }
 
+internal sealed class TrustedDeviceConfiguration : IEntityTypeConfiguration<TrustedDevice>
+{
+    public void Configure(EntityTypeBuilder<TrustedDevice> b)
+    {
+        b.ToTable("user_trusted_devices", t => t.HasCheckConstraint("ck_user_trusted_devices_expiry", "[ExpiresAtUtc] > [CreatedAtUtc]"));
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.TokenHash).HasColumnType("binary(32)").IsRequired();
+        b.Property(x => x.Label).HasMaxLength(TrustedDevice.LabelMaxLength).IsRequired();
+        b.Property(x => x.CreatedAtUtc).HasColumnType("datetime2(3)");
+        b.Property(x => x.ExpiresAtUtc).HasColumnType("datetime2(3)");
+        b.Property(x => x.LastUsedAtUtc).HasColumnType("datetime2(3)");
+        b.Property(x => x.RevokedAtUtc).HasColumnType("datetime2(3)");
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasIndex(x => x.TokenHash).IsUnique().HasDatabaseName("ux_user_trusted_devices_token");
+        b.HasIndex(x => new { x.UserId, x.RevokedAtUtc }).HasDatabaseName("ix_user_trusted_devices_user");
+    }
+}
+
 internal sealed class OrganizationMemberConfiguration : IEntityTypeConfiguration<OrganizationMember>
 {
     public void Configure(EntityTypeBuilder<OrganizationMember> b)

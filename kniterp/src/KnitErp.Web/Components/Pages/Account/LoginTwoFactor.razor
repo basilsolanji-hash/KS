@@ -16,6 +16,8 @@
 
 <EditForm Model="Input" method="post" FormName="login-2fa" OnValidSubmit="SubmitAsync">
     <label>@L("Код") <InputText @bind-Value="Input.Code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="20" required /></label>
+    <label class="inline"><InputCheckbox @bind-Value="Input.Trust" /> @L("Доверять этому устройству 30 дней")</label>
+    <p class="muted small">@L("На своём компьютере или телефоне код не будет спрашиваться 30 дней — только пароль. Не отмечайте на чужом или общем устройстве. Отозвать доверие можно в «Безопасности».")</p>
     <button type="submit">@L("Подтвердить")</button>
 </EditForm>
 
@@ -51,9 +53,15 @@
             return;
         }
 
-        var result = await SignIn.TwoFactorSignInAsync(_pending, Input.Code, HttpContext.RequestAborted);
+        var result = await SignIn.TwoFactorSignInAsync(_pending, Input.Code, Input.Trust ? TrustedDeviceCookie.Label(HttpContext) : null,
+            HttpContext.RequestAborted);
         if (result.Status == SignInStatus.Succeeded)
         {
+            if (result.DeviceToken is { } device)
+            {
+                TrustedDeviceCookie.Write(HttpContext, device);
+            }
+
             await PendingSignInCookie.CompleteAsync(HttpContext, result.Session!);
             // Вход по резервному коду: показать, сколько кодов осталось, и предложить перевыпуск.
             Navigation.NavigateTo(result.RecoveryCodesLeft is { } left ? $"security?left={left}" : ReturnUrls.Safe(ReturnUrl), forceLoad: true);
@@ -67,5 +75,6 @@
     private sealed class CodeInput
     {
         public string Code { get; set; } = string.Empty;
+        public bool Trust { get; set; }
     }
 }

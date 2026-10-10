@@ -128,15 +128,41 @@ public enum NotificationLevel
     Warning,
 }
 
-public sealed record NotificationDto(string Text, string? Href, string? ToolId, NotificationLevel Level);
+/// <summary>
+/// Key — устойчивый ключ ситуации: «✕» скрывает именно её; изменилась (новое число, новый срок) — уведомление появится снова.
+/// </summary>
+public sealed record NotificationDto(string Text, string? Href, string? ToolId, NotificationLevel Level, string Key = "");
+
+/// <summary>Видимые уведомления и сколько скрыто пользователем.</summary>
+public sealed record NotificationListDto(IReadOnlyList<NotificationDto> Items, int Hidden);
 
 /// <summary>
 /// Уведомления собираются из существующих модулей при открытии, а не хранятся отдельно: напоминания из задач,
 /// документы на утверждение и к проведению в области пользователя, ответы и новые обращения поддержки.
+/// Пользователь может убрать уведомление или очистить все (D81): скрытые ключи хранятся в его личных данных.
 /// </summary>
 public sealed class NotificationService(IKnitErpDbContextFactory factory, PersonalToolsService personal, ICurrentUser currentUser, IClock clock)
 {
-    public async Task<IReadOnlyList<NotificationDto>> ListAsync(CancellationToken ct = default)
+    /// <summary>Видимые уведомления (без скрытых пользователем).</summary>
+    public async Task<IReadOnlyList<NotificationDto>> ListAsync(CancellationToken ct = default) => (await ListWithHiddenAsync(ct)).Items;
+
+    public async Task<NotificationListDto> ListWithHiddenAsync(CancellationToken ct = default)
+    {
+        var all = await CollectAsync(ct);
+        var dismissed = await personal.GetDismissedNotificationsAsync(ct);
+        var visible = all.Where(n => !dismissed.Contains(n.Key)).ToList();
+        return new NotificationListDto(visible, all.Count - visible.Count);
+    }
+
+    public Task DismissAsync(string key, CancellationToken ct = default) => personal.DismissNotificationsAsync([key], ct);
+
+    /// <summary>«Очистить все»: скрываются уведомления, видимые сейчас; новые появятся как обычно.</summary>
+    public async Task DismissAllAsync(CancellationToken ct = default) =>
+        await personal.DismissNotificationsAsync((await CollectAsync(ct)).Select(n => n.Key), ct);
+
+    public Task RestoreAsync(CancellationToken ct = default) => personal.RestoreNotificationsAsync(ct);
+
+    private async Task<List<NotificationDto>> CollectAsync(CancellationToken ct)
     {
         var result = new List<NotificationDto>();
         await using (var db = factory.Create())
@@ -149,7 +175,8 @@ public sealed class NotificationService(IKnitErpDbContextFactory factory, Person
                          .OrderBy(t => t.Date).ThenBy(t => t.Time))
             {
                 var when = task.Date == today ? $"сегодня{(task.Time is { } time ? $" в {time:HH\\:mm}" : "")}" : $"просрочено с {PersonalToolsService.FormatDate(task.Date!.Value)}";
-                result.Add(new(task.Title + " — " + when, null, ToolCatalog.Calendar, task.Date < today ? NotificationLevel.Warning : NotificationLevel.Info));
+                result.Add(new(task.Title + " — " + when, null, ToolCatalog.Calendar, task.Date < today ? NotificationLevel.Warning : NotificationLevel.Info,
+                    $"task:{task.Id}:{task.Date:yyyyMMdd}:{task.Time:HHmm}"));
             }
 
             if (ctx.Permissions.Has(Permissions.OpeningBalanceApprove))
@@ -160,7 +187,8 @@ public sealed class NotificationService(IKnitErpDbContextFactory factory, Person
                                      && d.CreatedByUserId != ctx.UserId && (visible == null || visible.Contains(d.WarehouseId)), ct);
                 if (waiting > 0)
                 {
-                    result.Add(new($"Начальные остатки ждут утверждения: {waiting}", "opening-balances", null, NotificationLevel.Action));
+                    result.Add(new($"Начальные остатки ждут утверждения: {waiting}", "opening-balances", null, NotificationLevel.Action,
+                        $"opening:{waiting}"));
                 }
             }
 
@@ -175,12 +203,13 @@ public sealed class NotificationService(IKnitErpDbContextFactory factory, Person
                                      && (visible == null || visible.Contains(d.WarehouseId)), ct);
                 if (drafts > 0)
                 {
-                    result.Add(new($"Черновики складских документов к проведению: {drafts}", "stock-documents", null, NotificationLevel.Action));
+                    result.Add(new($"Черновики складских документов к проведению: {drafts}", "stock-documents", null, NotificationLevel.Action,
+                        $"drafts:{drafts}"));
                 }
 
                 if (counts > 0)
                 {
-                    result.Add(new($"Незавершённые инвентаризации: {counts}", "inventory", null, NotificationLevel.Action));
+                    result.Add(new($"Незавершённые инвентаризации: {counts}", "inventory", null, NotificationLevel.Action, $"counts:{counts}"));
                 }
             }
 
@@ -188,7 +217,8 @@ public sealed class NotificationService(IKnitErpDbContextFactory factory, Person
                 .Where(t => t.OrganizationId == ctx.OrganizationId && t.AuthorUserId == ctx.UserId && t.UnreadByAuthor)
                 .Select(t => new { t.Number, t.Status }).ToListAsync(ct);
             result.AddRange(answered.Select(t => new NotificationDto(
-                $"Обращение {t.Number}: {SupportTicket.StatusName(t.Status).ToLowerInvariant()}", null, ToolCatalog.Support, NotificationLevel.Info)));
+                $"Обращение {t.Number}: {SupportTicket.StatusName(t.Status).ToLowerInvariant()}", null, ToolCatalog.Support, NotificationLevel.Info,
+                $"ticket:{t.Number}:{t.Status}")));
 
             if (ctx.Permissions.Has(Permissions.UserManage))
             {
@@ -196,7 +226,7 @@ public sealed class NotificationService(IKnitErpDbContextFactory factory, Person
                     .CountAsync(t => t.OrganizationId == ctx.OrganizationId && t.Status == SupportTicketStatus.Open, ct);
                 if (fresh > 0)
                 {
-                    result.Add(new($"Новые обращения в поддержку: {fresh}", null, ToolCatalog.Support, NotificationLevel.Action));
+                    result.Add(new($"Новые обращения в поддержку: {fresh}", null, ToolCatalog.Support, NotificationLevel.Action, $"support:{fresh}"));
                 }
             }
         }

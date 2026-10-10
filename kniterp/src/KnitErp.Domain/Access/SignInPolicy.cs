@@ -10,6 +10,16 @@ public static class SignInPolicy
     /// <summary>Срок ссылки приглашения — 72 часа (план ядра доступа).</summary>
     public static readonly TimeSpan InvitationLifetime = TimeSpan.FromHours(72);
 
+    // Допущение D81: ссылка «Забыли пароль» на почту — 1 час, повторно не чаще раза в 5 минут;
+    // ссылка, выданная администратором, — 24 часа (передаётся лично, а не по почте).
+    public static readonly TimeSpan PasswordResetLifetime = TimeSpan.FromHours(1);
+    public static readonly TimeSpan PasswordResetResendInterval = TimeSpan.FromMinutes(5);
+    public static readonly TimeSpan AdminPasswordResetLifetime = TimeSpan.FromHours(24);
+
+    // Допущение D81: «Доверять этому устройству» — 30 дней, не больше 10 устройств на пользователя.
+    public static readonly TimeSpan TrustedDeviceLifetime = TimeSpan.FromDays(30);
+    public const int MaxTrustedDevices = 10;
+
     // Допущение D25: 5 неудачных попыток подряд блокируют вход на 15 минут.
     public const int MaxFailedAttempts = 5;
     public static readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(15);

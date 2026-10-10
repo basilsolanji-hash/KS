@@ -20,6 +20,7 @@ public sealed class KnitErpDbContext(DbContextOptions<KnitErpDbContext> options)
     public DbSet<Organization> Organizations => Set<Organization>();
     public DbSet<UserAccount> Users => Set<UserAccount>();
     public DbSet<RecoveryCode> RecoveryCodes => Set<RecoveryCode>();
+    public DbSet<TrustedDevice> TrustedDevices => Set<TrustedDevice>();
     public DbSet<OrganizationMember> OrganizationMembers => Set<OrganizationMember>();
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<RoleAssignment> RoleAssignments => Set<RoleAssignment>();

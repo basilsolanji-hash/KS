@@ -45,6 +45,8 @@ public static class DependencyInjection
         services.AddScoped<Taxes.VatInvoiceService>();
         services.AddScoped<Printing.PrintService>();
         services.AddScoped<RecoveryCodeService>();
+        services.AddScoped<PasswordResetService>();
+        services.AddScoped<TrustedDeviceService>();
         services.AddScoped<Structure.EmployeeExchangeService>();
         services.AddScoped<Organizations.LaunchReadinessService>();
         // Кэш главного экрана (DashboardService): общий на процесс, ключ — организация, пользователь и его права.

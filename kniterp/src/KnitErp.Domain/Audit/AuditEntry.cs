@@ -91,6 +91,11 @@ public static class AuditActions
     public const string TwoFactorEnabled = "auth.2fa.enabled";
     public const string RecoveryCodesIssued = "auth.recovery_codes.issued";
     public const string RecoveryCodeUsed = "auth.recovery_code.used";
+    public const string DeviceTrusted = "auth.device.trusted";
+    public const string DeviceRevoked = "auth.device.revoked";
+    public const string PasswordResetRequested = "auth.password_reset.requested";
+    public const string PasswordReset = "auth.password.reset";
+    public const string PasswordResetIssued = "access.password_reset.issued";
     public const string EmergencyAccess = "access.emergency";
     public const string DepartmentCreated = "structure.department.created";
     public const string DepartmentChanged = "structure.department.changed";

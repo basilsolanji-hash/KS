@@ -19,7 +19,8 @@
     <button type="submit">@L("Войти")</button>
 </EditForm>
 
-<p class="muted" style="margin-top: 24px">@L("Нет пароля? Попросите администратора организации прислать приглашение.")</p>
+<p style="margin-top: 16px"><a href="account/forgot-password">@L("Забыли пароль?")</a></p>
+<p class="muted">@L("Нет пароля? Попросите администратора организации прислать приглашение.")</p>
 
 @code {
     [CascadingParameter]
@@ -37,7 +38,7 @@
 
     private async Task SubmitAsync()
     {
-        var result = await SignIn.PasswordSignInAsync(Input.Email, Input.Password, HttpContext.RequestAborted);
+        var result = await SignIn.PasswordSignInAsync(Input.Email, Input.Password, TrustedDeviceCookie.Read(HttpContext), HttpContext.RequestAborted);
         var returnQuery = $"?returnUrl={Uri.EscapeDataString(ReturnUrls.Safe(ReturnUrl))}";
         switch (result.Status)
         {

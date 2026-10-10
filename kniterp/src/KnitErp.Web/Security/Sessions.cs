@@ -107,3 +107,51 @@ public sealed class SessionRevalidatingAuthenticationStateProvider(ILoggerFactor
         return await signIn.ValidateSessionAsync(session.UserId, session.OrganizationId, session.SecurityStamp, cancellationToken);
     }
 }
+
+/// <summary>
+/// Cookie доверенного устройства (D81): случайный токен, в базе — только его SHA-256. Только для страниц /account,
+/// недоступна скриптам, только по HTTPS. Выход из системы её не удаляет — в этом и смысл «доверять устройству».
+/// </summary>
+public static class TrustedDeviceCookie
+{
+    public const string Name = "kniterp.device";
+
+    public static string? Read(HttpContext http) => http.Request.Cookies.TryGetValue(Name, out var value) ? value : null;
+
+    public static void Write(HttpContext http, string token) =>
+        http.Response.Cookies.Append(Name, token, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = true,
+            SameSite = SameSiteMode.Strict,
+            Path = "/account",
+            IsEssential = true,
+            Expires = DateTimeOffset.UtcNow + KnitErp.Domain.Access.SignInPolicy.TrustedDeviceLifetime,
+        });
+
+    /// <summary>«Chrome, Windows» — по заголовку User-Agent, чтобы пользователь узнал устройство в списке.</summary>
+    public static string Label(HttpContext http)
+    {
+        var ua = http.Request.Headers.UserAgent.ToString();
+        var browser = ua switch
+        {
+            _ when ua.Contains("YaBrowser", StringComparison.Ordinal) => "Яндекс Браузер",
+            _ when ua.Contains("Edg/", StringComparison.Ordinal) => "Edge",
+            _ when ua.Contains("OPR/", StringComparison.Ordinal) => "Opera",
+            _ when ua.Contains("Firefox/", StringComparison.Ordinal) => "Firefox",
+            _ when ua.Contains("Chrome/", StringComparison.Ordinal) => "Chrome",
+            _ when ua.Contains("Safari/", StringComparison.Ordinal) => "Safari",
+            _ => "Браузер",
+        };
+        var system = ua switch
+        {
+            _ when ua.Contains("Android", StringComparison.Ordinal) => "Android",
+            _ when ua.Contains("iPhone", StringComparison.Ordinal) || ua.Contains("iPad", StringComparison.Ordinal) => "iOS",
+            _ when ua.Contains("Windows", StringComparison.Ordinal) => "Windows",
+            _ when ua.Contains("Mac OS X", StringComparison.Ordinal) => "macOS",
+            _ when ua.Contains("Linux", StringComparison.Ordinal) => "Linux",
+            _ => null,
+        };
+        return system is null ? browser : $"{browser}, {system}";
+    }
+}

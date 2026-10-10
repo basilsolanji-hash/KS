@@ -40,6 +40,10 @@ public sealed class PersonalToolsService(IKnitErpDbContextFactory factory, ICurr
     private const string LinksKind = "links";
     private const string FavoritesKind = "favorites";
     private const string WeatherKind = "weather";
+    private const string DismissedKind = "notifications-dismissed";
+
+    /// <summary>Сколько скрытых уведомлений помнить: старые ключи вытесняются (их ситуации давно сменились).</summary>
+    public const int MaxDismissed = 300;
 
     /// <summary>Настройка главного экрана; её же читает <see cref="Organizations.DashboardService"/> вместе с данными экрана.</summary>
     public const string DashboardKind = "dashboard";
@@ -82,6 +86,27 @@ public sealed class PersonalToolsService(IKnitErpDbContextFactory factory, ICurr
             .Distinct().Take(ToolCatalog.MaxPinned).ToList();
         return new PanelSettings(pinned, Math.Clamp(s.Visible, 0, ToolCatalog.MaxVisible));
     }
+
+    // --- Скрытые уведомления ------------------------------------------------------------------
+
+    /// <summary>Ключи уведомлений, которые пользователь убрал («✕», «Очистить все»).</summary>
+    public async Task<IReadOnlySet<string>> GetDismissedNotificationsAsync(CancellationToken ct = default) =>
+        (await LoadAsync<List<string>>(DismissedKind, ct) ?? []).ToHashSet(StringComparer.Ordinal);
+
+    public async Task DismissNotificationsAsync(IEnumerable<string> keys, CancellationToken ct = default)
+    {
+        var list = await LoadAsync<List<string>>(DismissedKind, ct) ?? [];
+        foreach (var key in keys.Where(k => !string.IsNullOrWhiteSpace(k) && k.Length <= 200).Distinct(StringComparer.Ordinal))
+        {
+            list.Remove(key);
+            list.Add(key);
+        }
+
+        await SaveAsync(DismissedKind, list.Skip(Math.Max(0, list.Count - MaxDismissed)).ToList(), ct);
+    }
+
+    /// <summary>«Показать скрытые»: список скрытых очищается.</summary>
+    public Task RestoreNotificationsAsync(CancellationToken ct = default) => SaveAsync(DismissedKind, new List<string>(), ct);
 
     // --- Главный экран ------------------------------------------------------------------------
 

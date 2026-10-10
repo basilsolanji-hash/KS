@@ -1,6 +1,7 @@
 @page "/security"
 @using KnitErp.Web.Components.Shared
 @inject RecoveryCodeService Recovery
+@inject TrustedDeviceService Devices
 
 <PageTitle>@L("Вход и резервные коды") — knitERP</PageTitle>
 
@@ -72,6 +73,39 @@ else
             <button type="button" @onclick="IssueAsync" disabled="@_busy">@(_status.Remaining == 0 ? L("Выпустить резервные коды") : L("Выпустить новые коды"))</button>
         </div>
     }
+
+    @if (_status.TwoFactorEnabled && _devices is not null)
+    {
+        <h2 style="margin-top: 20px">@L("Доверенные устройства")</h2>
+        <p class="muted">@L("С этих браузеров вход — только по паролю, без кода, 30 дней с момента доверия. Смена пароля, сброс 2FA и блокировка отзывают доверие у всех устройств.")</p>
+        @if (_devices.Count == 0)
+        {
+            <p class="muted">@L("Доверенных устройств нет. Отметьте «Доверять этому устройству» при вводе кода.")</p>
+        }
+        else
+        {
+            <div class="scroll">
+                <table class="compact">
+                    <thead><tr><th>@L("Устройство")</th><th>@L("Доверено")</th><th class="opt">@L("Последний вход")</th><th class="opt">@L("До")</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var d in _devices)
+                        {
+                            <tr>
+                                <td>@d.Label</td>
+                                <td>@Local(d.CreatedAtUtc)</td>
+                                <td>@(d.LastUsedAtUtc is { } used ? Local(used) : "—")</td>
+                                <td>@Local(d.ExpiresAtUtc)</td>
+                                <td><button type="button" class="secondary" @onclick="() => RevokeAsync(d.Id)" disabled="@_busy">@L("Забыть")</button></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div class="actions">
+                <button type="button" class="secondary" @onclick="() => RevokeAsync(null)" disabled="@_busy">@L("Забыть все устройства")</button>
+            </div>
+        }
+    }
 }
 
 @code {
@@ -87,13 +121,33 @@ else
     public int? Left { get; set; }
 
     private RecoveryCodeStatus? _status;
+    private IReadOnlyList<TrustedDeviceDto>? _devices;
     private IReadOnlyList<string>? _codes;
     private bool _busy;
     private string? _error;
 
-    protected override async Task OnInitializedAsync() => _status = await Recovery.GetStatusAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        _status = await Recovery.GetStatusAsync();
+        _devices = await Devices.ListAsync();
+    }
 
-    private async Task IssueAsync()
+    private string Local(DateTime utc) => TimeZones.ToLocal(utc, CurrentAccess.TimeZoneId).ToString("dd.MM.yyyy HH:mm");
+
+    private Task IssueAsync() => RunAsync(async () =>
+    {
+        _codes = await Recovery.IssueAsync();
+        _status = await Recovery.GetStatusAsync();
+    });
+
+    private Task RevokeAsync(long? id) => RunAsync(async () =>
+    {
+        await Devices.RevokeAsync(id);
+        _devices = await Devices.ListAsync();
+    });
+
+    /// <summary>Одна операция за раз: у вкладки один DbContext.</summary>
+    private async Task RunAsync(Func<Task> action)
     {
         if (_busy)
         {
@@ -104,8 +158,7 @@ else
         _error = null;
         try
         {
-            _codes = await Recovery.IssueAsync();
-            _status = await Recovery.GetStatusAsync();
+            await action();
         }
         catch (Exception ex) when (UiErrors.IsUserFacing(ex))
         {
