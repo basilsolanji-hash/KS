@@ -52,6 +52,8 @@ public interface IKnitErpDbContext : IAsyncDisposable
     DbSet<ItemCharacteristicValue> ItemCharacteristicValues { get; }
     DbSet<ItemPhoto> ItemPhotos { get; }
     DbSet<KnitErp.Domain.Finance.MoneyOperation> MoneyOperations { get; }
+    DbSet<KnitErp.Domain.Finance.CashFlowItem> CashFlowItems { get; }
+    DbSet<KnitErp.Domain.Finance.ExpenseReport> ExpenseReports { get; }
     DbSet<KnitErp.Domain.Finance.CustomerPaymentAllocation> CustomerPaymentAllocations { get; }
     DbSet<KnitErp.Domain.Finance.SupplierPaymentAllocation> SupplierPaymentAllocations { get; }
     DbSet<OrganizationMember> OrganizationMembers { get; }

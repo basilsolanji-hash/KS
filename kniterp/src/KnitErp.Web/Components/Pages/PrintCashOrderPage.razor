@@ -148,6 +148,7 @@ else
                 "customer-payment" => await Sales.PaymentCashOrderAsync(Id),
                 "supplier-payment" => await Purchases.PaymentCashOrderAsync(Id),
                 null => await Operations.CashOrderAsync(Id),
+                "transfer-in" => await Operations.CashOrderAsync(Id, true),
                 _ => throw new NotFoundException("Кассовый ордер"),
             };
         }

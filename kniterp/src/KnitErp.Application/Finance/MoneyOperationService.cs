@@ -10,8 +10,13 @@ using Microsoft.EntityFrameworkCore;
 
 namespace KnitErp.Application.Finance;
 
+/// <summary>
+/// CashFlowItemId — статья ДДС (D86); не указана — «Прочие поступления» или «Прочие выплаты», с сотрудником — подотчётная статья.
+/// EmployeeId — подотчётное лицо: выдача под отчёт или возврат остатка аванса.
+/// </summary>
 public sealed record MoneyOperationCommand(
-    DateOnly Date, MoneyOperationKind Kind, long AccountId, long? TargetAccountId, decimal Amount, string? Party, string? Basis, string? Comment);
+    DateOnly Date, MoneyOperationKind Kind, long AccountId, long? TargetAccountId, decimal Amount, string? Party, string? Basis, string? Comment,
+    long? CashFlowItemId = null, long? EmployeeId = null);
 
 /// <summary>
 /// Кассовый ордер для печати: КО-1 (приходный) или КО-2 (расходный) по формам постановления Госкомстата России № 88.
@@ -26,7 +31,9 @@ public sealed record MoneyOperationFilter(DateOnly? From = null, DateOnly? To = 
 
 public sealed record MoneyOperationDto(
     long Id, string Number, DateOnly Date, MoneyOperationKind Kind, bool Cash, long AccountId, string Account, long? TargetAccountId, string? TargetAccount,
-    string LegalEntity, decimal Amount, string? Party, string Basis, string? Comment, MoneyOperationStatus Status, string? CancelReason, byte[] RowVersion)
+    string LegalEntity, decimal Amount, string? Party, string Basis, string? Comment, MoneyOperationStatus Status, string? CancelReason, byte[] RowVersion,
+    string? CashFlowItem = null, long? EmployeeId = null, string? Employee = null, string? CashOrderNumber = null, string? TargetCashOrderNumber = null,
+    bool TargetCash = false)
 {
     public string KindName => MoneyOperation.KindName(Kind, Cash);
 }
@@ -67,7 +74,8 @@ public sealed class MoneyOperationService(IKnitErpDbContext db, IAccessGuard gua
 
         var rows = await q.OrderByDescending(o => o.OperationDate).ThenByDescending(o => o.Id).Take(MaxRows).ToListAsync(ct);
         var accounts = await AccountsAsync(ctx, ct);
-        return rows.Select(o => Map(o, accounts)).ToList();
+        var names = await NamesAsync(ctx, rows, ct);
+        return rows.Select(o => Map(o, accounts, names)).ToList();
     }
 
     public async Task<MoneyOperationDto> GetAsync(long id, CancellationToken ct = default)
@@ -75,17 +83,35 @@ public sealed class MoneyOperationService(IKnitErpDbContext db, IAccessGuard gua
         var ctx = await guard.DemandAsync(Permissions.PriceView, ct);
         var op = await db.MoneyOperations.AsNoTracking().SingleOrDefaultAsync(o => o.Id == id && o.OrganizationId == ctx.OrganizationId, ct)
                  ?? throw new NotFoundException("Денежная операция");
-        return Map(op, await AccountsAsync(ctx, ct));
+        return Map(op, await AccountsAsync(ctx, ct), await NamesAsync(ctx, [op], ct));
     }
 
     /// <summary>Кассовый ордер — только для поступления в кассу и выдачи из кассы.</summary>
-    public async Task<CashOrderPrintDto> CashOrderAsync(long id, CancellationToken ct = default)
+    public async Task<CashOrderPrintDto> CashOrderAsync(long id, CancellationToken ct = default) => await CashOrderAsync(id, false, ct);
+
+    /// <summary>Кассовый ордер операции. У перемещения: incoming = false — РКО кассы-источника, true — ПКО кассы-получателя.</summary>
+    public async Task<CashOrderPrintDto> CashOrderAsync(long id, bool incoming, CancellationToken ct = default)
     {
         var ctx = await guard.DemandAsync(Permissions.PriceView, ct);
         var op = await db.MoneyOperations.AsNoTracking().SingleOrDefaultAsync(o => o.Id == id && o.OrganizationId == ctx.OrganizationId, ct)
                  ?? throw new NotFoundException("Денежная операция");
+        if (op.Kind == MoneyOperationKind.Transfer)
+        {
+            var number = incoming ? op.TargetCashOrderNumber : op.CashOrderNumber;
+            var cashId = incoming ? op.TargetAccountId!.Value : op.AccountId;
+            if (number is null)
+            {
+                throw new BusinessRuleException("money.print.not_cash", "Кассовый ордер печатается для поступления в кассу или выдачи из кассы.");
+            }
+
+            var other = await db.LegalEntityAccounts.AsNoTracking().SingleAsync(a => a.Id == (incoming ? op.AccountId : op.TargetAccountId), ct);
+            var otherLabel = MoneyService.Label(other.Kind, other.BankName, other.Account);
+            return await BuildCashOrderAsync(db, ctx.OrganizationId, !incoming, number, op.OperationDate, cashId, op.Amount,
+                incoming ? $"Из: {otherLabel}" : $"В: {otherLabel}", op.Basis, op.Comment, op.Status == MoneyOperationStatus.Cancelled, NoVat, ct);
+        }
+
         var cash = await db.LegalEntityAccounts.AsNoTracking().SingleAsync(a => a.Id == op.AccountId, ct);
-        if (!cash.IsCash || op.Kind == MoneyOperationKind.Transfer)
+        if (!cash.IsCash)
         {
             throw new BusinessRuleException("money.print.not_cash", "Кассовый ордер печатается для поступления в кассу или выдачи из кассы.");
         }
@@ -152,19 +178,42 @@ public sealed class MoneyOperationService(IKnitErpDbContext db, IAccessGuard gua
         }
 
         await ClosedPeriod.EnsureOpenAsync(db, ctx.OrganizationId, cmd.Date, ct);
+        var (itemId, employee) = await ResolveItemAsync(ctx, cmd, ct);
+        var party = employee is not null && string.IsNullOrWhiteSpace(cmd.Party) ? employee.FullName : cmd.Party;
 
         // Все проверки — до выдачи номера: счётчик сохраняется сразу, и отказ после него оставил бы счётчик в контексте вкладки.
-        MoneyOperation.Create(ctx.OrganizationId, "—", cmd.Date, cmd.Kind, cmd.AccountId, cmd.TargetAccountId, cmd.Amount, cmd.Party, cmd.Basis,
-            cmd.Comment, ctx.UserId, clock.UtcNow);
+        MoneyOperation.Create(ctx.OrganizationId, "—", cmd.Date, cmd.Kind, cmd.AccountId, cmd.TargetAccountId, cmd.Amount, party, cmd.Basis,
+            cmd.Comment, ctx.UserId, clock.UtcNow, itemId, employee?.Id);
         await using var tx = await db.BeginTransactionAsync(ct);
         if (cmd.Kind != MoneyOperationKind.Income)
         {
             await MoneyService.EnsureCashAsync(db, ctx.OrganizationId, source.Id, cmd.Amount, ct);
         }
 
+        // Возврат остатка аванса — не больше долга сотрудника; одновременные возвраты одного сотрудника — по очереди.
+        if (employee is not null && cmd.Kind == MoneyOperationKind.Income)
+        {
+            await db.LockAsync($"kniterp.accountable.{ctx.OrganizationId}.{employee.Id}", ct);
+            var debt = await AccountableService.DebtAsync(db, ctx.OrganizationId, employee.Id, ct);
+            if (cmd.Amount > debt)
+            {
+                throw new BusinessRuleException("money.accountable.return_exceeds",
+                    $"{employee.FullName} должен вернуть не больше {Math.Max(debt, 0):0.00}: выдано под отчёт за вычетом возвратов и утверждённых отчётов.");
+            }
+        }
+
         var number = await DocumentNumbers.NextAsync(db, ctx.OrganizationId, MoneyOperation.PrefixFor(cmd.Kind, source.IsCash), ct);
-        var op = MoneyOperation.Create(ctx.OrganizationId, number, cmd.Date, cmd.Kind, cmd.AccountId, cmd.TargetAccountId, cmd.Amount, cmd.Party, cmd.Basis,
-            cmd.Comment, ctx.UserId, clock.UtcNow);
+        var op = MoneyOperation.Create(ctx.OrganizationId, number, cmd.Date, cmd.Kind, cmd.AccountId, cmd.TargetAccountId, cmd.Amount, party, cmd.Basis,
+            cmd.Comment, ctx.UserId, clock.UtcNow, itemId, employee?.Id);
+
+        // D86: перемещение из кассы — РКО, в кассу — ПКО (в общей нумерации кассовых ордеров): так оно попадает в кассовую книгу.
+        if (op.Kind == MoneyOperationKind.Transfer && (source.IsCash || target!.IsCash))
+        {
+            op.AssignTransferCashOrders(
+                source.IsCash ? await DocumentNumbers.NextAsync(db, ctx.OrganizationId, MoneyOperation.ExpenseCashPrefix, ct) : null,
+                target!.IsCash ? await DocumentNumbers.NextAsync(db, ctx.OrganizationId, MoneyOperation.IncomeCashPrefix, ct) : null);
+        }
+
         db.MoneyOperations.Add(op);
         await db.SaveChangesAsync(ct);
         Audit(ctx, AuditActions.MoneyOperationCreated, op, null, $"{op.Amount:0.00}",
@@ -218,12 +267,89 @@ public sealed class MoneyOperationService(IKnitErpDbContext db, IAccessGuard gua
             .ToListAsync(ct))
         .ToDictionary(a => a.Id, a => (MoneyService.Label(a.Kind, a.BankName, a.Account), a.ShortName, a.Kind == MoneyAccountKind.Cash));
 
-    private static MoneyOperationDto Map(MoneyOperation o, IReadOnlyDictionary<long, (string Label, string Entity, bool Cash)> accounts)
+    private static MoneyOperationDto Map(MoneyOperation o, IReadOnlyDictionary<long, (string Label, string Entity, bool Cash)> accounts,
+        (Dictionary<long, string> Items, Dictionary<long, string> Employees) names)
     {
         var source = accounts[o.AccountId];
         return new MoneyOperationDto(o.Id, o.Number, o.OperationDate, o.Kind, source.Cash, o.AccountId, source.Label, o.TargetAccountId,
             o.TargetAccountId is { } t ? accounts[t].Label : null, source.Entity, o.Amount, o.Party, o.Basis, o.Comment, o.Status, o.CancelReason,
-            o.RowVersion);
+            o.RowVersion, o.CashFlowItemId is { } i ? names.Items[i] : null, o.EmployeeId, o.EmployeeId is { } e ? names.Employees[e] : null,
+            o.CashOrderNumber, o.TargetCashOrderNumber, o.TargetAccountId is { } tc && accounts[tc].Cash);
+    }
+
+    private async Task<(Dictionary<long, string> Items, Dictionary<long, string> Employees)> NamesAsync(AccessContext ctx, IReadOnlyCollection<MoneyOperation> rows,
+        CancellationToken ct)
+    {
+        var itemIds = rows.Where(r => r.CashFlowItemId != null).Select(r => r.CashFlowItemId!.Value).Distinct().ToList();
+        var employeeIds = rows.Where(r => r.EmployeeId != null).Select(r => r.EmployeeId!.Value).Distinct().ToList();
+        var items = await db.CashFlowItems.AsNoTracking().Where(i => i.OrganizationId == ctx.OrganizationId && itemIds.Contains(i.Id))
+            .ToDictionaryAsync(i => i.Id, i => i.Name, ct);
+        var employees = (await db.Employees.AsNoTracking().Where(e => e.OrganizationId == ctx.OrganizationId && employeeIds.Contains(e.Id))
+                .Select(e => new { e.Id, e.LastName, e.FirstName, e.MiddleName }).ToListAsync(ct))
+            .ToDictionary(e => e.Id, e => AccountableService.Name(e.LastName, e.FirstName, e.MiddleName));
+        return (items, employees);
+    }
+
+    /// <summary>
+    /// Статья и подотчётное лицо операции (D86): статья — своя, действующая, по направлению операции; статьи оплат покупателей и
+    /// поставщикам — только для оплат; подотчётные статьи требуют сотрудника, а сотрудник допустим только с ними.
+    /// </summary>
+    private async Task<(long? ItemId, KnitErp.Domain.Structure.Employee? Employee)> ResolveItemAsync(AccessContext ctx, MoneyOperationCommand cmd,
+        CancellationToken ct)
+    {
+        if (cmd.Kind == MoneyOperationKind.Transfer)
+        {
+            if (cmd.CashFlowItemId is not null || cmd.EmployeeId is not null)
+            {
+                throw new BusinessRuleException("money.transfer.item", "Перемещение между своими счетами не относится к статьям движения денег.");
+            }
+
+            return (null, null);
+        }
+
+        var income = cmd.Kind == MoneyOperationKind.Income;
+        var item = cmd.CashFlowItemId is { } id
+            ? await db.CashFlowItems.AsNoTracking().SingleOrDefaultAsync(i => i.Id == id && i.OrganizationId == ctx.OrganizationId, ct)
+              ?? throw new NotFoundException("Статья движения денег")
+            : await CashFlowItemService.SystemAsync(db, ctx.OrganizationId,
+                cmd.EmployeeId is null ? (income ? CashFlowItem.OtherIncome : CashFlowItem.OtherExpense)
+                    : income ? CashFlowItem.AccountableReturn : CashFlowItem.AccountableIssue, ct);
+        if (item.IsArchived)
+        {
+            throw new BusinessRuleException("cash_flow_item.archived", $"Статья «{item.Name}» в архиве.");
+        }
+
+        if (item.Direction != (income ? CashFlowDirection.In : CashFlowDirection.Out))
+        {
+            throw new BusinessRuleException("cash_flow_item.direction_mismatch",
+                $"Статья «{item.Name}» — для {(item.Direction == CashFlowDirection.In ? "поступлений" : "выплат")}.");
+        }
+
+        if (item.SystemCode is CashFlowItem.CustomerPayments or CashFlowItem.SupplierPayments)
+        {
+            throw new BusinessRuleException("cash_flow_item.payments_only",
+                $"Статья «{item.Name}» — для оплат покупателей и поставщикам: запишите оплату в её разделе, тогда она уменьшит долг.");
+        }
+
+        var accountable = item.SystemCode is CashFlowItem.AccountableIssue or CashFlowItem.AccountableReturn;
+        if (accountable != (cmd.EmployeeId is not null))
+        {
+            throw new BusinessRuleException("money.accountable.employee",
+                accountable ? $"Для статьи «{item.Name}» укажите подотчётное лицо." : "Сотрудник указывается только для выдачи под отчёт и возврата подотчётной суммы.");
+        }
+
+        KnitErp.Domain.Structure.Employee? employee = null;
+        if (cmd.EmployeeId is { } eid)
+        {
+            employee = await db.Employees.AsNoTracking().SingleOrDefaultAsync(e => e.Id == eid && e.OrganizationId == ctx.OrganizationId, ct)
+                       ?? throw new NotFoundException("Сотрудник");
+            if (!income && employee.Status == KnitErp.Domain.Structure.EmploymentStatus.Dismissed)
+            {
+                throw new BusinessRuleException("money.accountable.dismissed", $"{employee.FullName} уволен — под отчёт не выдаётся.");
+            }
+        }
+
+        return (item.Id, employee);
     }
 
     private async Task<AccessContext> DemandEditAsync(CancellationToken ct)

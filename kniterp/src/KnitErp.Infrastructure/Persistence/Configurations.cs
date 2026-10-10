@@ -842,6 +842,11 @@ internal sealed class MoneyOperationConfiguration : IEntityTypeConfiguration<Kni
             t.HasCheckConstraint("ck_money_operations_amount", "[Amount] > 0");
             t.HasCheckConstraint("ck_money_operations_target",
                 "([Kind] = 3 AND [TargetAccountId] IS NOT NULL AND [TargetAccountId] <> [AccountId]) OR ([Kind] <> 3 AND [TargetAccountId] IS NULL)");
+            t.HasCheckConstraint("ck_money_operations_transfer_item",
+                "[Kind] <> 3 OR ([CashFlowItemId] IS NULL AND [EmployeeId] IS NULL)");
+            t.HasCheckConstraint("ck_money_operations_item_required", "[Kind] = 3 OR [CashFlowItemId] IS NOT NULL");
+            t.HasCheckConstraint("ck_money_operations_transfer_orders",
+                "[Kind] = 3 OR ([CashOrderNumber] IS NULL AND [TargetCashOrderNumber] IS NULL)");
             t.HasCheckConstraint("ck_money_operations_cancel",
                 "([Status] = 9 AND [CancelledAtUtc] IS NOT NULL AND [CancelReason] IS NOT NULL) OR ([Status] = 1 AND [CancelledAtUtc] IS NULL)");
         });
@@ -862,6 +867,16 @@ internal sealed class MoneyOperationConfiguration : IEntityTypeConfiguration<Kni
         b.HasOne<LegalEntityAccount>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.TargetAccountId })
             .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict).HasConstraintName("fk_money_operations_target");
         b.HasIndex(x => new { x.OrganizationId, x.Number }).IsUnique().HasDatabaseName("ux_money_operations_org_number");
+        b.Property(x => x.CashOrderNumber).HasMaxLength(30);
+        b.Property(x => x.TargetCashOrderNumber).HasMaxLength(30);
+        b.HasIndex(x => new { x.OrganizationId, x.CashOrderNumber }).IsUnique().HasFilter("[CashOrderNumber] IS NOT NULL")
+            .HasDatabaseName("ux_money_operations_org_cash_order");
+        b.HasIndex(x => new { x.OrganizationId, x.TargetCashOrderNumber }).IsUnique().HasFilter("[TargetCashOrderNumber] IS NOT NULL")
+            .HasDatabaseName("ux_money_operations_org_target_cash_order");
+        b.HasOne<KnitErp.Domain.Finance.CashFlowItem>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.CashFlowItemId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict).HasConstraintName("fk_money_operations_cash_flow_item");
+        b.HasOne<Employee>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EmployeeId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict).HasConstraintName("fk_money_operations_employee");
         b.HasIndex(x => new { x.OrganizationId, x.OperationDate }).HasDatabaseName("ix_money_operations_org_date");
     }
 }
@@ -1515,5 +1530,81 @@ internal sealed class SupplierPaymentAllocationConfiguration : IEntityTypeConfig
             .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict).HasConstraintName("fk_supplier_payment_allocations_payment");
         b.HasOne<PurchaseOrder>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.OrderId })
             .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict).HasConstraintName("fk_supplier_payment_allocations_order");
+    }
+}
+
+internal sealed class CashFlowItemConfiguration : IEntityTypeConfiguration<KnitErp.Domain.Finance.CashFlowItem>
+{
+    public void Configure(EntityTypeBuilder<KnitErp.Domain.Finance.CashFlowItem> b)
+    {
+        b.ToTable("cash_flow_items", t =>
+        {
+            t.HasCheckConstraint("ck_cash_flow_items_direction", "[Direction] IN (1, 2)");
+            t.HasCheckConstraint("ck_cash_flow_items_system_active", "[SystemCode] IS NULL OR [IsArchived] = 0");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Direction).HasConversion<byte>();
+        b.Property(x => x.Name).HasMaxLength(KnitErp.Domain.Finance.CashFlowItem.NameMaxLength).IsRequired();
+        b.Property(x => x.SystemCode).HasMaxLength(40);
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.Ignore(x => x.IsSystem);
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasIndex(x => new { x.OrganizationId, x.Direction, x.Name }).IsUnique().HasDatabaseName("ux_cash_flow_items_org_direction_name");
+        b.HasIndex(x => new { x.OrganizationId, x.SystemCode }).IsUnique().HasFilter("[SystemCode] IS NOT NULL")
+            .HasDatabaseName("ux_cash_flow_items_org_system");
+    }
+}
+
+internal sealed class ExpenseReportConfiguration : IEntityTypeConfiguration<KnitErp.Domain.Finance.ExpenseReport>
+{
+    public void Configure(EntityTypeBuilder<KnitErp.Domain.Finance.ExpenseReport> b)
+    {
+        b.ToTable("expense_reports", t =>
+        {
+            t.HasCheckConstraint("ck_expense_reports_status", "[Status] IN (1, 2, 9)");
+            t.HasCheckConstraint("ck_expense_reports_approved",
+                "([Status] = 1 AND [ApprovedAtUtc] IS NULL) OR ([Status] = 2 AND [ApprovedAtUtc] IS NOT NULL) OR [Status] = 9");
+            t.HasCheckConstraint("ck_expense_reports_cancel",
+                "([Status] = 9 AND [CancelledAtUtc] IS NOT NULL AND [CancelReason] IS NOT NULL) OR ([Status] <> 9 AND [CancelledAtUtc] IS NULL)");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Number).HasMaxLength(30).IsRequired();
+        b.Property(x => x.Status).HasConversion<byte>();
+        b.Property(x => x.Purpose).HasMaxLength(KnitErp.Domain.Finance.ExpenseReport.PurposeMaxLength);
+        b.Property(x => x.CancelReason).HasMaxLength(KnitErp.Domain.Finance.ExpenseReport.ReasonMaxLength);
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.Ignore(x => x.Total);
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<Employee>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EmployeeId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict).HasConstraintName("fk_expense_reports_employee");
+        b.HasOne<LegalEntity>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.LegalEntityId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict).HasConstraintName("fk_expense_reports_legal_entity");
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.ApprovedByUserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.CancelledByUserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasIndex(x => new { x.OrganizationId, x.Number }).IsUnique().HasDatabaseName("ux_expense_reports_org_number");
+        b.HasIndex(x => new { x.OrganizationId, x.EmployeeId, x.ReportDate }).HasDatabaseName("ix_expense_reports_org_employee_date");
+        b.HasMany(x => x.Lines).WithOne().HasForeignKey(x => x.ExpenseReportId).OnDelete(DeleteBehavior.Cascade);
+        b.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field).HasField("_lines");
+    }
+}
+
+internal sealed class ExpenseReportLineConfiguration : IEntityTypeConfiguration<KnitErp.Domain.Finance.ExpenseReportLine>
+{
+    public void Configure(EntityTypeBuilder<KnitErp.Domain.Finance.ExpenseReportLine> b)
+    {
+        b.ToTable("expense_report_lines", t =>
+        {
+            t.HasCheckConstraint("ck_expense_report_lines_amount", "[Amount] > 0");
+            t.HasTrigger("tr_expense_report_lines_draft_only");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Amount).HasColumnType("decimal(19,4)");
+        b.Property(x => x.Document).HasMaxLength(KnitErp.Domain.Finance.ExpenseReportLine.DocumentMaxLength).IsRequired();
+        b.Property(x => x.Description).HasMaxLength(KnitErp.Domain.Finance.ExpenseReportLine.DescriptionMaxLength);
+        b.HasOne<KnitErp.Domain.Finance.CashFlowItem>().WithMany().HasForeignKey(x => x.CashFlowItemId).OnDelete(DeleteBehavior.Restrict);
     }
 }

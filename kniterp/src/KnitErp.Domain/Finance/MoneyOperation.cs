@@ -63,6 +63,21 @@ public sealed class MoneyOperation
     public string Basis { get; private set; } = string.Empty;
 
     public string? Comment { get; private set; }
+
+    /// <summary>Статья движения денег (D86): у поступления — статья поступления, у выдачи — статья выплаты; у перемещения — нет.</summary>
+    public long? CashFlowItemId { get; private set; }
+
+    /// <summary>Подотчётное лицо (D86): выдача под отчёт (выдача) или возврат неиспользованного аванса (поступление).</summary>
+    public long? EmployeeId { get; private set; }
+
+    /// <summary>
+    /// Кассовые ордера перемещения (D86): из кассы — РКО (CashOrderNumber), в кассу — ПКО (TargetCashOrderNumber); номер самой
+    /// операции — ПД. Так сдача выручки в банк и получение наличных попадают в кассовую книгу под своими ордерами.
+    /// </summary>
+    public string? CashOrderNumber { get; private set; }
+
+    public string? TargetCashOrderNumber { get; private set; }
+
     public MoneyOperationStatus Status { get; private set; }
     public long CreatedByUserId { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
@@ -73,7 +88,7 @@ public sealed class MoneyOperation
 
     public static MoneyOperation Create(
         long organizationId, string number, DateOnly date, MoneyOperationKind kind, long accountId, long? targetAccountId, decimal amount,
-        string? party, string? basis, string? comment, long userId, DateTime nowUtc)
+        string? party, string? basis, string? comment, long userId, DateTime nowUtc, long? cashFlowItemId = null, long? employeeId = null)
     {
         if (amount <= 0 || Money.Round(amount) != amount)
         {
@@ -90,6 +105,11 @@ public sealed class MoneyOperation
             if (targetAccountId == accountId)
             {
                 throw new BusinessRuleException("money.transfer.same", "Счёт списания и зачисления совпадают.");
+            }
+
+            if (cashFlowItemId is not null || employeeId is not null)
+            {
+                throw new BusinessRuleException("money.transfer.item", "Перемещение между своими счетами не относится к статьям движения денег.");
             }
         }
         else if (targetAccountId is not null)
@@ -109,10 +129,23 @@ public sealed class MoneyOperation
             Party = kind == MoneyOperationKind.Transfer ? null : DomainText.Optional(party, PartyMaxLength, "Принято от / выдать"),
             Basis = DomainText.Require(basis, BasisMaxLength, "Основание"),
             Comment = DomainText.Optional(comment, CommentMaxLength, "Комментарий"),
+            CashFlowItemId = cashFlowItemId,
+            EmployeeId = employeeId,
             Status = MoneyOperationStatus.Posted,
             CreatedByUserId = userId,
             CreatedAtUtc = nowUtc,
         };
+    }
+
+    public void AssignTransferCashOrders(string? fromCash, string? toCash)
+    {
+        if (Kind != MoneyOperationKind.Transfer)
+        {
+            throw new InvalidOperationException("Кассовые ордера перемещения — только у перемещения.");
+        }
+
+        CashOrderNumber = fromCash;
+        TargetCashOrderNumber = toCash;
     }
 
     public void Cancel(long userId, string? reason, DateTime nowUtc)

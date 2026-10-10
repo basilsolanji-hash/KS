@@ -1,0 +1,134 @@
+@page "/print/cash-book"
+@layout KnitErp.Web.Components.Layout.PrintLayout
+@using System.Globalization
+@using KnitErp.Application.Finance
+@inject CashReportsService Reports
+
+@*
+    Кассовая книга, форма КО-4 (ОКУД 0310004, постановление Госкомстата России от 18.08.1998 № 88): лист за день — вкладной лист
+    и отчёт кассира с одинаковым содержанием; ведение — п. 4.6 Указания Банка России от 11.03.2014 № 3210-У. Печатается по-русски (D68).
+*@
+<PageTitle>Кассовая книга — knitERP</PageTitle>
+<style>@@media print { @@page { size: A4 portrait; margin: 10mm; } .ko4-sheet { page-break-after: always; } }</style>
+
+<div class="print-bar">
+    <button type="button" data-print>@L("Печать")</button>
+    <a href="cash-book">@L("← Назад")</a>
+    @if (_book is { SoleProprietor: true })
+    {
+        <span class="warn">@L("Индивидуальный предприниматель, который ведёт учёт доходов по НК РФ, может не вести кассовую книгу (п. 4.6 Указания № 3210-У).")</span>
+    }
+</div>
+
+@if (_error is not null)
+{
+    <div class="sheet portrait"><p>@_error</p></div>
+}
+else if (_book is null)
+{
+    <div class="sheet portrait"><p>@L("Загрузка…")</p></div>
+}
+else
+{
+    var b = _book;
+    @foreach (var s in b.Sheets)
+    {
+        @foreach (var part in new[] { "Вкладной лист кассовой книги", "Отчёт кассира" })
+        {
+            <div class="sheet portrait ko4-sheet">
+                <div class="small" style="text-align: right">
+                    Унифицированная форма № КО-4<br />
+                    Утверждена постановлением Госкомстата России от 18.08.98 № 88
+                </div>
+                <table class="plain">
+                    <tr><td><b>@b.Organization</b>@(b.Inn is null ? "" : $", ИНН {b.Inn}")@(b.Kpp is null ? "" : $", КПП {b.Kpp}")<div class="small">организация</div></td>
+                        <td style="width: 120px; text-align: right">Форма по ОКУД</td><td class="code">0310004</td></tr>
+                    <tr><td>@b.Cashbox<div class="small">структурное подразделение (касса)</div></td><td style="text-align: right">по ОКПО</td><td class="code"></td></tr>
+                </table>
+                <p style="text-align: center; margin: 10px 0 4px"><b>@part.ToUpperInvariant()</b></p>
+                <p style="text-align: center; margin: 0 0 8px">Касса за @s.Date.ToString("dd.MM.yyyy") &nbsp;&nbsp; Лист @s.SheetNumber</p>
+                <table>
+                    <tr>
+                        <th>Номер документа</th><th>От кого получено или кому выдано</th><th>Номер корреспондирующего счёта, субсчёта</th>
+                        <th>Приход, руб. коп.</th><th>Расход, руб. коп.</th>
+                    </tr>
+                    <tr><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th></tr>
+                    <tr><td></td><td><b>Остаток на начало дня</b></td><td class="c">X</td><td class="n">@Money(s.Opening)</td><td class="c">X</td></tr>
+                    @foreach (var l in s.Lines)
+                    {
+                        <tr><td>@l.Number</td><td>@l.Party</td><td></td><td class="n">@(l.In == 0 ? "" : Money(l.In))</td><td class="n">@(l.Out == 0 ? "" : Money(l.Out))</td></tr>
+                    }
+                    <tr><td></td><td><b>Итого за день</b></td><td class="c">X</td><td class="n">@Money(s.In)</td><td class="n">@Money(s.Out)</td></tr>
+                    <tr><td></td><td><b>Остаток на конец дня</b></td><td class="c">X</td><td class="n">@Money(s.Closing)</td><td class="c">X</td></tr>
+                    <tr><td></td><td>в том числе на выдачу заработной платы, выплат социального характера и стипендий</td><td class="c">X</td><td></td><td class="c">X</td></tr>
+                </table>
+                <div class="sign" style="margin-top: 18px">
+                    <div>Кассир <span class="line"></span> <span class="line"></span></div>
+                </div>
+                <p style="margin-top: 14px">
+                    Записи в кассовой книге проверил и документы в количестве
+                    <b>@Words(s.IncomeOrders)</b> приходных и <b>@Words(s.ExpenseOrders)</b> расходных получил.
+                </p>
+                <div class="sign">
+                    <div>Бухгалтер <span class="line"></span> @(b.AccountantName ?? b.DirectorName)</div>
+                </div>
+            </div>
+        }
+    }
+    @if (b.Sheets.Count == 0)
+    {
+        <div class="sheet portrait"><p>За период кассовых ордеров нет.</p></div>
+    }
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "account")]
+    public long Account { get; set; }
+
+    [SupplyParameterFromQuery(Name = "from")]
+    public string? From { get; set; }
+
+    [SupplyParameterFromQuery(Name = "to")]
+    public string? To { get; set; }
+
+    private CashBookDto? _book;
+    private string? _error;
+
+    private static readonly CultureInfo Ru = CultureInfo.GetCultureInfo("ru-RU");
+
+    private static string Money(decimal value) => value.ToString("N2", Ru);
+
+    /// <summary>Количество документов прописью — как принято в форме («два приходных»).</summary>
+    private static string Words(int count) => count switch
+    {
+        0 => "ноль",
+        1 => "один",
+        2 => "два",
+        3 => "три",
+        4 => "четыре",
+        5 => "пять",
+        6 => "шесть",
+        7 => "семь",
+        8 => "восемь",
+        9 => "девять",
+        10 => "десять",
+        _ => count.ToString(Ru),
+    };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            if (!DateOnly.TryParseExact(From, "yyyy-MM-dd", out var from) || !DateOnly.TryParseExact(To, "yyyy-MM-dd", out var to))
+            {
+                throw new BusinessRuleException("money.report.period", "Укажите период.");
+            }
+
+            _book = await Reports.CashBookAsync(Account, from, to);
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _error = UiErrors.Message(ex);
+        }
+    }
+}

@@ -5,6 +5,8 @@
 @using KnitErp.Domain.Organizations
 @inject MoneyService Money
 @inject MoneyOperationService Operations
+@inject CashFlowItemService Items
+@inject AccountableService Accountables
 
 <PageTitle>@L("Касса и счета") — knitERP</PageTitle>
 
@@ -26,7 +28,7 @@ else
         <h1>@L("Касса и счета")</h1>
         @if (CanEdit && _form is null)
         {
-            <button type="button" @onclick="OpenForm" disabled="@_busy">@L("Новая операция")</button>
+            <button type="button" @onclick="OpenFormAsync" disabled="@_busy">@L("Новая операция")</button>
         }
     </div>
 
@@ -71,7 +73,7 @@ else
                     <div class="grid">
                         <label>
                             @L("Вид")
-                            <select @bind="_form.Kind">
+                            <select @bind="_form.Kind" @bind:after="() => _form.Item = string.Empty">
                                 <option value="@MoneyOperationKind.Income">@L("Поступление")</option>
                                 <option value="@MoneyOperationKind.Expense">@L("Выдача")</option>
                                 <option value="@MoneyOperationKind.Transfer">@L("Перемещение между своими счетами и кассами")</option>
@@ -100,9 +102,35 @@ else
                                 </select>
                             </label>
                         }
+                        @if (_form.Kind != MoneyOperationKind.Transfer)
+                        {
+                            <label>
+                                @L("Статья")
+                                <select @bind="_form.Item">
+                                    <option value="">@(_form.Kind == MoneyOperationKind.Income ? L("Прочие поступления") : L("Прочие выплаты"))</option>
+                                    @foreach (var i in ItemOptions())
+                                    {
+                                        <option value="@i.Id">@i.Name</option>
+                                    }
+                                </select>
+                            </label>
+                            @if (Accountable())
+                            {
+                                <label>
+                                    @L("Подотчётное лицо")
+                                    <select @bind="_form.Employee" required>
+                                        <option value="">—</option>
+                                        @foreach (var e in _employees)
+                                        {
+                                            <option value="@e.Id">@e.Name</option>
+                                        }
+                                    </select>
+                                </label>
+                            }
+                        }
                         <label>@L("Дата") <input type="date" @bind="_form.Date" required /></label>
                         <label>@L("Сумма") <input @bind="_form.Amount" inputmode="decimal" required /></label>
-                        @if (_form.Kind != MoneyOperationKind.Transfer)
+                        @if (_form.Kind != MoneyOperationKind.Transfer && !Accountable())
                         {
                             <label>@(_form.Kind == MoneyOperationKind.Income ? L("Принято от") : L("Выдать")) <input @bind="_form.Party" maxlength="@MoneyOperation.PartyMaxLength" placeholder="@L("Фамилия Имя Отчество")" /></label>
                         }
@@ -173,7 +201,7 @@ else
                     <tr class="@(cancelled ? "archived" : null)">
                         <td>@r.Number @if (cancelled) { <span class="tag" title="@r.CancelReason">@L("отменена")</span> }</td>
                         <td>@r.Date.ToString("dd.MM.yyyy")</td>
-                        <td>@KindName(r)</td>
+                        <td>@KindName(r)@if (r.CashFlowItem is { } item) { <div class="muted small">@item</div> }</td>
                         <td>@r.Account@(r.TargetAccount is null ? "" : " → " + r.TargetAccount)<div class="muted small">@r.LegalEntity</div></td>
                         <td class="num @(r.Kind == MoneyOperationKind.Expense ? "neg" : null)">@(r.Kind == MoneyOperationKind.Expense ? "−" : "")@Amounts.Format(r.Amount)</td>
                         <td>@(r.Party ?? "—")</td>
@@ -183,6 +211,14 @@ else
                                 @if (r.Cash && r.Kind != MoneyOperationKind.Transfer)
                                 {
                                     <a class="button secondary" href="print/cash-order/@r.Id" target="_blank" rel="noopener">@L("Печать")</a>
+                                }
+                                @if (r.CashOrderNumber is not null)
+                                {
+                                    <a class="button secondary" href="print/cash-order/@r.Id" target="_blank" rel="noopener" title="@r.CashOrderNumber">РКО</a>
+                                }
+                                @if (r.TargetCashOrderNumber is not null)
+                                {
+                                    <a class="button secondary" href="print/cash-order/transfer-in/@r.Id" target="_blank" rel="noopener" title="@r.TargetCashOrderNumber">ПКО</a>
                                 }
                                 @if (CanEdit && !cancelled)
                                 {
@@ -228,7 +264,20 @@ else
         public string? Party { get; set; }
         public string? Basis { get; set; }
         public string? Comment { get; set; }
+        public string Item { get; set; } = string.Empty;
+        public string Employee { get; set; } = string.Empty;
     }
+
+    private IReadOnlyList<CashFlowItemDto> _items = [];
+    private IReadOnlyList<KnitErp.Application.Structure.LookupDto> _employees = [];
+
+    /// <summary>Статьи по направлению операции; статьи оплат покупателей и поставщикам — в своих разделах, здесь их нет.</summary>
+    private IEnumerable<CashFlowItemDto> ItemOptions() => _items.Where(i =>
+        i.Direction == (_form!.Kind == MoneyOperationKind.Income ? CashFlowDirection.In : CashFlowDirection.Out)
+        && i.SystemCode is not (CashFlowItem.CustomerPayments or CashFlowItem.SupplierPayments or CashFlowItem.OtherIncome or CashFlowItem.OtherExpense));
+
+    private bool Accountable() => _items.FirstOrDefault(i => i.Id.ToString() == _form?.Item)?.SystemCode
+        is CashFlowItem.AccountableIssue or CashFlowItem.AccountableReturn;
 
     protected override async Task OnInitializedAsync()
     {
@@ -268,8 +317,27 @@ else
         _ => [L("Сдача наличной выручки в банк"), L("Получение наличных с расчётного счёта"), L("Перевод между расчётными счетами")],
     };
 
-    private void OpenForm()
+    private async Task OpenFormAsync()
     {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            if (_items.Count == 0)
+            {
+                _items = await Items.ListAsync();
+                _employees = (await Accountables.OptionsAsync()).Employees;
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+
         _message = null;
         _form = new OperationForm { Date = TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId).Date, Account = _accounts.FirstOrDefault()?.Id.ToString() ?? string.Empty };
     }
@@ -280,8 +348,16 @@ else
     {
         var f = _form!;
         var amount = Decimals.Parse(f.Amount, L("Сумма")) ?? throw new BusinessRuleException("money.amount", L("Укажите сумму."));
+        var transfer = f.Kind == MoneyOperationKind.Transfer;
+        long? employee = !transfer && Accountable() && long.TryParse(f.Employee, out var e) ? e : null;
+        if (!transfer && Accountable() && employee is null)
+        {
+            throw new BusinessRuleException("money.accountable.employee", L("Выберите подотчётное лицо."));
+        }
+
         var id = await Operations.CreateAsync(new MoneyOperationCommand(DateOnly.FromDateTime(f.Date), f.Kind, long.Parse(f.Account),
-            f.Kind == MoneyOperationKind.Transfer && long.TryParse(f.Target, out var t) ? t : null, amount, f.Party, f.Basis, f.Comment));
+            transfer && long.TryParse(f.Target, out var t) ? t : null, amount, Accountable() ? null : f.Party, f.Basis, f.Comment,
+            !transfer && long.TryParse(f.Item, out var item) ? item : null, employee));
         _form = null;
         var op = await Operations.GetAsync(id);
         _message = L("Проведено: {0} {1}.", L(op.KindName), op.Number);

@@ -96,6 +96,10 @@ public static class AuditActions
     public const string MoneyOperationCancelled = "money.operation.cancelled";
     public const string PaymentAllocated = "payment.allocated";
     public const string PaymentAllocationRemoved = "payment.allocation.removed";
+    public const string ExpenseReportCreated = "expense_report.created";
+    public const string ExpenseReportChanged = "expense_report.changed";
+    public const string ExpenseReportApproved = "expense_report.approved";
+    public const string ExpenseReportCancelled = "expense_report.cancelled";
     public const string DeviceRevoked = "auth.device.revoked";
     public const string PasswordResetRequested = "auth.password_reset.requested";
     public const string PasswordReset = "auth.password.reset";

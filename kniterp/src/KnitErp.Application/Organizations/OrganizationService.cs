@@ -124,6 +124,7 @@ public sealed class OrganizationService(IKnitErpDbContext db, IAccessGuard guard
         Sales.SalesStageService.SeedDefaults(db, org.Id);
         LegalEntityService.SeedDefault(db, org);
         Catalog.NomenclatureService.SeedDefaultPriceType(db, org.Id);
+        Finance.CashFlowItemService.SeedDefaults(db, org.Id);
         db.VatRates.AddRange(KnitErp.Domain.Catalog.VatRate.DefaultsFor(org.Id, org.CountryCode));
         db.OrganizationMembers.Add(OrganizationMember.Join(org.Id, owner.Id, now));
         await db.SaveChangesAsync(ct);

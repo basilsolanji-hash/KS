@@ -93,7 +93,10 @@ public sealed class MoneyOperationTests(SqlTestHost host) : IClassFixture<SqlTes
         Assert.Equal(("Иванов И. И.", "Касса цеха", 1_000m), (ko1.Party, ko1.Cashbox, ko1.Amount));
         Assert.StartsWith("Одна тысяча", ko1.AmountInWords, StringComparison.OrdinalIgnoreCase);
         Assert.True((await s.MoneyOperations.CashOrderAsync(expense)).Cancelled);
-        Assert.Equal("money.print.not_cash", (await Assert.ThrowsAsync<BusinessRuleException>(() => s.MoneyOperations.CashOrderAsync(transfer))).Code);
+        // D86: сдача наличных в банк — РКО кассы в общей нумерации (после РКО-000001 выдачи); стороны банка ордера нет.
+        var rko = await s.MoneyOperations.CashOrderAsync(transfer);
+        Assert.Equal((true, "РКО-000002", 500m), (rko.Expense, rko.Number, rko.Amount));
+        Assert.Equal("money.print.not_cash", (await Assert.ThrowsAsync<BusinessRuleException>(() => s.MoneyOperations.CashOrderAsync(transfer, true))).Code);
         Assert.Equal("money.print.not_cash", (await Assert.ThrowsAsync<BusinessRuleException>(() => s.MoneyOperations.CashOrderAsync(bankIn))).Code);
 
         // Аудит: создание и отмена.
