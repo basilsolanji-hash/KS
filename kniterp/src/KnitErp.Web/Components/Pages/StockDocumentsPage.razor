@@ -18,11 +18,11 @@ else if (_rows is null)
 else
 {
     <div class="page-head">
-        <h1>@L("Складские документы")</h1>
+        <h1>@(KindQuery == "1" ? L("Поступления") : L("Складские документы"))</h1>
         @if (CurrentAccess.Has(Permissions.WarehouseDocumentCreate) && _form is null)
         {
             <div class="actions">
-                @foreach (var kind in StockDocument.Kinds)
+                @foreach (var kind in StockDocument.Kinds.Where(k => KindQuery is null || ((byte)k).ToString() == KindQuery))
                 {
                     <button type="button" @onclick="() => OpenCreateAsync(kind)" disabled="@_busy">@NewLabel(kind)</button>
                 }
@@ -152,11 +152,33 @@ else
 
     private sealed record CreateForm(StockOperationKind Kind, StockDocumentOptions Options, StockDocumentHeaderFields.Model Header);
 
-    protected override async Task OnInitializedAsync()
+    /// <summary>Из меню и с главного экрана: ?kind=1 — поступления, ?status=1 — черновики.</summary>
+    [SupplyParameterFromQuery(Name = "kind")]
+    public string? KindQuery { get; set; }
+
+    [SupplyParameterFromQuery(Name = "status")]
+    public string? StatusQuery { get; set; }
+
+    private string? _appliedQuery;
+
+    protected override async Task OnParametersSetAsync()
     {
+        var query = $"{KindQuery}|{StatusQuery}";
+        if (_rows is not null && _appliedQuery == query)
+        {
+            return;
+        }
+
+        _appliedQuery = query;
+        _kind = KindQuery ?? string.Empty;
+        _status = StatusQuery ?? string.Empty;
         try
         {
-            _warehouses = await Documents.ListVisibleWarehousesAsync();
+            if (_warehouses.Count == 0)
+            {
+                _warehouses = await Documents.ListVisibleWarehousesAsync();
+            }
+
             await LoadAsync();
         }
         catch (AccessDeniedException ex)

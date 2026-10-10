@@ -220,40 +220,6 @@ else
         <p class="muted">@L("Показано {0} из {1}. Уточните поиск или тип.", _list.Items.Count, _list.Total)</p>
     }
 
-    <h2 style="margin-top: 32px">@L("Единицы измерения")</h2>
-    <p class="muted">@L("Знаков после запятой — сколько дробных разрядов допустимо в количестве: штуки целые, килограммы до граммов.")</p>
-    @if (_list.CanEdit)
-    {
-        <form class="inline-form" @onsubmit="CreateUnitAsync">
-            <label>@L("Код") <input @bind="_unit.Code" maxlength="10" size="6" placeholder="@L("ОКЕИ")" /></label>
-            <label>@L("Наименование") <input @bind="_unit.Name" maxlength="50" placeholder="@L("Бобина")" /></label>
-            <label>@L("Обозначение") <input @bind="_unit.Symbol" maxlength="10" size="6" placeholder="@L("боб")" /></label>
-            <label>@L("Знаков") <input type="number" min="0" max="6" @bind="_unit.Precision" style="width: 70px" /></label>
-            <button type="submit" disabled="@_busy">@L("Добавить")</button>
-        </form>
-    }
-    <div class="scroll">
-        <table>
-            <thead><tr><th>@L("Код")</th><th>@L("Наименование")</th><th>@L("Обозначение")</th><th>@L("Знаков")</th><th>@L("Позиций")</th>@if (_list.CanArchive) { <th>@L("Действия")</th> }</tr></thead>
-            <tbody>
-                @foreach (var u in _units)
-                {
-                    <tr class="@(u.IsArchived ? "archived" : null)">
-                        <td>@u.Code</td><td>@u.Name @if (u.IsArchived) { <span class="tag">@L("архив")</span> }</td><td>@u.Symbol</td><td>@u.Precision</td><td>@u.ItemCount</td>
-                        @if (_list.CanArchive)
-                        {
-                            <td>
-                                @if (!u.IsArchived)
-                                {
-                                    <button type="button" class="secondary" @onclick="() => ArchiveUnitAsync(u)" disabled="@_busy">@L("В архив")</button>
-                                }
-                            </td>
-                        }
-                    </tr>
-                }
-            </tbody>
-        </table>
-    </div>
 }
 
 @code {
@@ -263,7 +229,6 @@ else
     private IReadOnlyList<UnitDto> _units = [];
     private IReadOnlyList<VatRateDto> _vatRates = [];
     private ItemForm _form = new();
-    private UnitCommandForm _unit = new();
     private ItemDto? _target;
     private Mode _mode;
     private bool _busy;
@@ -358,7 +323,6 @@ else
     private Task RestoreItemAsync(ItemDto i) =>
         RunAsync(() => Catalog.RestoreItemAsync(i.Id, i.RowVersion), L("Позиция «{0}» возвращена из архива.", i.Name));
 
-    private Task ArchiveUnitAsync(UnitDto u) => RunAsync(() => Catalog.ArchiveUnitAsync(u.Id, u.RowVersion), L("Единица «{0}» в архиве.", u.Name));
 
     /// <summary>Файл читается в память целиком (до 5 МБ) и проверяется; в базе ничего не меняется.</summary>
     private Task PreviewImportAsync(InputFileChangeEventArgs e) => RunAsync(async () =>
@@ -398,12 +362,6 @@ else
         ImportAction.Error => "bad",
         _ => null,
     };
-
-    private Task CreateUnitAsync() => RunAsync(async () =>
-    {
-        await Catalog.CreateUnitAsync(new UnitCommand(_unit.Code, _unit.Name, _unit.Symbol, _unit.Precision));
-        _unit = new UnitCommandForm();
-    }, L("Единица добавлена."));
 
     /// <summary>Одна операция за раз, затем свежие данные: у вкладки один DbContext.</summary>
     private async Task RunAsync(Func<Task> action, string? success)
@@ -455,13 +413,5 @@ else
         public long UnitId { get; set; }
         public string? Description { get; set; }
         public long? VatRateId { get; set; }
-    }
-
-    private sealed class UnitCommandForm
-    {
-        public string Code { get; set; } = string.Empty;
-        public string Name { get; set; } = string.Empty;
-        public string Symbol { get; set; } = string.Empty;
-        public byte Precision { get; set; }
     }
 }

@@ -6,7 +6,7 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 
-<div class="shell">
+<div class="shell @(_narrow ? "narrow" : "")">
     <nav class="side" aria-label="@L("Разделы")">
         <div class="side-head">
             <div class="logo">knit<span style="color: #2BA89A">ERP</span></div>
@@ -24,20 +24,41 @@
         <div id="nav-body" class="nav-body @(_menuOpen ? "open" : "")">
         @if (_access is not null)
         {
-            @foreach (var item in Items)
+            @foreach (var group in Groups)
             {
-                @if (Sections.TryGetValue(item.Href, out var groupTitle))
+                var open = IsOpen(group);
+                @if (group.Items.Length == 1)
                 {
-                    <div class="nav-section">@L(groupTitle)</div>
+                    var item = group.Items[0];
+                    <NavLink class="nav-single" href="@item.Href" Match="@(item.Href == "" ? NavLinkMatch.All : NavLinkMatch.Prefix)" title="@L(group.Title)">
+                        <Icon Name="@group.Key" Size="16" /><span class="nav-text">@L(group.Title)</span>
+                    </NavLink>
+                    continue;
                 }
-                <NavLink href="@item.Href" Match="@(item.Href == "" ? NavLinkMatch.All : NavLinkMatch.Prefix)">
-                    @L(item.Label)
-                    @if (!item.Allowed(_access))
+
+                <div class="nav-group @(open ? "open" : "")">
+                    <button type="button" class="nav-group-head" aria-expanded="@(open ? "true" : "false")" title="@L(group.Title)"
+                            @onclick="() => Toggle(group.Key)">
+                        <Icon Name="@group.Key" Size="16" /><span class="nav-text">@L(group.Title)</span><span class="caret" aria-hidden="true">▾</span>
+                    </button>
+                    @if (open)
                     {
-                        <span class="tag">@L("нет доступа")</span>
+                        <div class="nav-items">
+                            @foreach (var item in group.Items)
+                            {
+                                <a href="@item.Href" class="@(item.Href == Current ? "active" : null)" aria-current="@(item.Href == Current ? "page" : null)">
+                                    @L(item.Label)
+                                    @if (!item.Allowed(_access))
+                                    {
+                                        <span class="tag">@L("нет доступа")</span>
+                                    }
+                                </a>
+                            }
+                        </div>
                     }
-                </NavLink>
+                </div>
             }
+            <button type="button" class="nav-collapse" @onclick="ToggleNarrow" title="@(_narrow ? L("Развернуть меню") : L("Свернуть меню"))">@(_narrow ? "»" : "«")</button>
         }
         </div>
     </nav>
@@ -73,47 +94,118 @@
 @code {
     private CurrentAccessDto? _access;
 
-    // Пункты без доступа видны и кликабельны: сервер ответит отказом и запишет попытку в журнал.
-    private static readonly (string Href, string Label, Func<CurrentAccessDto, bool> Allowed)[] Items =
+    private sealed record NavItem(string Href, string Label, Func<CurrentAccessDto, bool> Allowed);
+
+    private sealed record NavGroup(string Key, string Title, NavItem[] Items);
+
+    private static bool Docs(CurrentAccessDto a) =>
+        a.Has(Permissions.WarehouseDocumentCreate) || a.Has(Permissions.WarehouseDocumentPost) || a.Has(Permissions.WarehouseReportView);
+
+    // Разделы меню по работе фабрики. Названия — русские ключи, переводятся при показе (L), чтобы меню было на языке
+    // текущего пользователя. Пункты без доступа видны и кликабельны: сервер ответит отказом и запишет попытку в журнал.
+    private static readonly NavGroup[] Groups =
     [
-        ("", L("Организация"), a => a.Has(Permissions.OrganizationView)),
-        ("launch", L("Готовность к запуску"), a => a.Has(Permissions.OrganizationEdit)),
-        ("structure", L("Структура"), a => a.Has(Permissions.DepartmentView)),
-        ("employees", L("Сотрудники"), a => a.HasOwnOnly(Permissions.EmployeeView)),
-        ("catalog", L("Номенклатура"), a => a.Has(Permissions.CatalogView)),
-        ("warehouses", L("Склады"), a => a.Has(Permissions.CatalogView)),
-        ("counterparties", L("Контрагенты"), a => a.Has(Permissions.CatalogView)),
-        ("vat-rates", L("Ставки НДС"), a => a.Has(Permissions.CatalogView)),
-        ("opening-balances", L("Начальные остатки"), a => a.Has(Permissions.OpeningBalanceCreate) || a.Has(Permissions.OpeningBalanceApprove)
-                                                   || a.Has(Permissions.WarehouseReportView)),
-        ("stock-documents", L("Складские документы"), a => a.Has(Permissions.WarehouseDocumentCreate) || a.Has(Permissions.WarehouseDocumentPost)
-                                                     || a.Has(Permissions.WarehouseReportView)),
-        ("inventory", L("Инвентаризация"), a => a.Has(Permissions.WarehouseDocumentCreate) || a.Has(Permissions.WarehouseDocumentPost)
-                                          || a.Has(Permissions.WarehouseReportView)),
-        ("stock", L("Остатки"), a => a.Has(Permissions.WarehouseReportView)),
-        ("reports/movements", L("Движения"), a => a.Has(Permissions.WarehouseReportView)),
-        ("reports/turnover", L("Обороты"), a => a.Has(Permissions.WarehouseReportView)),
-        ("reports/inventory-variances", L("Отклонения инвентаризации"), a => a.Has(Permissions.WarehouseReportView)),
-        ("reconciliation", L("Сверка"), a => a.Has(Permissions.WarehouseReportView)),
-        ("period", L("Закрытие периода"), a => a.Has(Permissions.ClosedPeriodReopen) || a.Has(Permissions.WarehouseReportView)),
-        ("tech-cards", L("Техкарты"), a => a.Has(Permissions.CatalogView)),
-        ("users", L("Пользователи"), a => a.Has(Permissions.UserView)),
-        ("roles", L("Роли и права"), a => a.Has(Permissions.UserView)),
-        ("audit", L("Журнал аудита"), a => a.HasOwnOnly(Permissions.AuditLogView)),
-        ("signins", L("Журнал входов"), a => a.HasOwnOnly(Permissions.AuditLogView)),
-        ("integrity", L("Проверка целостности"), a => a.Has(Permissions.AuditLogView)),
+        new("home", "Главная", [new("", "Главная", a => true)]),
+        new("purchases", "Закупки",
+        [
+            new("stock-documents?kind=1", "Поступления", Docs),
+            new("counterparties?role=supplier", "Поставщики", a => a.Has(Permissions.CatalogView)),
+        ]),
+        new("sales", "Продажи",
+        [
+            new("counterparties?role=customer", "Покупатели", a => a.Has(Permissions.CatalogView)),
+        ]),
+        new("warehouse", "Склад",
+        [
+            new("stock", "Остатки", a => a.Has(Permissions.WarehouseReportView)),
+            new("stock-documents", "Складские документы", Docs),
+            new("inventory", "Инвентаризация", Docs),
+            new("opening-balances", "Начальные остатки", a => a.Has(Permissions.OpeningBalanceCreate) || a.Has(Permissions.OpeningBalanceApprove)
+                                                         || a.Has(Permissions.WarehouseReportView)),
+        ]),
+        new("production", "Производство",
+        [
+            new("tech-cards", "Техкарты", a => a.Has(Permissions.CatalogView)),
+        ]),
+        new("reports", "Отчёты",
+        [
+            new("reports/movements", "Движения", a => a.Has(Permissions.WarehouseReportView)),
+            new("reports/turnover", "Обороты", a => a.Has(Permissions.WarehouseReportView)),
+            new("reports/inventory-variances", "Отклонения инвентаризации", a => a.Has(Permissions.WarehouseReportView)),
+            new("reconciliation", "Сверка", a => a.Has(Permissions.WarehouseReportView)),
+            new("audit", "Журнал аудита", a => a.HasOwnOnly(Permissions.AuditLogView)),
+            new("signins", "Журнал входов", a => a.HasOwnOnly(Permissions.AuditLogView)),
+        ]),
+        new("catalogs", "Справочники",
+        [
+            new("catalog", "Номенклатура", a => a.Has(Permissions.CatalogView)),
+            new("units", "Единицы измерения", a => a.Has(Permissions.CatalogView)),
+            new("warehouses", "Склады", a => a.Has(Permissions.CatalogView)),
+            new("counterparties", "Контрагенты", a => a.Has(Permissions.CatalogView)),
+            new("vat-rates", "Ставки НДС", a => a.Has(Permissions.CatalogView)),
+            new("structure", "Структура", a => a.Has(Permissions.DepartmentView)),
+            new("employees", "Сотрудники", a => a.HasOwnOnly(Permissions.EmployeeView)),
+        ]),
+        new("settings", "Настройки",
+        [
+            new("organization", "Организация", a => a.Has(Permissions.OrganizationView)),
+            new("launch", "Готовность к запуску", a => a.Has(Permissions.OrganizationEdit)),
+            new("users", "Пользователи", a => a.Has(Permissions.UserView)),
+            new("roles", "Роли и права", a => a.Has(Permissions.UserView)),
+            new("period", "Закрытие периода", a => a.Has(Permissions.ClosedPeriodReopen) || a.Has(Permissions.WarehouseReportView)),
+            new("integrity", "Проверка целостности", a => a.Has(Permissions.AuditLogView)),
+        ]),
     ];
 
-    /// <summary>Заголовки групп меню: ставятся перед пунктом с этим адресом.</summary>
-    private static readonly Dictionary<string, string> Sections = new()
+    private static readonly NavItem[] Items = Groups.SelectMany(g => g.Items).ToArray();
+
+    private readonly HashSet<string> _toggled = [];
+    private bool _narrow;
+
+    /// <summary>
+    /// Пункт меню текущей страницы — один: точное совпадение с параметрами («Поступления» = stock-documents?kind=1)
+    /// важнее общего раздела, длинный адрес — важнее короткого.
+    /// </summary>
+    private string? Current
     {
-        [""] = L("Предприятие"),
-        ["catalog"] = L("Справочники"),
-        ["opening-balances"] = L("Склад"),
-        ["stock"] = L("Отчёты"),
-        ["tech-cards"] = L("Производство"),
-        ["users"] = L("Доступ"),
-    };
+        get
+        {
+            var path = Navigation.ToBaseRelativePath(Navigation.Uri);
+            return Items.Where(i => i.Href.Length > 0 && Matches(path, i.Href))
+                .OrderByDescending(i => i.Href.Contains('?')).ThenByDescending(i => i.Href.Length)
+                .Select(i => i.Href).FirstOrDefault();
+        }
+    }
+
+    /// <summary>Раздел раскрыт, если в нём текущая страница; щелчок по заголовку меняет это состояние.</summary>
+    private bool IsOpen(NavGroup group)
+    {
+        var current = Current;
+        return group.Items.Any(i => i.Href == current) ^ _toggled.Contains(group.Key);
+    }
+
+    private static bool Matches(string path, string href)
+    {
+        var p = path.Split('#')[0];
+        var h = href;
+        if (h.Contains('?'))
+        {
+            return p == h || p.StartsWith(h + "&", StringComparison.Ordinal);
+        }
+
+        var bare = p.Split('?')[0];
+        return bare == h || bare.StartsWith(h + "/", StringComparison.Ordinal);
+    }
+
+    private void Toggle(string key)
+    {
+        if (!_toggled.Remove(key))
+        {
+            _toggled.Add(key);
+        }
+    }
+
+    private void ToggleNarrow() => _narrow = !_narrow;
 
     private bool _menuOpen;
     private PanelSettings? _panel;
@@ -224,7 +316,7 @@
     {
         var route = Navigation.ToBaseRelativePath(Navigation.Uri);
         return new ToolContext(_access!, route, RouteTitle(route),
-            Items.Select(i => new NavEntry(i.Href, i.Label, i.Allowed(_access!))).ToList(),
+            Items.Where(i => i.Href.Length > 0).Select(i => new NavEntry(i.Href, L(i.Label), i.Allowed(_access!))).ToList(),
             (id, arg) => InvokeAsync(() => OpenTool(id, arg)), href => InvokeAsync(() => NavigateFromTool(href)));
     }
 
@@ -232,14 +324,15 @@
     private static string RouteTitle(string route)
     {
         var path = route.Split('?', '#')[0];
-        var item = Items.Where(i => i.Href.Length == 0 ? path.Length == 0 : path == i.Href || path.StartsWith(i.Href + "/", StringComparison.Ordinal))
+        var item = Items.Where(i => i.Href.Length == 0 ? route.Length == 0 : Matches(route, i.Href))
             .OrderByDescending(i => i.Href.Length).FirstOrDefault();
-        return item.Label is null ? path : path.Contains('/') ? $"{item.Label}: {path[(path.IndexOf('/') + 1)..]}" : item.Label;
+        return item is null ? path : path.Contains('/') ? $"{item.Label}: {path[(path.IndexOf('/') + 1)..]}" : item.Label;
     }
 
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
     {
         _menuOpen = false;
+        _toggled.Clear();
         _ = InvokeAsync(async () =>
         {
             StateHasChanged();

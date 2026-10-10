@@ -62,6 +62,17 @@ public sealed class TechCardTests(SqlTestHost host) : IClassFixture<SqlTestHost>
                 s.TechCards.SetLineAsync(v2, yarn, 1, 0, active))).Code);
         }
 
+        // Главный экран Владельца: плитки по правам, готовность к запуску, техкарта в счётчике.
+        await using (var s = host.As(org.OwnerUserId, org.OrganizationId))
+        {
+            var dash = await s.Dashboard.GetAsync();
+            Assert.Equal(1, dash.Tiles.Single(t => t.Href == "tech-cards").Value);
+            Assert.Equal(3, dash.Tiles.Single(t => t.Href == "catalog").Value);
+            Assert.Contains(dash.Tiles, t => t.Href == "stock-documents?status=1" && t.Value == 0 && !t.Warn);
+            Assert.NotNull(dash.Month);
+            Assert.InRange(dash.ReadinessPercent!.Value, 0, 99);
+        }
+
         await using (var db = host.NewDb())
         {
             Assert.True(await db.AuditEntries.AnyAsync(e => e.EntityType == "TechCard" && e.EntityId == v2.ToString() && e.Action == "production.techcard.activated"));

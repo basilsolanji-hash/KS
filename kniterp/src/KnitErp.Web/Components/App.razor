@@ -90,6 +90,64 @@
         dl.facts dt { color: #A6A6AE; }
         dl.facts dd { margin: 0; overflow-wrap: anywhere; }
 
+        /* Компактный вид (замечание пользователя: «всё очень крупно, нет фокуса на данных»): мелкий шрифт и отступы,
+           плотные таблицы, видимый фокус клавиатуры. Телефон ниже получает крупные поля и кнопки обратно. */
+        body { font-size: 13px; line-height: 1.4; }
+        h1 { font-size: 19px; margin: 0 0 8px; font-weight: 600; }
+        h2 { font-size: 14px; margin: 0 0 6px; font-weight: 600; }
+        .main { padding: 12px 18px; }
+        input, select { padding: 4px 8px; border-radius: 4px; font-size: 13px; }
+        button, a.button { padding: 5px 10px; border-radius: 4px; font-size: 13px; }
+        th, td { padding: 4px 8px; }
+        th { font-weight: 500; font-size: 12px; color: #A6A6AE; background: #1F1F22; position: sticky; top: 0; z-index: 1; }
+        tbody tr:hover td { background: #222226; }
+        .num { font-variant-numeric: tabular-nums; }
+        .panel { padding: 10px 12px; margin: 8px 0; border-radius: 6px; }
+        .panel form, .panel .grid { gap: 8px; }
+        .panel label, .inline-form label { gap: 3px; font-size: 12px; }
+        .inline-form { gap: 6px 10px; margin: 8px 0; }
+        .flash, .error { padding: 6px 10px; margin: 8px 0; border-radius: 4px; }
+        .tag { font-size: 11px; padding: 1px 6px; }
+        p { margin: 6px 0; }
+        dl.facts { gap: 4px 14px; margin: 8px 0; }
+        :focus-visible { outline: 2px solid #2BA89A; outline-offset: 1px; }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: #2BA89A; box-shadow: 0 0 0 1px #2BA89A; }
+
+        /* Меню: разделы сворачиваются, раскрыт текущий; колонку можно сузить до значков. */
+        .side { flex: 0 0 212px; padding: 10px 8px; box-sizing: border-box; }
+        .main-col { flex: 1 1 0; }
+        .side-head { margin: 2px 8px 10px; }
+        .side a { padding: 4px 10px 4px 32px; border-radius: 4px; font-size: 13px; }
+        .side a.nav-single { padding-left: 10px; }
+        .nav-single, .nav-group-head { display: flex !important; align-items: center; gap: 8px; }
+        .nav-group-head { width: 100%; background: none; color: #C8C8CE; font-weight: 500; padding: 6px 10px; text-align: left; border-radius: 4px; }
+        .nav-group-head:hover, .side a:hover { background: #232326; }
+        .nav-group.open > .nav-group-head { color: #ECECEE; }
+        .nav-group-head .caret { margin-left: auto; font-size: 10px; transition: transform .15s; transform: rotate(-90deg); }
+        .nav-group.open > .nav-group-head .caret { transform: none; }
+        .nav-items { margin: 0 0 6px; }
+        .nav-collapse { margin: 12px 10px 0; background: none; color: #8A8A92; padding: 2px 6px; }
+        .shell.narrow .side { flex-basis: 52px; }
+        .shell.narrow .nav-text, .shell.narrow .caret, .shell.narrow .nav-items, .shell.narrow .side-head .logo { display: none; }
+        .shell.narrow .nav-group-head, .shell.narrow .nav-single { justify-content: center; padding: 8px 0; }
+
+        /* Главный экран: плитки показателей, месяц склада, последние документы. */
+        .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; margin: 10px 0 14px; }
+        .tile { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid #2E2E33; border-radius: 6px; background: #202023;
+                color: #ECECEE; text-decoration: none; }
+        .tile:hover { border-color: #2BA89A; }
+        .tile.warn { border-color: #6B5A2A; }
+        .tile-title { font-size: 12px; color: #A6A6AE; }
+        .tile-value { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
+        .tile.warn .tile-value { color: #F0CF7A; }
+        .tile-hint { font-size: 11px; color: #8A8A92; }
+        .dash-cols { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(320px, 2fr); gap: 12px; align-items: start; }
+        .dash-box { border: 1px solid #2E2E33; border-radius: 6px; background: #1E1E21; padding: 10px 12px; }
+        .readiness { display: flex; align-items: center; gap: 10px; text-decoration: none; color: #C8C8CE; margin: 6px 0; }
+        .readiness .bar { flex: 0 1 240px; height: 6px; background: #2E2E33; border-radius: 3px; overflow: hidden; }
+        .readiness .bar span { display: block; height: 100%; background: #2BA89A; }
+        @@media (max-width: 899px) { .dash-cols { grid-template-columns: 1fr; } .nav-collapse { display: none; } }
+
         /* Планшет и телефон: меню сворачивается в кнопку и прилипает к верху, страница получает всю ширину. */
         @@media (max-width: 899px) {
             .shell { flex-direction: column; flex-wrap: nowrap; }

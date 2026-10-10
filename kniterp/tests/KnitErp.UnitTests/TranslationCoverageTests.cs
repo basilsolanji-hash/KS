@@ -161,6 +161,14 @@ public sealed partial class TranslationCoverageTests
             }
         }
 
+        // Показатели главного экрана: название и подпись плитки.
+        var dashboard = File.ReadAllText(Path.Combine(FindRoot(), "src", "KnitErp.Application", "Organizations", "DashboardService.cs"));
+        foreach (Match m in DashboardTile().Matches(dashboard))
+        {
+            keys.Add(m.Groups[1].Value);
+            keys.Add(m.Groups[2].Value);
+        }
+
         // Пункты «Готовности к запуску».
         var readiness = File.ReadAllText(Path.Combine(FindRoot(), "src", "KnitErp.Application", "Organizations", "LaunchReadinessService.cs"));
         foreach (Match m in ReadinessTitle().Matches(readiness))
@@ -216,11 +224,14 @@ public sealed partial class TranslationCoverageTests
     [GeneratedRegex("""(?<![\w.])(?:Text\.)?(?:L|CssText)\("((?:[^"\\]|\\.)*)"[,)]""")]
     private static partial Regex Call();
 
-    [GeneratedRegex("""\("[\w/-]*", "([^"]+)", a =>""")]
+    [GeneratedRegex("""\("[\w/?=&-]*", "([^"]+)", (?:a =>|Docs\))""")]
     private static partial Regex MenuItem();
 
-    [GeneratedRegex("""\["[\w/-]*"\] = "([^"]+)",""")]
+    [GeneratedRegex("""new\("\w+", "([^"]+)",\s*\[""")]
     private static partial Regex MenuSection();
+
+    [GeneratedRegex(@"new DashboardTileDto\(""([^""]+)"", \w+, ""([^""]+)""")]
+    private static partial Regex DashboardTile();
 
     [GeneratedRegex("""BusinessRuleException\(\s*"[^"]+",\s*(\$?)"((?:[^"\\]|\\.)*)"\s*\)""")]
     private static partial Regex RuleMessage();

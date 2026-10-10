@@ -35,6 +35,7 @@ public static class DependencyInjection
         services.AddScoped<RecoveryCodeService>();
         services.AddScoped<Structure.EmployeeExchangeService>();
         services.AddScoped<Organizations.LaunchReadinessService>();
+        services.AddScoped<Organizations.DashboardService>();
         services.AddScoped<OpeningBalanceService>();
         services.AddScoped<StockDocumentService>();
         services.AddScoped<InventoryService>();

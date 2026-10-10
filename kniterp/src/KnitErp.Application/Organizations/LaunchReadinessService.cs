@@ -45,7 +45,7 @@ public sealed class LaunchReadinessService(IKnitErpDbContext db, IAccessGuard gu
 
         items.Add(new("requisites", "Реквизиты организации", requisitesMissing.Count == 0,
             requisitesMissing.Count == 0 ? $"ИНН {o.Inn}{(o.Kpp is null ? "" : $", КПП {o.Kpp} сверен")}" : Capitalize(string.Join(", ", requisitesMissing)) + ".",
-            ""));
+            "organization"));
 
         var departments = await db.Departments.CountAsync(d => d.OrganizationId == org && !d.IsArchived, ct);
         var positions = await db.Positions.CountAsync(p => p.OrganizationId == org && !p.IsArchived, ct);

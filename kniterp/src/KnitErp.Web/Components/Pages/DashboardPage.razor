@@ -1,0 +1,108 @@
+@page "/"
+@using KnitErp.Web.Components.Shared
+@inject DashboardService Dashboard
+
+<PageTitle>@L("Главная") — knitERP</PageTitle>
+
+@if (_denied is not null)
+{
+    <AccessDenied Message="@_denied" />
+}
+else if (_data is null)
+{
+    <p class="muted">@L("Загрузка…")</p>
+}
+else
+{
+    <div class="page-head">
+        <h1>@_data.OrganizationName</h1>
+        <span class="muted">@TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId).ToString("dd.MM.yyyy")</span>
+    </div>
+
+    @if (_data.ReadinessPercent is { } ready && ready < 100)
+    {
+        <a class="readiness" href="launch">
+            <span>@L("Готовность к запуску")</span>
+            <span class="bar"><span style="width: @(ready)%"></span></span>
+            <b>@ready%</b>
+        </a>
+    }
+
+    @if (_data.Tiles.Count > 0)
+    {
+        <div class="tiles">
+            @foreach (var t in _data.Tiles)
+            {
+                <a class="tile @(t.Warn ? "warn" : "")" href="@t.Href">
+                    <span class="tile-title">@L(t.Title)</span>
+                    <span class="tile-value">@t.Value</span>
+                    <span class="tile-hint">@L(t.Hint)</span>
+                </a>
+            }
+        </div>
+    }
+
+    <div class="dash-cols">
+        @if (_data.Month is { } m)
+        {
+            <section class="dash-box">
+                <h2>@L("Склад за месяц") <span class="muted">@m.From.ToString("dd.MM") – @m.To.ToString("dd.MM.yyyy")</span></h2>
+                <table class="compact">
+                    <tbody>
+                        <tr><td>@L("Поступления")</td><td class="num"><a href="stock-documents?kind=1">@m.Receipts</a></td></tr>
+                        <tr><td>@L("Перемещения")</td><td class="num"><a href="stock-documents?kind=3">@m.Transfers</a></td></tr>
+                        <tr><td>@L("Списания")</td><td class="num"><a href="stock-documents?kind=2">@m.WriteOffs</a></td></tr>
+                        <tr><td>@L("Инвентаризации")</td><td class="num"><a href="inventory">@m.Inventories</a></td></tr>
+                    </tbody>
+                </table>
+                <p class="muted">@L("Проведённые документы по дате документа.") <a href="reports/turnover">@L("Обороты за месяц")</a></p>
+            </section>
+        }
+
+        @if (_data.Recent.Count > 0)
+        {
+            <section class="dash-box wide">
+                <h2>@L("Последние документы")</h2>
+                <table class="compact">
+                    <thead><tr><th>@L("Дата")</th><th>@L("Документ")</th><th class="opt">@L("Склад")</th><th>@L("Статус")</th></tr></thead>
+                    <tbody>
+                        @foreach (var d in _data.Recent)
+                        {
+                            <tr>
+                                <td>@d.Date.ToString("dd.MM.yyyy")</td>
+                                <td><a href="@d.Href">@L(d.Kind) @d.Number</a></td>
+                                <td>@d.Warehouse</td>
+                                <td>@L(d.Status)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </section>
+        }
+    </div>
+
+    @if (_data.Tiles.Count == 0)
+    {
+        <p class="muted">@L("Для вашей роли показателей пока нет. Разделы, доступные вам, — в меню слева.")</p>
+    }
+}
+
+@code {
+    [CascadingParameter]
+    public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    private DashboardDto? _data;
+    private string? _denied;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _data = await Dashboard.GetAsync();
+        }
+        catch (AccessDeniedException ex)
+        {
+            _denied = UiErrors.Message(ex);
+        }
+    }
+}

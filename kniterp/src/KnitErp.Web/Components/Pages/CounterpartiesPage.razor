@@ -149,8 +149,21 @@ else
     private string _search = string.Empty;
     private bool _includeArchived;
 
-    protected override async Task OnInitializedAsync()
+    /// <summary>Из меню: «Поставщики» — ?role=supplier, «Покупатели» — ?role=customer.</summary>
+    [SupplyParameterFromQuery(Name = "role")]
+    public string? RoleQuery { get; set; }
+
+    private string? _appliedRole;
+
+    protected override async Task OnParametersSetAsync()
     {
+        if (_list is not null && _appliedRole == RoleQuery)
+        {
+            return;
+        }
+
+        _appliedRole = RoleQuery;
+        _role = RoleQuery switch { "supplier" => "s", "customer" => "c", _ => _role };
         try
         {
             await LoadAsync();
