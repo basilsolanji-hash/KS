@@ -55,7 +55,7 @@ else
                 </form>
             }
             <div class="scroll">
-                <table>
+                <table class="compact">
                     <thead><tr><th>@L("Группа")</th><th class="num">@L("Позиций")</th>@if (CanEdit) { <th></th> }</tr></thead>
                     <tbody>
                         @if (_groups.Count == 0)
@@ -126,7 +126,7 @@ else
                     </form>
                 }
                 <div class="scroll">
-                    <table>
+                    <table class="compact">
                         <thead><tr><th>@L("Вид цены")</th><th>@L("НДС")</th><th class="num">@L("Позиций с ценой")</th>@if (CanEdit) { <th></th> }</tr></thead>
                         <tbody>
                             @foreach (var t in _priceTypes)
@@ -206,7 +206,7 @@ else
                 </form>
             }
             <div class="scroll">
-                <table>
+                <table class="compact">
                     <thead><tr><th>@L("Поле")</th><th>@L("Тип")</th><th class="num">@L("Заполнено")</th>@if (CanEdit) { <th></th> }</tr></thead>
                     <tbody>
                         @if (_fields!.Count == 0)
@@ -315,7 +315,7 @@ else
                             </form>
                         }
                         <div class="scroll">
-                            <table>
+                            <table class="compact">
                                 <thead><tr><th>@L("Код")</th><th>@L("Значение")</th>@if (CanEdit) { <th></th> }</tr></thead>
                                 <tbody>
                                     @if (_entries.Count == 0)

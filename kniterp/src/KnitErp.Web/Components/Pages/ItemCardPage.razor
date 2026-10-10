@@ -139,7 +139,7 @@ else
 
     <h2 style="margin-top: 20px">@L("Штрихкоды")</h2>
     <div class="scroll">
-        <table>
+        <table class="compact">
             <thead><tr><th>@L("Тип")</th><th>@L("Штрихкод")</th>@if (editable) { <th></th> }</tr></thead>
             <tbody>
                 @if (_item.Barcodes.Count == 0)
@@ -183,7 +183,7 @@ else
         <h2 style="margin-top: 20px">@L("Цены")</h2>
         <form @onsubmit="SavePricesAsync">
             <div class="scroll">
-                <table>
+                <table class="compact">
                     <thead><tr><th>@L("Вид цены")</th><th>@L("НДС")</th><th class="num">@L("Цена")</th></tr></thead>
                     <tbody>
                         @foreach (var p in _item.Prices)

@@ -195,7 +195,16 @@
         .panel { border: 1px solid var(--line); background: var(--surface-2); border-radius: 10px; padding: 16px; margin: 16px 0; }
         .panel form, .panel .grid { display: flex; flex-direction: column; gap: 12px; }
         .panel label { display: flex; flex-direction: column; gap: 6px; color: var(--text-2); }
-        @@media (min-width: 900px) { .panel .grid { display: grid; grid-template-columns: 1fr 1fr; } }
+        /* Небольшие справочные таблицы — по ширине содержимого, а не на весь экран. */
+        @@media (min-width: 700px) { table.compact { width: auto; min-width: 480px; } table.compact td, table.compact th { padding-right: 24px; } }
+        /* Компактные формы: колонки по ширине содержимого (не растягиваются на весь экран), короткие поля — узкие. */
+        @@media (min-width: 700px) {
+            .panel .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 260px)); justify-content: start; column-gap: 16px; }
+            .panel .grid input[inputmode=decimal], .panel .grid input[inputmode=numeric], .panel .grid input[type=date],
+            .panel .grid input[type=time], .panel .grid input[type=number] { max-width: 170px; }
+            .panel .grid label.inline { align-self: end; }
+            .panel form > .actions, .panel .actions { justify-content: flex-start; }
+        }
         select { font: inherit; padding: 10px 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--field); color: var(--text); }
         button.secondary { background: var(--line); color: var(--text); font-weight: 400; }
         button:disabled { opacity: .5; cursor: default; }
@@ -371,7 +380,7 @@
         section.legal-entity { margin-bottom: 16px; }
         section.legal-entity.archived { opacity: .7; }
         .money-advance { color: var(--good); font-weight: 600; }
-        @@media (min-width: 900px) { .panel .grid label.wide { grid-column: 1 / -1; } }
+        @@media (min-width: 700px) { .panel .grid label.wide { grid-column: 1 / -1; } .panel .grid label.wide input { max-width: 536px; } }
         .reserve-toggle { display: inline-flex; align-items: center; gap: 6px; margin: 8px 0; color: var(--text); }
         .cell-good { background: color-mix(in srgb, var(--good) 16%, transparent); }
         .cell-part { background: color-mix(in srgb, var(--warn-text) 14%, transparent); }
