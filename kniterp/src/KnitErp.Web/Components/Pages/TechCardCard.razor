@@ -122,7 +122,7 @@ else
                         {
                             <td>
                                 <button type="button" class="secondary" @onclick="() => EditLine(l)" disabled="@_busy" aria-label="@L("Изменить: {0}", l.Code)">@L("Изменить")</button>
-                                <button type="button" class="secondary" @onclick="() => RemoveLineAsync(l)" disabled="@_busy" aria-label="@L("Удалить строку {0}", l.Code)">@L("Удалить")</button>
+                                <ConfirmButton Class="secondary" OnConfirm="() => RemoveLineAsync(l)" Disabled="@_busy" AriaLabel="@L("Удалить строку {0}", l.Code)" Question='@L("Удалить?")'>@L("Удалить")</ConfirmButton>
                             </td>
                         }
                     </tr>

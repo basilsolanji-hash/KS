@@ -37,6 +37,13 @@ public sealed class Employee
     public DateOnly HiredOn { get; private set; }
     public DateOnly? DismissedOn { get; private set; }
     public long? UserId { get; private set; }
+
+    /// <summary>Дата рождения (D83) — персональные данные (152-ФЗ): видна кадровику; коллегам — только день и месяц и только с согласия.</summary>
+    public DateOnly? BirthDate { get; private set; }
+
+    /// <summary>Сотрудник согласен, чтобы коллеги видели его день рождения в календаре (без года).</summary>
+    public bool ShareBirthday { get; private set; }
+
     public byte[] RowVersion { get; private set; } = [];
 
     public string FullName => MiddleName is null ? $"{LastName} {FirstName}" : $"{LastName} {FirstName} {MiddleName}";
@@ -91,6 +98,27 @@ public sealed class Employee
         }
 
         return changes;
+    }
+
+    /// <summary>Дата рождения и согласие показывать день рождения коллегам. Возраст — от 14 до 100 лет на сегодня.</summary>
+    public FieldChange? SetBirthday(DateOnly? birthDate, bool share, DateOnly today)
+    {
+        EnsureNotDismissed();
+        if (birthDate is { } d && (d > today.AddYears(-14) || d < today.AddYears(-100)))
+        {
+            throw new BusinessRuleException("hr.employee.birth_date", "Дата рождения: возраст от 14 до 100 лет.");
+        }
+
+        if (share && birthDate is null)
+        {
+            throw new BusinessRuleException("hr.employee.birthday_share", "Чтобы показывать день рождения, укажите дату рождения.");
+        }
+
+        var before = $"{BirthDate:dd.MM.yyyy}{(ShareBirthday ? ", видна коллегам" : "")}";
+        var after = $"{birthDate:dd.MM.yyyy}{(share ? ", видна коллегам" : "")}";
+        BirthDate = birthDate;
+        ShareBirthday = share;
+        return before == after ? null : new FieldChange("Дата рождения", before, after);
     }
 
     public FieldChange SetOnLeave(bool onLeave)

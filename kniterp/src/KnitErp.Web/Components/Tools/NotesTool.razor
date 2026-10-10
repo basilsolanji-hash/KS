@@ -37,7 +37,7 @@ else
                 <div class="row-actions">
                     <span class="muted">@TimeZones.ToLocal(n.UpdatedAtUtc, Context.Access.TimeZoneId).ToString("dd.MM HH:mm")</span>
                     <button type="button" class="link" @onclick="() => Edit(n)">@L("Изменить")</button>
-                    <button type="button" class="link" @onclick="() => DeleteAsync(n)">@L("Удалить")</button>
+                    <ConfirmButton Class="link" OnConfirm="() => DeleteAsync(n)" Question='@L("Удалить?")'>@L("Удалить")</ConfirmButton>
                 </div>
             </li>
         }

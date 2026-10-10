@@ -95,7 +95,7 @@ else
                                 {
                                     <div class="row-actions">
                                         <button type="button" class="secondary" @onclick="() => StartEditDepartment(d)" disabled="@_busy">@L("Изменить")</button>
-                                        <button type="button" class="secondary" @onclick="() => ArchiveDepartmentAsync(d)" disabled="@_busy">@L("В архив")</button>
+                                        <ConfirmButton Class="secondary" OnConfirm="() => ArchiveDepartmentAsync(d)" Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
                                     </div>
                                 }
                             </td>
@@ -153,7 +153,7 @@ else
                                 {
                                     <div class="row-actions">
                                         <button type="button" class="secondary" @onclick="() => StartEditPosition(p)" disabled="@_busy">@L("Переименовать")</button>
-                                        <button type="button" class="secondary" @onclick="() => ArchivePositionAsync(p)" disabled="@_busy">@L("В архив")</button>
+                                        <ConfirmButton Class="secondary" OnConfirm="() => ArchivePositionAsync(p)" Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
                                     </div>
                                 }
                             </td>

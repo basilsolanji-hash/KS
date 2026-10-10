@@ -63,7 +63,7 @@ else
                                         <button type="button" class="secondary icon" @onclick="() => MoveAsync(s, -1)" disabled="@_busy" title="@L("Выше")" aria-label="@L("Выше: {0}", s.Name)">↑</button>
                                         <button type="button" class="secondary icon" @onclick="() => MoveAsync(s, 1)" disabled="@_busy" title="@L("Ниже")" aria-label="@L("Ниже: {0}", s.Name)">↓</button>
                                         <button type="button" class="secondary" @onclick="() => StartEdit(s)" disabled="@_busy">@L("Изменить")</button>
-                                        <button type="button" class="secondary" @onclick="() => ArchiveAsync(s)" disabled="@_busy">@L("В архив")</button>
+                                        <ConfirmButton Class="secondary" OnConfirm="() => ArchiveAsync(s)" Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
                                     }
                                     else
                                     {

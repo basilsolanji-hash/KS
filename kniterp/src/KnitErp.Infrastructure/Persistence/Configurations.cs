@@ -322,6 +322,7 @@ internal sealed class EmployeeConfiguration : IEntityTypeConfiguration<Employee>
             t.HasCheckConstraint("ck_employees_status", "[Status] IN (1, 2, 9)");
             t.HasCheckConstraint("ck_employees_dismissed",
                 "([Status] = 9 AND [DismissedOn] IS NOT NULL AND [DismissedOn] >= [HiredOn]) OR ([Status] <> 9 AND [DismissedOn] IS NULL)");
+            t.HasCheckConstraint("ck_employees_birthday_share", "[ShareBirthday] = 0 OR [BirthDate] IS NOT NULL");
         });
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).UseIdentityColumn();

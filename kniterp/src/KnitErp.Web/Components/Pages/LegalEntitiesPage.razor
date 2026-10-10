@@ -54,7 +54,7 @@ else
                             @if (!e.IsDefault)
                             {
                                 <button type="button" class="secondary" @onclick="() => MakeDefaultAsync(e)" disabled="@_busy">@L("Сделать основным")</button>
-                                <button type="button" class="secondary" @onclick="() => ArchiveAsync(e, true)" disabled="@_busy">@L("В архив")</button>
+                                <ConfirmButton Class="secondary" OnConfirm="() => ArchiveAsync(e, true)" Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
                             }
                         }
                         else
@@ -128,7 +128,7 @@ else
                                                 {
                                                     <button type="button" class="secondary" @onclick="() => MakeDefaultAccountAsync(a)" disabled="@_busy">@L("Сделать основным")</button>
                                                 }
-                                                <button type="button" class="secondary" @onclick="() => ArchiveAccountAsync(a, true)" disabled="@_busy">@L("В архив")</button>
+                                                <ConfirmButton Class="secondary" OnConfirm="() => ArchiveAccountAsync(a, true)" Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
                                             }
                                             else if (a.IsArchived && !e.IsArchived)
                                             {
@@ -194,7 +194,7 @@ else
                                             {
                                                 <button type="button" class="secondary" @onclick="() => _cash = new CashDraft { Id = a.Id, EntityId = e.Id, Name = a.BankName, RowVersion = a.RowVersion }" disabled="@_busy">@L("Переименовать")</button>
                                                 <button type="button" class="secondary" @onclick="() => StartOpening(a)" disabled="@_busy">@L("Остаток")</button>
-                                                <button type="button" class="secondary" @onclick="() => ArchiveAccountAsync(a, true)" disabled="@_busy">@L("В архив")</button>
+                                                <ConfirmButton Class="secondary" OnConfirm="() => ArchiveAccountAsync(a, true)" Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
                                             }
                                             else if (a.IsArchived && !e.IsArchived)
                                             {

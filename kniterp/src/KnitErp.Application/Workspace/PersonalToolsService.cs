@@ -19,6 +19,18 @@ public sealed record LinkItem(string Id, string Title, string Url);
 
 public sealed record FavoriteItem(string Title, string Href);
 
+/// <summary>Что показывать в календаре (D83): праздники и дни рождения коллег. Личная настройка.</summary>
+public sealed record CalendarSettings(bool ShowHolidays = true, bool ShowBirthdays = true);
+
+public enum CalendarEventKind
+{
+    Holiday,
+    Birthday,
+}
+
+/// <summary>Событие календаря, которое не задача: праздник или день рождения коллеги (без года и возраста).</summary>
+public sealed record CalendarEventDto(DateOnly Date, CalendarEventKind Kind, string Title);
+
 /// <summary>
 /// Личные данные инструментов: панель, задачи и календарь, заметки, ссылки, избранное, город погоды.
 /// Каждый пользователь видит и меняет только свои данные в своей организации. Каждая операция — свой DbContext:
@@ -41,6 +53,7 @@ public sealed class PersonalToolsService(IKnitErpDbContextFactory factory, ICurr
     private const string FavoritesKind = "favorites";
     private const string WeatherKind = "weather";
     private const string DismissedKind = "notifications-dismissed";
+    private const string CalendarKind = "calendar";
 
     /// <summary>Сколько скрытых уведомлений помнить: старые ключи вытесняются (их ситуации давно сменились).</summary>
     public const int MaxDismissed = 300;
@@ -183,6 +196,47 @@ public sealed class PersonalToolsService(IKnitErpDbContextFactory factory, ICurr
         var list = (await GetTasksAsync(ct)).Where(t => t.Id != id).ToList();
         await SaveAsync(TasksKind, list, ct);
         return list;
+    }
+
+    // --- Календарь: праздники и дни рождения ------------------------------------------------
+
+    public async Task<CalendarSettings> GetCalendarSettingsAsync(CancellationToken ct = default) =>
+        await LoadAsync<CalendarSettings>(CalendarKind, ct) ?? new CalendarSettings();
+
+    public Task SaveCalendarSettingsAsync(CalendarSettings settings, CancellationToken ct = default) => SaveAsync(CalendarKind, settings, ct);
+
+    /// <summary>
+    /// Праздники страны организации и дни рождения коллег за период (не больше года), по личной настройке. День рождения — только
+    /// у работающих сотрудников этой организации, которые дали согласие; год рождения не показывается (152-ФЗ).
+    /// </summary>
+    public async Task<IReadOnlyList<CalendarEventDto>> GetCalendarEventsAsync(DateOnly from, DateOnly to, CancellationToken ct = default)
+    {
+        if (to < from || to.DayNumber - from.DayNumber > 400)
+        {
+            throw new BusinessRuleException("workspace.calendar_range", "Период календаря — не больше года.");
+        }
+
+        var settings = await GetCalendarSettingsAsync(ct);
+        await using var db = factory.Create();
+        var ctx = await new AccessGuard(db, currentUser, clock).CurrentAsync(ct);
+        var result = new List<CalendarEventDto>();
+        if (settings.ShowHolidays)
+        {
+            var country = await db.Organizations.AsNoTracking().Where(o => o.Id == ctx.OrganizationId).Select(o => o.CountryCode).SingleAsync(ct);
+            result.AddRange(ProductionCalendar.Holidays(country, from, to).Select(h => new CalendarEventDto(h.Date, CalendarEventKind.Holiday, h.Name)));
+        }
+
+        if (settings.ShowBirthdays)
+        {
+            var people = await db.Employees.AsNoTracking()
+                .Where(e => e.OrganizationId == ctx.OrganizationId && e.ShareBirthday && e.BirthDate != null
+                            && e.Status != KnitErp.Domain.Structure.EmploymentStatus.Dismissed)
+                .Select(e => new { e.LastName, e.FirstName, e.BirthDate }).ToListAsync(ct);
+            result.AddRange(people.SelectMany(p => ProductionCalendar.Anniversaries(p.BirthDate!.Value, from, to)
+                .Select(d => new CalendarEventDto(d, CalendarEventKind.Birthday, $"{p.FirstName} {p.LastName}"))));
+        }
+
+        return result.OrderBy(e => e.Date).ThenBy(e => e.Kind).ThenBy(e => e.Title).ToList();
     }
 
     // --- Заметки -----------------------------------------------------------------------------

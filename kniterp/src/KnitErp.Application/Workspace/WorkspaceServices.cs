@@ -179,6 +179,12 @@ public sealed class NotificationService(IKnitErpDbContextFactory factory, Person
                     $"task:{task.Id}:{task.Date:yyyyMMdd}:{task.Time:HHmm}"));
             }
 
+            // Дни рождения коллег сегодня (D83) — по личной настройке календаря и только с согласия сотрудника.
+            foreach (var b in (await personal.GetCalendarEventsAsync(today, today, ct)).Where(e => e.Kind == CalendarEventKind.Birthday))
+            {
+                result.Add(new($"Сегодня день рождения: {b.Title}", null, ToolCatalog.Calendar, NotificationLevel.Info, $"bday:{b.Title}:{today:yyyyMMdd}"));
+            }
+
             if (ctx.Permissions.Has(Permissions.OpeningBalanceApprove))
             {
                 var visible = WarehouseScope.Visible(ctx, Permissions.OpeningBalanceApprove);

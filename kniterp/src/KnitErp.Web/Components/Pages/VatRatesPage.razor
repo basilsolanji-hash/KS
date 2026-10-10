@@ -109,7 +109,7 @@ else
                                     }
                                     else
                                     {
-                                        <button type="button" class="secondary" @onclick="() => ArchiveAsync(r)" disabled="@_busy">@L("В архив")</button>
+                                        <ConfirmButton Class="secondary" OnConfirm="() => ArchiveAsync(r)" Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
                                     }
                                 </div>
                             </td>

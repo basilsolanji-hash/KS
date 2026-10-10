@@ -166,7 +166,7 @@ else
                         <td class="barcode">@b.Code</td>
                         @if (editable)
                         {
-                            <td><button type="button" class="secondary" @onclick="() => RemoveBarcodeAsync(b)" disabled="@_busy">@L("Удалить")</button></td>
+                            <td><ConfirmButton Class="secondary" OnConfirm="() => RemoveBarcodeAsync(b)" Disabled="@_busy" Question='@L("Удалить?")'>@L("Удалить")</ConfirmButton></td>
                         }
                     </tr>
                 }

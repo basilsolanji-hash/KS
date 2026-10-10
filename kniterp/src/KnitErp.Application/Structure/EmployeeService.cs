@@ -24,7 +24,9 @@ public sealed record EmployeeRowDto(
     DateOnly? DismissedOn,
     long? UserId,
     string? UserEmail,
-    byte[] RowVersion)
+    byte[] RowVersion,
+    DateOnly? BirthDate = null,
+    bool ShareBirthday = false)
 {
     public string StatusName => Employee.StatusName(Status);
 }
@@ -142,6 +144,25 @@ public sealed class EmployeeService(
         await SaveAsync(ct);
     }
 
+    /// <summary>Дата рождения и согласие показывать день рождения коллегам (D83). Согласие даёт сам сотрудник — кадровик его отмечает.</summary>
+    /// <returns>Новая версия карточки — для следующего сохранения той же формы.</returns>
+    public async Task<byte[]> SetBirthdayAsync(long id, DateOnly? birthDate, bool share, byte[] rowVersion, CancellationToken ct = default)
+    {
+        var ctx = await guard.DemandAsync(Permissions.EmployeeEdit, ct);
+        var employee = await LoadForEditAsync(ctx, id, rowVersion, ct);
+        var tz = await db.Organizations.AsNoTracking().Where(o => o.Id == ctx.OrganizationId).Select(o => o.TimeZoneId).SingleAsync(ct);
+        var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeBySystemTimeZoneId(clock.UtcNow, tz));
+        if (employee.SetBirthday(birthDate, share, today) is { } change)
+        {
+            // В журнал — факт изменения без самой даты: журнал читают шире, чем карточку сотрудника.
+            Audit(ctx, AuditActions.EmployeeChanged, id, null, share ? "указана, видна коллегам" : birthDate is null ? "не указана" : "указана",
+                change.Field);
+        }
+
+        await SaveAsync(ct);
+        return employee.RowVersion;
+    }
+
     public async Task SetOnLeaveAsync(long id, bool onLeave, byte[] rowVersion, CancellationToken ct = default)
     {
         var ctx = await guard.DemandAsync(Permissions.EmployeeEdit, ct);
@@ -185,7 +206,7 @@ public sealed class EmployeeService(
         select new EmployeeRowDto(e.Id, e.PersonnelNumber, e.LastName, e.FirstName, e.MiddleName,
             e.MiddleName == null ? e.LastName + " " + e.FirstName : e.LastName + " " + e.FirstName + " " + e.MiddleName,
             e.DepartmentId, d.Name, e.PositionId, p.Name, e.Status, e.HiredOn, e.DismissedOn, e.UserId,
-            u == null ? null : u.Email, e.RowVersion);
+            u == null ? null : u.Email, e.RowVersion, e.BirthDate, e.ShareBirthday);
 
     /// <summary>Сотрудник своей организации и своей области; иначе «не найдено», как для чужих данных.</summary>
     private async Task<Employee> LoadForEditAsync(AccessContext ctx, long id, byte[] rowVersion, CancellationToken ct)

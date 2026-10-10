@@ -16,7 +16,7 @@ else if (_fields is null)
 }
 else
 {
-    <h1>@L("Проекты, каналы продаж и доп. поля заказа")</h1>
+    <h1>@(Section switch { "projects" => L("Проекты"), "channels" => L("Каналы продаж"), "fields" => L("Доп. поля заказов"), _ => L("Проекты, каналы продаж и доп. поля заказа") })</h1>
     <p class="muted">@L("Справочники для деталей заказа покупателя, как в МойСклад. На учёт не влияют. Записи не удаляются — уходят в архив, в старых заказах значения сохраняются.")</p>
 
     @if (_message is not null)
@@ -24,13 +24,21 @@ else
         <div class="@(_isError ? "flash error" : "flash")" role="@(_isError ? "alert" : "status")">@_message</div>
     }
 
-    <h2>@L("Проекты")</h2>
-    @LookupSection(LookupKind.Project, _projects!, L("Подвязы — поло воротники"))
+    @if (Show("projects"))
+    {
+        @if (Section is null) { <h2>@L("Проекты")</h2> }
+        @LookupSection(LookupKind.Project, _projects!, L("Подвязы — поло воротники"))
+    }
 
-    <h2 style="margin-top: 20px">@L("Каналы продаж")</h2>
-    @LookupSection(LookupKind.SalesChannel, _channels!, L("Маркетплейс"))
+    @if (Show("channels"))
+    {
+        @if (Section is null) { <h2 style="margin-top: 20px">@L("Каналы продаж")</h2> }
+        @LookupSection(LookupKind.SalesChannel, _channels!, L("Маркетплейс"))
+    }
 
-    <h2 style="margin-top: 20px">@L("Дополнительные поля заказа")</h2>
+    @if (Show("fields"))
+    {
+    @if (Section is null) { <h2 style="margin-top: 20px">@L("Дополнительные поля заказа")</h2> }
     <p class="muted">@L("Например: «Количество, штук» (число), «Время вязания» (число), «Срок у клиента» (дата), «Срочный» (флажок). Не больше {0} полей.", CustomFieldDefinition.MaxFields)</p>
     @if (CanEdit)
     {
@@ -82,7 +90,7 @@ else
                                         <button type="button" class="secondary icon" @onclick="() => MoveFieldAsync(f, -1)" disabled="@_busy" title="@L("Выше")" aria-label="@L("Выше: {0}", f.Name)">↑</button>
                                         <button type="button" class="secondary icon" @onclick="() => MoveFieldAsync(f, 1)" disabled="@_busy" title="@L("Ниже")" aria-label="@L("Ниже: {0}", f.Name)">↓</button>
                                         <button type="button" class="secondary" @onclick="() => { _editFieldId = f.Id; _editName = f.Name; }" disabled="@_busy">@L("Изменить")</button>
-                                        <button type="button" class="secondary" @onclick="() => ArchiveFieldAsync(f, true)" disabled="@_busy">@L("В архив")</button>
+                                        <ConfirmButton Class="secondary" OnConfirm="() => ArchiveFieldAsync(f, true)" Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
                                     }
                                     else
                                     {
@@ -96,9 +104,16 @@ else
             </tbody>
         </table>
     </div>
+    }
 }
 
 @code {
+    /// <summary>Отдельный справочник из меню: projects, channels или fields; пусто — все три на одной странице.</summary>
+    [SupplyParameterFromQuery(Name = "section")]
+    public string? Section { get; set; }
+
+    private bool Show(string section) => Section is null || Section == section;
+
     [CascadingParameter]
     public CurrentAccessDto CurrentAccess { get; set; } = default!;
 
@@ -180,7 +195,7 @@ else
                                         @if (!r.IsArchived)
                                         {
                                             <button type="button" class="secondary" @onclick="() => { _editLookupId = r.Id; _editName = r.Name; }" disabled="@_busy">@L("Изменить")</button>
-                                            <button type="button" class="secondary" @onclick="() => ArchiveLookupAsync(r, true)" disabled="@_busy">@L("В архив")</button>
+                                            <ConfirmButton Class="secondary" OnConfirm="() => ArchiveLookupAsync(r, true)" Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
                                         }
                                         else
                                         {

@@ -93,7 +93,7 @@ else
                                             }
                                             @if (_data.CanArchive)
                                             {
-                                                <button type="button" class="secondary" @onclick="() => ArchiveWarehouseAsync(w)" disabled="@_busy">@L("В архив")</button>
+                                                <ConfirmButton Class="secondary" OnConfirm="() => ArchiveWarehouseAsync(w)" Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
                                             }
                                         </div>
                                     }
@@ -156,7 +156,7 @@ else
                                             }
                                             @if (_data.CanArchive)
                                             {
-                                                <button type="button" class="secondary" @onclick="() => ArchiveSiteAsync(s)" disabled="@_busy">@L("В архив")</button>
+                                                <ConfirmButton Class="secondary" OnConfirm="() => ArchiveSiteAsync(s)" Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
                                             }
                                         </div>
                                     }
@@ -204,7 +204,7 @@ else
                                 <td>
                                     @if (!r.IsArchived)
                                     {
-                                        <button type="button" class="secondary" @onclick="() => ArchiveReasonAsync(r)" disabled="@_busy">@L("В архив")</button>
+                                        <ConfirmButton Class="secondary" OnConfirm="() => ArchiveReasonAsync(r)" Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
                                     }
                                 </td>
                             }

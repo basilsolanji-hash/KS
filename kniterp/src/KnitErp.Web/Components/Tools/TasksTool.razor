@@ -27,19 +27,32 @@ else if (CalendarView)
         @foreach (var day in MonthDays())
         {
             var count = _items.Count(t => t.Date == day && !t.Done);
+            var holiday = _events.FirstOrDefault(e => e.Date == day && e.Kind == CalendarEventKind.Holiday);
+            var birthdays = _events.Count(e => e.Date == day && e.Kind == CalendarEventKind.Birthday);
             <button type="button" role="gridcell"
-                    class="cal-day @(day.Month != _month.Month ? "other" : "") @(day == _today ? "today" : "") @(day == _selected ? "selected" : "")"
-                    aria-label="@($"{day.ToString("d MMMM", Ru)}{(count > 0 ? ", " + L("дел: {0}", count) : "")}")"
+                    class="cal-day @(day.Month != _month.Month ? "other" : "") @(day == _today ? "today" : "") @(day == _selected ? "selected" : "") @(holiday is not null ? "holiday" : "")"
+                    title="@(holiday is null ? null : Holiday(holiday.Title))"
+                    aria-label="@($"{day.ToString("d MMMM", Ru)}{(holiday is not null ? ", " + Holiday(holiday.Title) : "")}{(count > 0 ? ", " + L("дел: {0}", count) : "")}{(birthdays > 0 ? ", " + L("дней рождения: {0}", birthdays) : "")}")"
                     aria-pressed="@(day == _selected ? "true" : "false")" @onclick="() => _selected = day">
                 @day.Day
                 @if (count > 0)
                 {
                     <span class="cal-dot" aria-hidden="true"></span>
                 }
+                @if (birthdays > 0)
+                {
+                    <span class="cal-dot bday" aria-hidden="true"></span>
+                }
             </button>
         }
     </div>
     <h3>@_selected.ToString("dddd, d MMMM", Ru)</h3>
+    @foreach (var e in _events.Where(e => e.Date == _selected))
+    {
+        <p class="cal-event @(e.Kind == CalendarEventKind.Holiday ? "holiday" : "bday")">
+            @(e.Kind == CalendarEventKind.Holiday ? Holiday(e.Title) : L("День рождения: {0}", e.Title))
+        </p>
+    }
     @RenderList(_items.Where(t => t.Date == _selected).OrderBy(t => t.Time).ToList(), L("На этот день ничего нет."))
 }
 else
@@ -54,16 +67,36 @@ else
 
 @if (_items is not null)
 {
-    <form class="tool-form" @onsubmit="AddAsync">
-        <h3>@(CalendarView ? L("Новое событие") : L("Новая задача"))</h3>
+    <form class="tool-form" @onsubmit="SaveAsync">
+        <h3>@(_editId is not null ? L("Правка задачи") : CalendarView ? L("Новое событие") : L("Новая задача"))</h3>
         <label>@L("Что сделать") <input @bind="_title" maxlength="200" required /></label>
         <div class="tool-row">
-            <label>@L("Дата") <input type="date" @bind="_date" /></label>
+            @if (!CalendarView || _editId is not null)
+            {
+                <label>@L("Дата") <input type="date" @bind="_date" /></label>
+            }
             <label>@L("Время") <input type="time" @bind="_time" /></label>
         </div>
+        <label>@L("Описание") <textarea @bind="_note" rows="2" maxlength="5000"></textarea></label>
         <label class="inline"><input type="checkbox" @bind="_remind" /> @L("Напомнить в уведомлениях")</label>
-        <button type="submit" disabled="@_busy">@L("Добавить")</button>
+        <div class="actions">
+            <button type="submit" disabled="@_busy">@(_editId is not null ? L("Сохранить") : L("Добавить"))</button>
+            @if (_editId is not null)
+            {
+                <button type="button" class="secondary" @onclick="ResetForm">@L("Отмена")</button>
+            }
+        </div>
     </form>
+
+    @if (CalendarView)
+    {
+        <details class="tool-form">
+            <summary>@L("Что показывать в календаре")</summary>
+            <label class="inline"><input type="checkbox" checked="@_settings.ShowHolidays" @onchange='e => SaveSettingsAsync(_settings with { ShowHolidays = e.Value is true })' disabled="@_busy" /> @L("Праздники (ст. 112 ТК РФ)")</label>
+            <label class="inline"><input type="checkbox" checked="@_settings.ShowBirthdays" @onchange='e => SaveSettingsAsync(_settings with { ShowBirthdays = e.Value is true })' disabled="@_busy" /> @L("Дни рождения коллег")</label>
+            <p class="muted small">@L("Переносы выходных по постановлению Правительства не показываются. День рождения виден, только если сотрудник дал согласие — его отмечают в карточке сотрудника.")</p>
+        </details>
+    }
 }
 
 @code {
@@ -94,6 +127,10 @@ else
     private DateTime? _date;
     private TimeOnly? _time;
     private bool _remind;
+    private string? _note;
+    private string? _editId;
+    private IReadOnlyList<CalendarEventDto> _events = [];
+    private CalendarSettings _settings = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -101,14 +138,14 @@ else
         _selected = _today;
         _month = new DateOnly(_today.Year, _today.Month, 1);
         _date = CalendarView ? _today.ToDateTime(TimeOnly.MinValue) : null;
-        await RunAsync(async () => _items = await Personal.GetTasksAsync());
+        await RunAsync(LoadAsync);
     }
 
     protected override async Task OnParametersSetAsync()
     {
         if (Active && !_wasActive && _items is not null)
         {
-            await RunAsync(async () => _items = await Personal.GetTasksAsync());
+            await RunAsync(LoadAsync);
         }
 
         _wasActive = Active;
@@ -133,7 +170,12 @@ else
                     <span class="muted">
                         @(t.Date is { } d ? d.ToString("d MMM", Ru) : "")@(t.Time is { } tm ? " " + tm.ToString("HH:mm") : "")@(t.Remind ? " · " + L("напомнить") : "")
                     </span>
-                    <button type="button" class="link" @onclick="() => DeleteAsync(t)" aria-label="@L("Удалить: {0}", t.Title)">@L("Удалить")</button>
+                    @if (t.Note is not null)
+                    {
+                        <span class="muted task-note">@t.Note</span>
+                    }
+                    <button type="button" class="link" @onclick="() => Edit(t)" aria-label="@L("Изменить: {0}", t.Title)">@L("Изменить")</button>
+                    <ConfirmButton Class="link" OnConfirm="() => DeleteAsync(t)" AriaLabel="@L("Удалить: {0}", t.Title)" Question='@L("Удалить?")'>@L("Удалить")</ConfirmButton>
                 </li>
             }
         </ul>
@@ -148,19 +190,76 @@ else
         }
     }
 
-    private void Shift(int months)
+    /// <summary>Название праздника на языке интерфейса (ProductionCalendar хранит русские названия ст. 112 ТК РФ).</summary>
+    private static string Holiday(string name) => name switch
+    {
+        "Новогодние каникулы" => L("Новогодние каникулы"),
+        "Рождество Христово" => L("Рождество Христово"),
+        "День защитника Отечества" => L("День защитника Отечества"),
+        "Международный женский день" => L("Международный женский день"),
+        "Праздник Весны и Труда" => L("Праздник Весны и Труда"),
+        "День Победы" => L("День Победы"),
+        "День России" => L("День России"),
+        "День народного единства" => L("День народного единства"),
+        _ => name,
+    };
+
+    /// <summary>Задачи и, для календаря, праздники и дни рождения видимого месяца.</summary>
+    private async Task LoadAsync()
+    {
+        _items = await Personal.GetTasksAsync();
+        if (CalendarView)
+        {
+            _settings = await Personal.GetCalendarSettingsAsync();
+            var days = MonthDays().ToList();
+            _events = await Personal.GetCalendarEventsAsync(days[0], days[^1]);
+        }
+    }
+
+    private Task Shift(int months)
     {
         _month = _month.AddMonths(months);
         _selected = _month.Month == _today.Month && _month.Year == _today.Year ? _today : _month;
+        return RunAsync(async () =>
+        {
+            var days = MonthDays().ToList();
+            _events = await Personal.GetCalendarEventsAsync(days[0], days[^1]);
+        });
     }
 
-    private Task AddAsync() => RunAsync(async () =>
+    private Task SaveSettingsAsync(CalendarSettings settings) => RunAsync(async () =>
     {
-        var date = CalendarView ? _selected : _date is { } d ? DateOnly.FromDateTime(d) : (DateOnly?)null;
-        _items = await Personal.SaveTaskAsync(new TaskItem(string.Empty, _title, date, _time, _remind, false, null));
+        await Personal.SaveCalendarSettingsAsync(settings);
+        await LoadAsync();
+    });
+
+    private void Edit(TaskItem t)
+    {
+        _editId = t.Id;
+        _title = t.Title;
+        _date = t.Date?.ToDateTime(TimeOnly.MinValue);
+        _time = t.Time;
+        _remind = t.Remind;
+        _note = t.Note;
+    }
+
+    private void ResetForm()
+    {
+        _editId = null;
         _title = string.Empty;
+        _date = CalendarView ? _today.ToDateTime(TimeOnly.MinValue) : null;
         _time = null;
         _remind = false;
+        _note = null;
+    }
+
+    /// <summary>Новая задача или правка: у правки сохраняется отметка «выполнено».</summary>
+    private Task SaveAsync() => RunAsync(async () =>
+    {
+        var date = CalendarView && _editId is null ? _selected : _date is { } d ? DateOnly.FromDateTime(d) : (DateOnly?)null;
+        var done = _editId is not null && _items!.FirstOrDefault(t => t.Id == _editId)?.Done == true;
+        _items = await Personal.SaveTaskAsync(new TaskItem(_editId ?? string.Empty, _title, date, _time, _remind, done, _note));
+        ResetForm();
     });
 
     private Task SetDoneAsync(TaskItem t, bool done) => RunAsync(async () => _items = await Personal.SetTaskDoneAsync(t.Id, done));

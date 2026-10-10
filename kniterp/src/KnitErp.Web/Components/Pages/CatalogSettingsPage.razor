@@ -94,7 +94,7 @@ else
                                             @if (!g.IsArchived)
                                             {
                                                 <button type="button" class="secondary" @onclick="() => StartEdit(g.Id, g.Name, g.ParentId?.ToString())" disabled="@_busy">@L("Изменить")</button>
-                                                <button type="button" class="secondary" @onclick='() => Run(() => Nomenclature.SetGroupArchivedAsync(g.Id, true, g.RowVersion), L("Группа в архиве."))' disabled="@_busy">@L("В архив")</button>
+                                                <ConfirmButton Class="secondary" OnConfirm='() => Run(() => Nomenclature.SetGroupArchivedAsync(g.Id, true, g.RowVersion), L("Группа в архиве."))' Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
                                             }
                                             else
                                             {
@@ -157,7 +157,7 @@ else
                                                     @if (!t.IsDefault)
                                                     {
                                                         <button type="button" class="secondary" @onclick='() => Run(() => Nomenclature.MakeDefaultPriceTypeAsync(t.Id, t.RowVersion), L("Основной вид цены изменён."))' disabled="@_busy">@L("Сделать основным")</button>
-                                                        <button type="button" class="secondary" @onclick='() => Run(() => Nomenclature.SetPriceTypeArchivedAsync(t.Id, true, t.RowVersion), L("Вид цены в архиве."))' disabled="@_busy">@L("В архив")</button>
+                                                        <ConfirmButton Class="secondary" OnConfirm='() => Run(() => Nomenclature.SetPriceTypeArchivedAsync(t.Id, true, t.RowVersion), L("Вид цены в архиве."))' Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
                                                     }
                                                 }
                                                 else
@@ -240,7 +240,7 @@ else
                                                 <button type="button" class="secondary icon" @onclick="() => Run(() => Nomenclature.MoveItemFieldAsync(f.Id, -1), null)" disabled="@_busy" title="@L("Выше")" aria-label="@L("Выше: {0}", f.Name)">↑</button>
                                                 <button type="button" class="secondary icon" @onclick="() => Run(() => Nomenclature.MoveItemFieldAsync(f.Id, 1), null)" disabled="@_busy" title="@L("Ниже")" aria-label="@L("Ниже: {0}", f.Name)">↓</button>
                                                 <button type="button" class="secondary" @onclick="() => StartEdit(f.Id, f.Name, null)" disabled="@_busy">@L("Изменить")</button>
-                                                <button type="button" class="secondary" @onclick='() => Run(() => Nomenclature.SetItemFieldArchivedAsync(f.Id, true, f.RowVersion), L("Поле в архиве."))' disabled="@_busy">@L("В архив")</button>
+                                                <ConfirmButton Class="secondary" OnConfirm='() => Run(() => Nomenclature.SetItemFieldArchivedAsync(f.Id, true, f.RowVersion), L("Поле в архиве."))' Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
                                             }
                                             else
                                             {
@@ -290,7 +290,7 @@ else
                                     @if (!open.IsArchived)
                                     {
                                         <button type="button" class="secondary" @onclick="() => StartEdit(open.Id, open.Name, null)" disabled="@_busy">@L("Переименовать")</button>
-                                        <button type="button" class="secondary" @onclick='() => Run(() => Nomenclature.SetCatalogArchivedAsync(open.Id, true, open.RowVersion), L("Справочник в архиве."))' disabled="@_busy">@L("В архив")</button>
+                                        <ConfirmButton Class="secondary" OnConfirm='() => Run(() => Nomenclature.SetCatalogArchivedAsync(open.Id, true, open.RowVersion), L("Справочник в архиве."))' Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
                                     }
                                     else
                                     {
@@ -345,7 +345,7 @@ else
                                                         @if (!e.IsArchived)
                                                         {
                                                             <button type="button" class="secondary" @onclick="() => { _editEntryId = e.Id; _editName = e.Name; _editCode = e.Code; }" disabled="@_busy">@L("Изменить")</button>
-                                                            <button type="button" class="secondary" @onclick='() => Run(() => Nomenclature.SetEntryArchivedAsync(e.Id, true, e.RowVersion), L("Запись в архиве."))' disabled="@_busy">@L("В архив")</button>
+                                                            <ConfirmButton Class="secondary" OnConfirm='() => Run(() => Nomenclature.SetEntryArchivedAsync(e.Id, true, e.RowVersion), L("Запись в архиве."))' Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
                                                         }
                                                         else
                                                         {
@@ -407,7 +407,7 @@ else
                                             @if (!c.IsArchived)
                                             {
                                                 <button type="button" class="secondary" @onclick="() => { _editId = c.Id; _editName = c.Name; }" disabled="@_busy">@L("Изменить")</button>
-                                                <button type="button" class="secondary" @onclick='() => Run(() => Modifications.SetCharacteristicArchivedAsync(c.Id, true, c.RowVersion), L("«{0}» в архиве.", c.Name))' disabled="@_busy">@L("В архив")</button>
+                                                <ConfirmButton Class="secondary" OnConfirm='() => Run(() => Modifications.SetCharacteristicArchivedAsync(c.Id, true, c.RowVersion), L("«{0}» в архиве.", c.Name))' Disabled="@_busy" Question='@L("Отправить в архив?")'>@L("В архив")</ConfirmButton>
                                             }
                                             else
                                             {
@@ -466,12 +466,18 @@ else
 
     private bool CanEdit => CurrentAccess.Has(Permissions.CatalogEdit);
 
-    protected override async Task OnInitializedAsync()
+    /// <summary>Каждый справочник — свой пункт меню (?tab=…): переход между ними не пересоздаёт страницу.</summary>
+    protected override void OnParametersSet()
     {
         if (Enum.TryParse<Tab>(TabQuery, ignoreCase: true, out var tab))
         {
             _tab = tab;
+            _editId = null;
         }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
 
         try
         {

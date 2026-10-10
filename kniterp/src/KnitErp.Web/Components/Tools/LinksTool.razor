@@ -20,7 +20,7 @@ else
         {
             <li>
                 <a href="@l.Url" target="_blank" rel="noopener noreferrer" title="@l.Url">@l.Title ↗</a>
-                <button type="button" class="link" @onclick="() => DeleteAsync(l)" aria-label="@L("Удалить ссылку {0}", l.Title)">@L("Удалить")</button>
+                <ConfirmButton Class="link" OnConfirm="() => DeleteAsync(l)" AriaLabel="@L("Удалить ссылку {0}", l.Title)" Question='@L("Удалить?")'>@L("Удалить")</ConfirmButton>
             </li>
         }
     </ul>

@@ -50,6 +50,11 @@ else
                     <label>@L("Фамилия") <InputText @bind-Value="_form.LastName" maxlength="100" required /></label>
                     <label>@L("Имя") <InputText @bind-Value="_form.FirstName" maxlength="100" required /></label>
                     <label>@L("Отчество") <InputText @bind-Value="_form.MiddleName" maxlength="100" /></label>
+                    @if (_mode == Mode.Edit)
+                    {
+                        <label>@L("Дата рождения") <InputDate @bind-Value="_form.BirthDate" /></label>
+                        <label class="inline"><InputCheckbox @bind-Value="_form.ShareBirthday" /> @L("Сотрудник согласен, чтобы коллеги видели день рождения (без года)")</label>
+                    }
                     <label>
                         @L("Подразделение")
                         <InputSelect @bind-Value="_form.DepartmentId" required>
@@ -224,7 +229,7 @@ else
         _form = new EmployeeForm
         {
             PersonnelNumber = e.PersonnelNumber, LastName = e.LastName, FirstName = e.FirstName, MiddleName = e.MiddleName,
-            DepartmentId = e.DepartmentId, PositionId = e.PositionId, HiredOn = e.HiredOn,
+            DepartmentId = e.DepartmentId, PositionId = e.PositionId, HiredOn = e.HiredOn, BirthDate = e.BirthDate, ShareBirthday = e.ShareBirthday,
         };
         _target = e;
         _mode = Mode.Edit;
@@ -258,7 +263,13 @@ else
         }
         else
         {
-            await Employees.UpdateAsync(_target!.Id, cmd, _target.RowVersion);
+            var version = _target!.RowVersion;
+            if (_form.BirthDate != _target.BirthDate || _form.ShareBirthday != _target.ShareBirthday)
+            {
+                version = await Employees.SetBirthdayAsync(_target.Id, _form.BirthDate, _form.ShareBirthday, version);
+            }
+
+            await Employees.UpdateAsync(_target.Id, cmd, version);
             _flash = L("Карточка сохранена.");
         }
 
@@ -341,5 +352,7 @@ else
         public DateOnly HiredOn { get; set; }
         public DateOnly DismissedOn { get; set; }
         public string? Reason { get; set; }
+        public DateOnly? BirthDate { get; set; }
+        public bool ShareBirthday { get; set; }
     }
 }
