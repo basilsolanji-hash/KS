@@ -20,7 +20,8 @@ final class Api
     private const ACTIONS = [
         'me', 'logout', 'settings', 'settingsSave', 'sessions', 'sessionDrop',
         'employees', 'employeeSave', 'employeeKey', 'msEmployeesImport', 'msEmployeeSave', 'msAudit',
-        'shiftSave', 'shifts', 'jobs', 'jobSave', 'stageStart', 'stageFinish',
+        'shiftSave', 'shifts', 'techCards', 'techCardSave', 'techCardApprove', 'jobTechCardAssign',
+        'jobs', 'jobSave', 'stageStart', 'stageFinish',
         'rating', 'audit', 'ping', 'event', 'activity',
         'msOrders', 'msOrder', 'msOrderSave', 'msDoc', 'msDocSave', 'msTemplates', 'msPrint', 'msAssortment',
         'tasks', 'task', 'taskSave', 'taskStatus', 'taskCheck', 'taskComment', 'fileUpload', 'fileGet', 'notifications', 'notificationsRead',

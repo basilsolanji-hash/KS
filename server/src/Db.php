@@ -69,7 +69,7 @@ final class Db
     }
 
     /** Версия схемы: при совпадении миграция не выполняется (быстрый ответ на каждый запрос). */
-    public const SCHEMA = 5;
+    public const SCHEMA = 6;
 
     public function migrate(): void
     {
@@ -94,6 +94,22 @@ final class Db
             quantity INTEGER DEFAULT 0, deadline BIGINT DEFAULT NULL, created_by BIGINT, created_at BIGINT NOT NULL, done INTEGER NOT NULL DEFAULT 0");
         $this->table('stages', "id $id, job_id BIGINT NOT NULL, stage VARCHAR(24) NOT NULL, started_by BIGINT, started_at BIGINT,
             finished_by BIGINT, finished_at BIGINT, quantity INTEGER DEFAULT 0, comment VARCHAR(500) DEFAULT ''");
+        // Производственная технология: карточка имеет стабильный ID, работа всегда идёт по конкретной утверждённой версии.
+        $this->table('tech_cards', "id $id, code VARCHAR(64) NOT NULL, name VARCHAR(200) NOT NULL, product_name VARCHAR(200) DEFAULT '',
+            status VARCHAR(16) NOT NULL DEFAULT 'draft', created_by BIGINT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL");
+        $this->table('tech_card_versions', "id $id, tech_card_id BIGINT NOT NULL, version_no INTEGER NOT NULL,
+            status VARCHAR(16) NOT NULL DEFAULT 'draft', output_quantity DECIMAL(19,4) NOT NULL DEFAULT 1,
+            output_unit VARCHAR(16) NOT NULL DEFAULT 'шт', planned_waste_percent DECIMAL(9,4) NOT NULL DEFAULT 0,
+            snapshot_hash VARCHAR(64) DEFAULT NULL, created_by BIGINT NOT NULL, created_at BIGINT NOT NULL,
+            approved_by BIGINT DEFAULT NULL, approved_at BIGINT DEFAULT NULL");
+        $this->table('tech_card_operations', "id $id, version_id BIGINT NOT NULL, sequence_no INTEGER NOT NULL,
+            stage VARCHAR(24) NOT NULL, name VARCHAR(200) NOT NULL, optional INTEGER NOT NULL DEFAULT 0,
+            time_tracking INTEGER NOT NULL DEFAULT 0, norm_seconds INTEGER DEFAULT NULL,
+            equipment_required INTEGER NOT NULL DEFAULT 0, output_stage INTEGER NOT NULL DEFAULT 0,
+            qr_code VARCHAR(100) DEFAULT NULL");
+        // Связь задания с версией хранит неизменяемый снимок: новая версия карты не переписывает уже запущенный заказ.
+        $this->table('production_task_specs', "job_id BIGINT PRIMARY KEY, tech_card_version_id BIGINT NOT NULL,
+            snapshot_json TEXT NOT NULL, assigned_by BIGINT NOT NULL, assigned_at BIGINT NOT NULL");
         $this->table('audit', "id $id, employee_id BIGINT, action VARCHAR(64) NOT NULL, detail VARCHAR(500) DEFAULT '', ip VARCHAR(64),
             created_at BIGINT NOT NULL");
         $this->table('login_fails', 'ip VARCHAR(64) PRIMARY KEY, fails INTEGER NOT NULL, until_ms BIGINT NOT NULL');
@@ -134,6 +150,11 @@ final class Db
         $this->index('comments_task', 'task_comments', 'task_id');
         $this->index('notif_emp', 'notifications', 'employee_id, read_at');
         $this->index('stages_job', 'stages', 'job_id');
+        $this->index('tech_cards_code', 'tech_cards', 'code', true);
+        $this->index('tech_card_versions_card', 'tech_card_versions', 'tech_card_id, version_no', true);
+        $this->index('tech_card_operations_order', 'tech_card_operations', 'version_id, sequence_no', true);
+        $this->index('tech_card_operations_qr', 'tech_card_operations', 'qr_code', true);
+        $this->index('production_task_specs_version', 'production_task_specs', 'tech_card_version_id');
         $this->index('shifts_emp', 'shifts', 'employee_id, start_ms');
         $this->index('audit_time', 'audit', 'created_at');
         $this->index('events_emp', 'events', 'employee_id, created_at');

@@ -18,7 +18,9 @@ function ok(bool $cond, string $what): void
 $dsn = getenv('DB_DSN') ?: 'sqlite::memory:';
 $pdo = new PDO($dsn, getenv('DB_USER') ?: null, getenv('DB_PASSWORD') ?: null);
 if (str_starts_with($dsn, 'mysql')) {
-    foreach (['settings', 'employees', 'sessions', 'shifts', 'jobs', 'stages', 'audit', 'login_fails', 'activity', 'events', 'tasks', 'task_comments', 'files', 'notifications', 'profiles', 'employee_docs', 'consents', 'payroll', 'screen_stats'] as $t) $pdo->exec("DROP TABLE IF EXISTS $t");
+    foreach (['settings', 'employees', 'sessions', 'shifts', 'jobs', 'stages', 'production_task_specs', 'tech_card_operations',
+        'tech_card_versions', 'tech_cards', 'audit', 'login_fails', 'activity', 'events', 'tasks', 'task_comments', 'files',
+        'notifications', 'profiles', 'employee_docs', 'consents', 'payroll', 'screen_stats'] as $t) $pdo->exec("DROP TABLE IF EXISTS $t");
 }
 $db = new Ks\Db($pdo);
 $db->migrate();
@@ -91,6 +93,7 @@ ok(!str_contains((string)$raw['phone_enc'], '900') && $raw['key_hash'] !== $op['
 ok($op['employee']['phone'] === '+7 900 111-22-33', 'директор видит телефон');
 ok($D(['action' => 'employeeSave', 'employee' => ['name' => 'X', 'role' => 'хакер']])['ok'] === false, 'неизвестная роль');
 $hw = $D(['action' => 'employeeSave', 'employee' => ['name' => 'Мария', 'role' => 'handwork']]);
+$designer = $D(['action' => 'employeeSave', 'employee' => ['name' => 'Пелагея', 'role' => 'designer']]);
 
 // Вход сотрудника по ключу; 5 ошибок — пауза.
 $opLogin = $call(['action' => 'login', 'key' => strtoupper($op['key']), 'device' => 'Redmi']);
@@ -98,6 +101,8 @@ ok($opLogin['ok'] && $opLogin['me']['role'] === 'operator', 'вход опера
 for ($i = 0; $i < 5; $i++) $call(['action' => 'login', 'key' => 'неверный'], '10.9.9.9');
 ok(str_contains($call(['action' => 'login', 'key' => $op['key']], '10.9.9.9')['error'], 'Подождите'), 'пауза после 5 ошибок');
 $O = fn(array $r, string $ip = '10.0.0.1') => $call($r + ['token' => $opLogin['token']], $ip);
+$designerLogin = $call(['action' => 'login', 'key' => $designer['key']]);
+$T = fn(array $r) => $call($r + ['token' => $designerLogin['token']]);
 ok($O(['action' => 'employeeSave', 'employee' => ['name' => 'Y', 'role' => 'director']])['error'] === 'Нет доступа', 'оператор не создаёт сотрудников');
 ok(!isset($O(['action' => 'employees'])['employees'][0]['phone']), 'оператор не видит телефоны');
 
@@ -110,6 +115,43 @@ ok($O(['action' => 'me'], '8.8.8.8')['error'] === 'Работа только ч�
 ok($O(['action' => 'me'])['ok'], 'в сети фабрики — можно');
 ok($D(['action' => 'me'], '8.8.8.8')['ok'], 'директор — откуда угодно');
 
+// Техкарты: черновик → утверждение → неизменяемый снимок производственного задания.
+$cardBody = [
+    'code' => 'RIB-100', 'name' => 'Подвяз 2×2', 'productName' => 'Подвяз 14×100',
+    'outputQuantity' => 1, 'outputUnit' => 'шт', 'plannedWastePercent' => 3,
+    'operations' => [
+        ['stage' => 'knit', 'name' => 'Вязание', 'timeTracking' => true, 'normSeconds' => 210, 'equipmentRequired' => true],
+        ['stage' => 'qc', 'name' => 'ОТК'],
+        ['stage' => 'pack', 'name' => 'Упаковка', 'outputStage' => true],
+    ],
+];
+ok($O(['action' => 'techCardSave', 'card' => $cardBody])['error'] === 'Нет доступа', 'оператор не правит техкарты');
+$draft = $T(['action' => 'techCardSave', 'card' => $cardBody]);
+ok($draft['ok'] && $draft['techCard']['version'] === 1 && $draft['techCard']['status'] === 'draft', 'создана первая версия техкарты');
+$version1 = $draft['techCard']['id'];
+$approved = $T(['action' => 'techCardApprove', 'version_id' => $version1]);
+ok($approved['ok'] && $approved['techCard']['status'] === 'approved' && strlen($approved['techCard']['snapshotHash']) === 64, 'версия техкарты утверждена');
+ok(count($O(['action' => 'techCards'])['techCards']) === 1, 'оператор видит утверждённую техкарту');
+
+$routedJob = $D(['action' => 'jobSave', 'job' => ['title' => 'КП-TECH Подвязы', 'quantity' => 100]]);
+$assigned = $T(['action' => 'jobTechCardAssign', 'job_id' => $routedJob['id'], 'version_id' => $version1]);
+ok($assigned['ok'] && $assigned['techCard']['version'] === 1, 'утверждённая техкарта назначена заданию');
+ok(str_contains($O(['action' => 'stageStart', 'job_id' => $routedJob['id'], 'stage' => 'wto'])['error'], 'не входит'), 'этап вне маршрута запрещён');
+ok(str_contains($O(['action' => 'stageStart', 'job_id' => $routedJob['id'], 'stage' => 'qc'])['error'], 'предыдущего'), 'следующий этап ждёт предыдущий');
+$routeKnit = $O(['action' => 'stageStart', 'job_id' => $routedJob['id'], 'stage' => 'knit']);
+ok($O(['action' => 'stageFinish', 'id' => $routeKnit['id'], 'quantity' => 60])['ok'], 'частичная выработка первого этапа');
+$routeQc = $O(['action' => 'stageStart', 'job_id' => $routedJob['id'], 'stage' => 'qc']);
+ok($O(['action' => 'stageFinish', 'id' => $routeQc['id'], 'quantity' => 50])['ok'], 'следующий этап принимает только доступный объём');
+ok(str_contains($T(['action' => 'jobTechCardAssign', 'job_id' => $routedJob['id'], 'version_id' => $version1])['error'], 'После начала'), 'снимок нельзя заменить после старта');
+
+$cardBody['id'] = $draft['techCard']['cardId'];
+$cardBody['operations'][0]['normSeconds'] = 240;
+$draft2 = $T(['action' => 'techCardSave', 'card' => $cardBody]);
+ok($draft2['ok'] && $draft2['techCard']['version'] === 2, 'изменение создаёт новую черновую версию');
+ok(str_contains($T(['action' => 'jobTechCardAssign', 'job_id' => $routedJob['id'], 'version_id' => $draft2['techCard']['id']])['error'], 'После начала'), 'начатое задание сохраняет старую версию');
+$routed = array_values(array_filter($D(['action' => 'jobs'])['jobs'], fn($j) => $j['id'] === $routedJob['id']))[0];
+ok($routed['techCard']['version'] === 1 && $routed['techCard']['operations'][0]['normSeconds'] === 210, 'новая версия не переписала снимок задания');
+
 // Производство: этапы только своей роли; кто начал, кто закончил, сколько минут.
 $job = $D(['action' => 'jobSave', 'job' => ['title' => 'КП-12 Подвязы 600', 'client' => 'ООО Ромашка', 'quantity' => 600]]);
 ok($O(['action' => 'stageStart', 'job_id' => $job['id'], 'stage' => 'spec'])['error'] === 'Этот этап ведёт другой участок', 'ТЗ — не оператор');
@@ -119,8 +161,8 @@ ok($O(['action' => 'stageStart', 'job_id' => $job['id'], 'stage' => 'knit'])['er
 $now += 95 * 60000;
 $fin = $O(['action' => 'stageFinish', 'id' => $st['id'], 'quantity' => 600]);
 ok($fin['ok'] && $fin['minutes'] === 95, 'вязание: 95 минут');
-$jobs = $D(['action' => 'jobs'])['jobs'];
-ok($jobs[0]['stages'][0]['startedBy'] === 'Олег' && $jobs[0]['stages'][0]['quantity'] === 600, 'кто и сколько');
+$savedJob = array_values(array_filter($D(['action' => 'jobs'])['jobs'], fn($j) => $j['id'] === $job['id']))[0];
+ok($savedJob['stages'][0]['startedBy'] === 'Олег' && $savedJob['stages'][0]['quantity'] === 600, 'кто и сколько');
 // Выработку нельзя накрутить: этап сделан полностью — новый не начать; больше остатка — нельзя; чужой этап — нельзя.
 ok($O(['action' => 'stageStart', 'job_id' => $job['id'], 'stage' => 'knit'])['error'] === 'Этап уже выполнен полностью', 'вязание уже сделано');
 $op2 = $D(['action' => 'employeeSave', 'employee' => ['name' => 'Игорь', 'role' => 'operator']]);

@@ -8,6 +8,228 @@ trait ApiWork
 {
     // ---------------------------------------------------------------- Производство
 
+    /** Нормализовать маршрут техкарты. Первый срез поддерживает один этап каждого типа. */
+    private function normalizeTechOperations(array $operations, string $code, int $versionNo): array
+    {
+        if (!$operations || count($operations) > 50) throw new ApiError('В техкарте должно быть от 1 до 50 операций');
+        $out = [];
+        $seen = [];
+        $outputIndexes = [];
+        foreach (array_values($operations) as $i => $raw) {
+            if (!is_array($raw)) throw new ApiError('Неверный формат операции');
+            $stage = strtolower(trim((string)($raw['stage'] ?? '')));
+            if (!isset(Rules::STAGES[$stage])) throw new ApiError('Неизвестный этап техкарты: ' . $stage);
+            if (isset($seen[$stage])) throw new ApiError('Этап техкарты повторяется: ' . Rules::STAGES[$stage]);
+            $seen[$stage] = true;
+            $name = trim((string)($raw['name'] ?? Rules::STAGES[$stage]));
+            if ($name === '') throw new ApiError('У операции должно быть название');
+            $norm = $raw['normSeconds'] ?? null;
+            if ($norm !== null && (!is_numeric($norm) || (int)$norm < 1 || (int)$norm > 604800)) {
+                throw new ApiError('Норма времени должна быть от 1 секунды до 7 суток');
+            }
+            $isOutput = !empty($raw['outputStage']);
+            if ($isOutput) $outputIndexes[] = $i;
+            $qr = trim((string)($raw['qrCode'] ?? ''));
+            if ($qr === '') $qr = sprintf('TC-%s-V%d-%02d', strtoupper($code), $versionNo, $i + 1);
+            if (mb_strlen($qr) > 100) throw new ApiError('QR-код операции длиннее 100 символов');
+            $out[] = [
+                'sequence_no' => $i + 1,
+                'stage' => $stage,
+                'name' => mb_substr($name, 0, 200),
+                'optional' => !empty($raw['optional']) ? 1 : 0,
+                'time_tracking' => !empty($raw['timeTracking']) ? 1 : 0,
+                'norm_seconds' => $norm === null ? null : (int)$norm,
+                'equipment_required' => ($stage === 'knit' || !empty($raw['equipmentRequired'])) ? 1 : 0,
+                'output_stage' => $isOutput ? 1 : 0,
+                'qr_code' => mb_substr($qr, 0, 100),
+            ];
+        }
+        if (count($outputIndexes) > 1) throw new ApiError('В маршруте может быть только один этап выпуска');
+        if ($outputIndexes && $outputIndexes[0] !== count($out) - 1) throw new ApiError('Выпуск разрешён только на последней операции маршрута');
+        if (!$outputIndexes) $out[count($out) - 1]['output_stage'] = 1;
+        return $out;
+    }
+
+    /** Полный снимок версии техкарты — источник истины для уже назначенного производственного задания. */
+    private function techCardVersion(int $versionId): ?array
+    {
+        $v = $this->db->one('SELECT v.*, c.code, c.name, c.product_name FROM tech_card_versions v
+            JOIN tech_cards c ON c.id = v.tech_card_id WHERE v.id = ?', [$versionId]);
+        if (!$v) return null;
+        $ops = $this->db->all('SELECT sequence_no, stage, name, optional, time_tracking, norm_seconds,
+            equipment_required, output_stage, qr_code FROM tech_card_operations WHERE version_id = ? ORDER BY sequence_no', [$versionId]);
+        return [
+            'id' => (int)$v['id'], 'cardId' => (int)$v['tech_card_id'], 'code' => $v['code'], 'name' => $v['name'],
+            'productName' => $v['product_name'], 'version' => (int)$v['version_no'], 'status' => $v['status'],
+            'outputQuantity' => (float)$v['output_quantity'], 'outputUnit' => $v['output_unit'],
+            'plannedWastePercent' => (float)$v['planned_waste_percent'], 'snapshotHash' => $v['snapshot_hash'],
+            'operations' => array_map(fn($o) => [
+                'sequence' => (int)$o['sequence_no'], 'stage' => $o['stage'], 'name' => $o['name'],
+                'optional' => (bool)$o['optional'], 'timeTracking' => (bool)$o['time_tracking'],
+                'normSeconds' => $o['norm_seconds'] === null ? null : (int)$o['norm_seconds'],
+                'equipmentRequired' => (bool)$o['equipment_required'], 'outputStage' => (bool)$o['output_stage'],
+                'qrCode' => $o['qr_code'],
+            ], $ops),
+        ];
+    }
+
+    /** Реестр техкарт. Черновики видят только технолог, помощник и директор. */
+    private function aTechCards(array $req): array
+    {
+        $canDraft = Rules::full($this->me['role']) || $this->me['role'] === 'designer';
+        $cards = $this->db->all("SELECT * FROM tech_cards " . ($canDraft ? '' : "WHERE status = 'active' ") . 'ORDER BY code');
+        $result = [];
+        foreach ($cards as $card) {
+            $versions = $this->db->all('SELECT id FROM tech_card_versions WHERE tech_card_id = ? ' .
+                ($canDraft ? '' : "AND status = 'approved' ") . 'ORDER BY version_no DESC', [$card['id']]);
+            $result[] = [
+                'id' => (int)$card['id'], 'code' => $card['code'], 'name' => $card['name'],
+                'productName' => $card['product_name'], 'status' => $card['status'],
+                'versions' => array_values(array_filter(array_map(fn($v) => $this->techCardVersion((int)$v['id']), $versions))),
+            ];
+        }
+        return ['techCards' => $result];
+    }
+
+    /** Сохранить новую техкарту или новую/существующую черновую версию. */
+    private function aTechCardSave(array $req): array
+    {
+        $this->need('assistant', 'designer');
+        $card = (array)($req['card'] ?? []);
+        $id = (int)($card['id'] ?? 0);
+        $code = trim((string)($card['code'] ?? ''));
+        $name = trim((string)($card['name'] ?? ''));
+        if (!preg_match('/^[\pL\pN][\pL\pN._-]{1,63}$/u', $code)) throw new ApiError('Код техкарты: 2–64 буквы, цифры, точка, дефис или подчёркивание');
+        if ($name === '') throw new ApiError('Нужно название техкарты');
+        $outputQty = $card['outputQuantity'] ?? 1;
+        $waste = $card['plannedWastePercent'] ?? 0;
+        if (!is_numeric($outputQty) || (float)$outputQty <= 0 || (float)$outputQty > 1000000000) throw new ApiError('Неверное количество выпуска');
+        if (!is_numeric($waste) || (float)$waste < 0 || (float)$waste >= 100) throw new ApiError('Плановый брак должен быть от 0 до 99,9999%');
+        $unit = trim((string)($card['outputUnit'] ?? 'шт')) ?: 'шт';
+        if (mb_strlen($unit) > 16) throw new ApiError('Единица измерения длиннее 16 символов');
+        $duplicate = $this->db->one('SELECT id FROM tech_cards WHERE code = ? AND id <> ?', [$code, $id]);
+        if ($duplicate) throw new ApiError('Техкарта с таким кодом уже существует');
+
+        return $this->db->tx(function () use ($id, $code, $name, $card, $outputQty, $waste, $unit) {
+            $cardId = $id;
+            if ($cardId === 0) {
+                $cardId = $this->db->insert('tech_cards', [
+                    'code' => $code, 'name' => mb_substr($name, 0, 200),
+                    'product_name' => mb_substr(trim((string)($card['productName'] ?? '')), 0, 200),
+                    'status' => 'draft', 'created_by' => $this->me['id'], 'created_at' => $this->now(), 'updated_at' => $this->now(),
+                ]);
+            } else {
+                $have = $this->db->lock('tech_cards', $cardId);
+                if (!$have) throw new ApiError('Техкарта не найдена');
+                $this->db->run('UPDATE tech_cards SET code = ?, name = ?, product_name = ?, updated_at = ? WHERE id = ?', [
+                    $code, mb_substr($name, 0, 200), mb_substr(trim((string)($card['productName'] ?? '')), 0, 200), $this->now(), $cardId,
+                ]);
+            }
+            $version = $this->db->one("SELECT * FROM tech_card_versions WHERE tech_card_id = ? AND status = 'draft' ORDER BY version_no DESC LIMIT 1", [$cardId]);
+            if (!$version) {
+                $max = $this->db->one('SELECT COALESCE(MAX(version_no), 0) AS n FROM tech_card_versions WHERE tech_card_id = ?', [$cardId]);
+                $versionNo = (int)($max['n'] ?? 0) + 1;
+                $versionId = $this->db->insert('tech_card_versions', [
+                    'tech_card_id' => $cardId, 'version_no' => $versionNo, 'status' => 'draft',
+                    'output_quantity' => (string)$outputQty, 'output_unit' => mb_substr($unit, 0, 16),
+                    'planned_waste_percent' => (string)$waste, 'created_by' => $this->me['id'], 'created_at' => $this->now(),
+                ]);
+            } else {
+                $versionId = (int)$version['id'];
+                $versionNo = (int)$version['version_no'];
+                $this->db->run('UPDATE tech_card_versions SET output_quantity = ?, output_unit = ?, planned_waste_percent = ? WHERE id = ?', [
+                    (string)$outputQty, mb_substr($unit, 0, 16), (string)$waste, $versionId,
+                ]);
+                $this->db->run('DELETE FROM tech_card_operations WHERE version_id = ?', [$versionId]);
+            }
+            $ops = $this->normalizeTechOperations((array)($card['operations'] ?? []), $code, $versionNo);
+            foreach ($ops as $op) $this->db->insert('tech_card_operations', ['version_id' => $versionId] + $op);
+            $this->log('techCardSave', "$cardId v$versionNo $code");
+            return ['techCard' => $this->techCardVersion($versionId)];
+        });
+    }
+
+    /** Утвердить черновую версию. Ранее утверждённая версия остаётся в истории. */
+    private function aTechCardApprove(array $req): array
+    {
+        $this->need('assistant', 'designer');
+        $versionId = (int)($req['version_id'] ?? 0);
+        return $this->db->tx(function () use ($versionId) {
+            $version = $this->db->lock('tech_card_versions', $versionId);
+            if (!$version) throw new ApiError('Версия техкарты не найдена');
+            if ($version['status'] !== 'draft') throw new ApiError('Утвердить можно только черновую версию');
+            $snapshot = $this->techCardVersion($versionId);
+            if (!$snapshot || !$snapshot['operations']) throw new ApiError('В техкарте нет операций');
+            $hashData = $snapshot;
+            unset($hashData['snapshotHash'], $hashData['status']);
+            $hash = hash('sha256', self::json($hashData));
+            $this->db->run("UPDATE tech_card_versions SET status = 'archived' WHERE tech_card_id = ? AND status = 'approved'", [$version['tech_card_id']]);
+            $this->db->run("UPDATE tech_card_versions SET status = 'approved', snapshot_hash = ?, approved_by = ?, approved_at = ? WHERE id = ?", [
+                $hash, $this->me['id'], $this->now(), $versionId,
+            ]);
+            $this->db->run("UPDATE tech_cards SET status = 'active', updated_at = ? WHERE id = ?", [$this->now(), $version['tech_card_id']]);
+            $this->log('techCardApprove', $version['tech_card_id'] . ' v' . $version['version_no']);
+            return ['techCard' => $this->techCardVersion($versionId)];
+        });
+    }
+
+    /** Назначить заданию утверждённую версию техкарты и сохранить неизменяемый снимок. */
+    private function aJobTechCardAssign(array $req): array
+    {
+        $this->need('assistant', 'manager', 'designer');
+        $jobId = (int)($req['job_id'] ?? 0);
+        $versionId = (int)($req['version_id'] ?? 0);
+        return $this->db->tx(function () use ($jobId, $versionId) {
+            $job = $this->db->lock('jobs', $jobId);
+            if (!$job || $job['done']) throw new ApiError('Заказ не найден или закрыт');
+            if ($this->db->one('SELECT id FROM stages WHERE job_id = ? LIMIT 1', [$jobId])) {
+                throw new ApiError('После начала работ техкарту задания менять нельзя');
+            }
+            $snapshot = $this->techCardVersion($versionId);
+            if (!$snapshot || $snapshot['status'] !== 'approved') throw new ApiError('Нужна утверждённая версия техкарты');
+            $json = self::json($snapshot);
+            $have = $this->db->one('SELECT job_id FROM production_task_specs WHERE job_id = ?', [$jobId]);
+            if ($have) {
+                $this->db->run('UPDATE production_task_specs SET tech_card_version_id = ?, snapshot_json = ?, assigned_by = ?, assigned_at = ? WHERE job_id = ?', [
+                    $versionId, $json, $this->me['id'], $this->now(), $jobId,
+                ]);
+            } else {
+                $this->db->insert('production_task_specs', [
+                    'job_id' => $jobId, 'tech_card_version_id' => $versionId, 'snapshot_json' => $json,
+                    'assigned_by' => $this->me['id'], 'assigned_at' => $this->now(),
+                ]);
+            }
+            $this->log('jobTechCardAssign', "$jobId v$versionId");
+            return ['jobId' => $jobId, 'techCard' => $snapshot];
+        });
+    }
+
+    private function jobRoute(int $jobId): ?array
+    {
+        $row = $this->db->one('SELECT snapshot_json FROM production_task_specs WHERE job_id = ?', [$jobId]);
+        if (!$row) return null;
+        $snapshot = json_decode((string)$row['snapshot_json'], true);
+        return is_array($snapshot) && isset($snapshot['operations']) && is_array($snapshot['operations']) ? $snapshot : null;
+    }
+
+    /** Доступный объём этапа по снимку маршрута; null — старое задание без техкарты. */
+    private function routeAvailable(int $jobId, string $stage, int $jobQuantity): ?int
+    {
+        $route = $this->jobRoute($jobId);
+        if ($route === null) return null;
+        $ops = array_values($route['operations']);
+        $index = array_search($stage, array_column($ops, 'stage'), true);
+        if ($index === false) throw new ApiError('Этап не входит в утверждённый маршрут задания');
+        $source = $jobQuantity;
+        for ($i = $index - 1; $i >= 0; $i--) {
+            if (empty($ops[$i]['optional'])) {
+                $source = $this->stageDone($jobId, (string)$ops[$i]['stage']);
+                break;
+            }
+        }
+        return max(0, $source - $this->stageDone($jobId, $stage));
+    }
+
     private function aJobs(array $req): array
     {
         $jobs = $this->db->all('SELECT * FROM jobs WHERE done = ? ORDER BY created_at DESC LIMIT 200', [!empty($req['done']) ? 1 : 0]);
@@ -26,9 +248,14 @@ trait ApiWork
                 'quantity' => (int)$s['quantity'], 'comment' => $s['comment'],
             ];
         }
+        $specs = [];
+        if ($ids) foreach ($this->db->all('SELECT job_id, snapshot_json FROM production_task_specs WHERE job_id IN (' . implode(',', $ids) . ')') as $s) {
+            $specs[(int)$s['job_id']] = json_decode((string)$s['snapshot_json'], true);
+        }
         return ['jobs' => array_map(fn($j) => [
             'id' => (int)$j['id'], 'quoteId' => $j['quote_id'], 'title' => $j['title'], 'client' => $j['client'], 'quantity' => (int)$j['quantity'],
-            'deadline' => $j['deadline'] !== null ? (int)$j['deadline'] : null, 'done' => (bool)$j['done'], 'stages' => $byJob[(int)$j['id']] ?? [],
+            'deadline' => $j['deadline'] !== null ? (int)$j['deadline'] : null, 'done' => (bool)$j['done'],
+            'techCard' => $specs[(int)$j['id']] ?? null, 'stages' => $byJob[(int)$j['id']] ?? [],
         ], $jobs)];
     }
 
@@ -94,6 +321,8 @@ trait ApiWork
         return $this->db->tx(function () use ($stage, $jobId) {
             $job = $this->db->lock('jobs', $jobId);
             if (!$job || $job['done']) throw new ApiError('Заказ не найден или закрыт');
+            $available = $this->routeAvailable($jobId, $stage, (int)$job['quantity']);
+            if ($available !== null && $available <= 0) throw new ApiError('Нет доступного объёма после предыдущего обязательного этапа');
             if ($this->db->one('SELECT id FROM stages WHERE job_id = ? AND stage = ? AND finished_at IS NULL', [$jobId, $stage])) {
                 throw new ApiError('Этап уже идёт');
             }
@@ -123,7 +352,8 @@ trait ApiWork
             if ($s['finished_at'] !== null) throw new ApiError('Этап уже завершён');
             if (!$job || $job['done']) throw new ApiError('Заказ закрыт');
             if ((int)$s['started_by'] !== (int)$this->me['id'] && !Rules::full($this->me['role'])) throw new ApiError('Этап начал другой сотрудник');
-            $left = (int)$job['quantity'] - $this->stageDone((int)$job['id'], $s['stage']);
+            $routeLeft = $this->routeAvailable((int)$job['id'], (string)$s['stage'], (int)$job['quantity']);
+            $left = $routeLeft ?? ((int)$job['quantity'] - $this->stageDone((int)$job['id'], $s['stage']));
             if ((int)$job['quantity'] > 0 && $qty > $left) throw new ApiError("Больше, чем осталось по заказу: $left шт.");
             $n = $this->db->run('UPDATE stages SET finished_by = ?, finished_at = ?, quantity = ?, comment = ? WHERE id = ? AND finished_at IS NULL', [
                 $this->me['id'], $this->now(), $qty, $comment, $s['id'],
