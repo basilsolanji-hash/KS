@@ -357,13 +357,17 @@ public sealed class StockDocumentService(
 
         var requiresComment = doc.ReasonId is { } rid
                               && await db.OperationReasons.AsNoTracking().Where(r => r.Id == rid).Select(r => r.RequiresComment).SingleAsync(ct);
+        // Аудит 10.10.2026 (п. 2): проверка лимита возврата и проведение — под блокировкой заказа до конца транзакции,
+        // иначе два параллельных возврата видят одну и ту же отгрузку и вместе превышают её.
         if (doc.Kind == StockOperationKind.ReturnToSupplier && doc.PurchaseOrderId is { } orderId)
         {
+            await db.LockAsync($"kniterp.order.purchase.{orderId}", ct);
             await EnsureReturnWithinReceivedAsync(ctx, doc, orderId, ct);
         }
 
         if (doc.Kind == StockOperationKind.CustomerReturn && doc.SalesOrderId is { } salesOrderId)
         {
+            await db.LockAsync($"kniterp.order.sales.{salesOrderId}", ct);
             await EnsureReturnWithinShippedAsync(ctx, doc, salesOrderId, ct);
         }
 
@@ -385,7 +389,14 @@ public sealed class StockDocumentService(
         var doc = await LoadAsync(ctx, id, Permissions.WarehouseDocumentPost, rowVersion, ct);
         await ClosedPeriod.EnsureOpenAsync(db, ctx.OrganizationId, doc.DocumentDate, ct);
         doc.Reverse(ctx.UserId, reason, clock.UtcNow);
-        var deltas = doc.MovementDeltas().Select(d => (d.WarehouseId, d.ItemId, -d.Quantity)).ToList();
+
+        // Аудит 10.10.2026 (п. 1): сторно гасит фактически записанные движения документа, а не пересчёт по строкам —
+        // остаток после сторно ровно такой, как до проведения, даже если строки как-то разошлись с движениями.
+        var deltas = (await db.StockMovements.AsNoTracking()
+                .Where(m => m.OrganizationId == ctx.OrganizationId && m.Source == StockSource.StockDocument && m.SourceId == doc.Id)
+                .GroupBy(m => new { m.WarehouseId, m.ItemId }).Select(g => new { g.Key.WarehouseId, g.Key.ItemId, Sum = g.Sum(m => m.Quantity) })
+                .ToListAsync(ct))
+            .Where(d => d.Sum != 0).Select(d => (d.WarehouseId, d.ItemId, -d.Sum)).ToList();
         await WriteMovementsAsync(ctx, doc, deltas, StockSource.StockDocumentReversal, ct);
         Audit(ctx, AuditActions.StockDocumentReversed, doc, "Проведён", "Сторнирован", doc.ReversalReason);
         await ClosedPeriod.SaveAsync(db, ct);

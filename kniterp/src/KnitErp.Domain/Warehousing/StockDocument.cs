@@ -72,6 +72,12 @@ public sealed class StockDocument
     public DateTime? ReversedAtUtc { get; private set; }
     public string? ReversalReason { get; private set; }
     public byte[] RowVersion { get; private set; } = [];
+
+    /// <summary>
+    /// Растёт при каждой правке строк (аудит 10.10.2026, п. 1): строки — отдельная таблица, и без этого правка строки не меняла бы
+    /// версию документа, а устаревшая форма не получала бы конфликт, если документ тем временем провели.
+    /// </summary>
+    public int LinesRevision { get; private set; }
     public IReadOnlyCollection<StockDocumentLine> Lines => _lines;
 
     public static string NumberPrefix(StockOperationKind kind) => kind switch
@@ -117,6 +123,7 @@ public sealed class StockDocument
     {
         EnsureDraft();
         Quantities.EnsurePositive(quantity);
+        LinesRevision++;
         var line = _lines.FirstOrDefault(l => l.ItemId == itemId);
         if (line is null)
         {
@@ -133,6 +140,7 @@ public sealed class StockDocument
         EnsureDraft();
         var line = _lines.FirstOrDefault(l => l.ItemId == itemId)
                    ?? throw new BusinessRuleException("stock.document.line_missing", "Такой строки в документе нет.");
+        LinesRevision++;
         _lines.Remove(line);
     }
 
@@ -152,6 +160,7 @@ public sealed class StockDocument
 
         _lines.Clear();
         _lines.AddRange(lines.Select(l => new StockDocumentLine(l.ItemId, l.Quantity)));
+        LinesRevision++;
     }
 
     /// <summary>

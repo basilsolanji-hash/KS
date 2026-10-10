@@ -119,6 +119,9 @@ builder.Services.AddDataProtection()
     .AddKeyManagementOptions(o => o.XmlEncryptor = new MasterKeyXmlEncryptor());
 
 // Подбор паролей и кодов: не больше 10 отправок форм входа в минуту с одного адреса (плюс блокировка учётной записи D25).
+// Аудит 10.10.2026: cookie антиподделки — только по HTTPS, как и cookie сессии.
+builder.Services.AddAntiforgery(o => o.Cookie.SecurePolicy = CookieSecurePolicy.Always);
+
 builder.Services.AddRateLimiter(o =>
 {
     o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;

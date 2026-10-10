@@ -69,8 +69,38 @@ public sealed class KnitErpDbContext(DbContextOptions<KnitErpDbContext> options)
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
     public DbSet<DocumentCounter> DocumentCounters => Set<DocumentCounter>();
 
+    /// <summary>
+    /// Транзакция сценария. Если сценарий вызван из другого (увольнение блокирует учётную запись), он присоединяется к внешней
+    /// транзакции: фиксирует и откатывает её только внешний сценарий.
+    /// </summary>
     public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default) =>
-        Database.BeginTransactionAsync(cancellationToken);
+        Database.CurrentTransaction is { } outer
+            ? Task.FromResult<IDbContextTransaction>(new JoinedTransaction(outer))
+            : Database.BeginTransactionAsync(cancellationToken);
+
+    /// <summary>Участие во внешней транзакции: фиксация и откат — дело внешнего сценария.</summary>
+    private sealed class JoinedTransaction(IDbContextTransaction outer) : IDbContextTransaction
+    {
+        public Guid TransactionId => outer.TransactionId;
+
+        public void Commit()
+        {
+        }
+
+        public Task CommitAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public void Rollback()
+        {
+        }
+
+        public Task RollbackAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public void Dispose()
+        {
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
 
     public async Task LockWarehousesAsync(IEnumerable<long> warehouseIds, CancellationToken cancellationToken = default)
     {

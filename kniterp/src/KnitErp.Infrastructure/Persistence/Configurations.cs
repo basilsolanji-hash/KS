@@ -1299,7 +1299,11 @@ internal sealed class StockDocumentLineConfiguration : IEntityTypeConfiguration<
 {
     public void Configure(EntityTypeBuilder<StockDocumentLine> b)
     {
-        b.ToTable("stock_document_lines", t => t.HasCheckConstraint("ck_stock_document_lines_quantity", "[Quantity] > 0"));
+        b.ToTable("stock_document_lines", t =>
+        {
+            t.HasCheckConstraint("ck_stock_document_lines_quantity", "[Quantity] > 0");
+            t.HasTrigger("tr_stock_document_lines_draft_only");
+        });
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).UseIdentityColumn();
         b.Property(x => x.Quantity).HasColumnType("decimal(18,6)");

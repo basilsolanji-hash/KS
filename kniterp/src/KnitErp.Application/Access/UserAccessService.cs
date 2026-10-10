@@ -403,6 +403,10 @@ public sealed class UserAccessService(IKnitErpDbContext db, IAccessGuard guard, 
     public async Task ChangeRoleAsync(ChangeRoleCommand cmd, CancellationToken ct = default)
     {
         var ctx = await guard.DemandAsync(Permissions.UserManage, ct);
+        // Аудит 10.10.2026 (п. 3): проверка «останется Владелец» и снятие роли — под одной блокировкой организации,
+        // иначе два Владельца, параллельно снимающие роли друг с друга, оставят организацию без Владельца.
+        await using var tx = await db.BeginTransactionAsync(ct);
+        await db.LockAsync(AccessLock(ctx.OrganizationId), ct);
         await RequireMemberAsync(ctx, cmd.UserId, ct);
         var newRole = await FindRoleAsync(ctx, cmd.NewRoleCode, ct);
         var now = clock.UtcNow;
@@ -447,11 +451,17 @@ public sealed class UserAccessService(IKnitErpDbContext db, IAccessGuard guard, 
             cmd.UserId, string.Join(", ", currentRoles.Select(r => r.Name)),
             scopeName is null ? newRole.Name : $"{newRole.Name} ({scopeName})", cmd.Reason));
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
     }
+
+    /// <summary>Блокировка состава ролей организации до конца транзакции.</summary>
+    private static string AccessLock(long organizationId) => $"kniterp.access.{organizationId}";
 
     public async Task BlockAsync(long userId, string? reason, CancellationToken ct = default)
     {
         var ctx = await guard.DemandAsync(Permissions.UserManage, ct);
+        await using var tx = await db.BeginTransactionAsync(ct);
+        await db.LockAsync(AccessLock(ctx.OrganizationId), ct);
         var member = await RequireMemberAsync(ctx, userId, ct);
         if (userId == ctx.UserId)
         {
@@ -471,6 +481,7 @@ public sealed class UserAccessService(IKnitErpDbContext db, IAccessGuard guard, 
         user.RotateSecurityStamp();
         db.AuditEntries.Add(Audit(ctx, AuditActions.UserBlocked, userId, "активен", "заблокирован", reason));
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
     }
 
     public async Task UnblockAsync(long userId, string? reason, CancellationToken ct = default)
