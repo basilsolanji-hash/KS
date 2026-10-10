@@ -1,5 +1,8 @@
 using KnitErp.Application.Access;
 using KnitErp.Application.Common;
+using KnitErp.Application.Purchasing;
+using KnitErp.Application.Sales;
+using KnitErp.Application.Taxes;
 using KnitErp.Application.Warehousing;
 using KnitErp.Domain.Access;
 using KnitErp.Domain.Common;
@@ -24,15 +27,27 @@ public sealed record DashboardMonthDto(int Receipts, int Transfers, int WriteOff
 /// </summary>
 public sealed record DashboardChartDto(string Title, string Href, DateOnly From, IReadOnlyList<decimal> Points, decimal Total, decimal PreviousTotal);
 
+public sealed record DashboardDebtorDto(long Id, string Name, decimal Debt);
+
+/// <summary>
+/// Деньги и то, что ждёт действий по продажам и закупкам (D74). Поле null — нет права на эти данные.
+/// Долг покупателей и наш долг поставщикам — по расчётам (отгружено/принято − возвраты − оплаты), только положительные остатки.
+/// </summary>
+public sealed record DashboardFinanceDto(
+    decimal? CustomerDebt, decimal? SupplierDebt, int? OverdueInvoices, decimal? OverdueAmount, int? SupplierInvoicesToPay,
+    decimal? SupplierToPay, int? OrdersToShip, int? ReceiptsWithoutVatInvoice, IReadOnlyList<DashboardDebtorDto> TopDebtors);
+
 public sealed record DashboardDto(
     string OrganizationName, IReadOnlyList<DashboardTileDto> Tiles, DashboardMonthDto? Month, IReadOnlyList<DashboardDocumentDto> Recent,
-    int? ReadinessPercent, IReadOnlyList<DashboardChartDto> Charts);
+    int? ReadinessPercent, IReadOnlyList<DashboardChartDto> Charts, DashboardFinanceDto? Finance = null);
 
 /// <summary>
 /// Главный экран: показатели, что ждёт действия, последние документы. Каждый блок — только при праве на его данные
 /// и в пределах складов пользователя; без прав на склад экран показывает то, что доступно (справочники, задачи).
 /// </summary>
-public sealed class DashboardService(IKnitErpDbContext db, IAccessGuard guard, IClock clock, LaunchReadinessService readiness)
+public sealed class DashboardService(
+    IKnitErpDbContext db, IAccessGuard guard, IClock clock, LaunchReadinessService readiness, SalesService sales, PurchaseService purchases,
+    CustomerInvoiceService invoices, VatInvoiceService vatInvoices)
 {
     /// <summary>Дней в графике динамики.</summary>
     public const int ChartDays = 30;
@@ -117,7 +132,45 @@ public sealed class DashboardService(IKnitErpDbContext db, IAccessGuard guard, I
             charts.AddRange(await ChartsAsync(ctx, today, ct));
         }
 
-        return new DashboardDto(org.ShortName, tiles, month, recent, readinessPercent, charts);
+        return new DashboardDto(org.ShortName, tiles, month, recent, readinessPercent, charts, await FinanceAsync(ctx, ct));
+    }
+
+    public const int TopDebtors = 5;
+
+    /// <summary>Сервисы продаж и закупок сами проверяют права; здесь вызываются только при наличии прав — блок без них пуст.</summary>
+    private async Task<DashboardFinanceDto?> FinanceAsync(AccessContext ctx, CancellationToken ct)
+    {
+        if (!ctx.Permissions.Has(Permissions.PriceView))
+        {
+            return null;
+        }
+
+        decimal? customerDebt = null, supplierDebt = null, overdueAmount = null, supplierToPay = null;
+        int? overdue = null, toPay = null, toShip = null, withoutVat = null;
+        IReadOnlyList<DashboardDebtorDto> top = [];
+        if (ctx.Permissions.Has(Permissions.SalesView))
+        {
+            var balances = await sales.BalancesAsync(ct: ct);
+            customerDebt = balances.Where(b => b.Debt > 0).Sum(b => b.Debt);
+            top = balances.Where(b => b.Debt > 0).OrderByDescending(b => b.Debt).Take(TopDebtors)
+                .Select(b => new DashboardDebtorDto(b.CustomerId, b.Customer, b.Debt)).ToList();
+            var issued = (await invoices.ListAsync(new CustomerInvoiceFilter(), ct)).Where(i => i.Overdue).ToList();
+            overdue = issued.Count;
+            overdueAmount = issued.Sum(i => i.Total - i.Paid);
+            toShip = (await sales.ListOrdersAsync(new SalesOrderFilter(KnitErp.Domain.Sales.SalesOrderStatus.Confirmed), ct))
+                .Count(o => o.Shipped != ShipmentState.Full);
+        }
+
+        if (ctx.Permissions.Has(Permissions.PurchaseView))
+        {
+            supplierDebt = (await purchases.BalancesAsync(ct: ct)).Where(b => b.Debt > 0).Sum(b => b.Debt);
+            var unpaid = await purchases.ListSupplierInvoicesAsync(unpaidOnly: true, ct: ct);
+            toPay = unpaid.Count;
+            supplierToPay = unpaid.Sum(i => i.ToPay);
+            withoutVat = (await vatInvoices.ReceiptsToRegisterAsync(ct)).Count;
+        }
+
+        return new DashboardFinanceDto(customerDebt, supplierDebt, overdue, overdueAmount, toPay, supplierToPay, toShip, withoutVat, top);
     }
 
     /// <summary>

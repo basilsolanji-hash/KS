@@ -1,9 +1,15 @@
 @page "/"
+@using System.Globalization
 @using KnitErp.Web.Components.Shared
 @inject DashboardService Dashboard
 
 <PageTitle>@L("Главная") — knitERP</PageTitle>
 
+@*
+    Главный экран (D74): приветствие и дата → ключевые показатели (деньги за 30 дней и долги) → динамика по дням →
+    что требует внимания и крупнейшие должники → последние документы, склад за месяц, справочно.
+    Каждый блок — только при правах на его данные; без прав на деньги показатели — операционные.
+*@
 @if (_denied is not null)
 {
     <AccessDenied Message="@_denied" />
@@ -14,65 +20,106 @@ else if (_data is null)
 }
 else
 {
-    <div class="page-head">
-        <h1>@_data.OrganizationName</h1>
-        <span class="muted">@TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId).ToString("dd.MM.yyyy")</span>
+    var now = TimeZones.ToLocal(DateTime.UtcNow, CurrentAccess.TimeZoneId);
+    var f = _data.Finance;
+    var sales = _data.Charts.FirstOrDefault(c => c.Href == "reports/customer-balances");
+    var receipts = _data.Charts.FirstOrDefault(c => c.Href == "customer-payments");
+
+    <div class="dash-head">
+        <div>
+            <h1>@Greeting(now.Hour), @CurrentAccess.DisplayName</h1>
+            <div class="muted">@_data.OrganizationName · @now.ToString("dddd, d MMMM yyyy", CultureInfo.CurrentCulture)</div>
+        </div>
+        @if (_data.ReadinessPercent is { } ready && ready < 100)
+        {
+            <a class="readiness" href="launch">
+                <span>@L("Готовность к запуску")</span>
+                <span class="bar"><span style="width: @(ready)%"></span></span>
+                <b>@ready%</b>
+            </a>
+        }
     </div>
 
-    @if (_data.ReadinessPercent is { } ready && ready < 100)
+    @if (sales is not null || f is { CustomerDebt: not null } or { SupplierDebt: not null })
     {
-        <a class="readiness" href="launch">
-            <span>@L("Готовность к запуску")</span>
-            <span class="bar"><span style="width: @(ready)%"></span></span>
-            <b>@ready%</b>
-        </a>
-    }
-
-    @if (_data.Tiles.Count > 0)
-    {
-        <div class="tiles">
-            @foreach (var t in _data.Tiles)
+        <div class="kpis">
+            @if (sales is not null)
             {
-                <a class="tile @(t.Warn ? "warn" : "")" href="@t.Href">
-                    <span class="tile-title">@L(t.Title)</span>
-                    <span class="tile-value">@t.Value</span>
-                    <span class="tile-hint">@L(t.Hint)</span>
-                </a>
+                <KpiTile Label="@L("Продажи за 30 дней")" Value="@Amounts.Format(sales.Total)" Href="reports/sales-by-item" Accent="--sec-sales"
+                         Delta="Change(sales)" Points="sales.Points" Hint="@L("отгружено − возвраты, с НДС")" />
+            }
+            @if (receipts is not null)
+            {
+                <KpiTile Label="@L("Поступило денег")" Value="@Amounts.Format(receipts.Total)" Href="customer-payments" Accent="--sec-warehouse"
+                         Delta="Change(receipts)" Points="receipts.Points" Hint="@L("оплаты покупателей за 30 дней")" />
+            }
+            @if (f?.CustomerDebt is { } cd)
+            {
+                <KpiTile Label="@L("Нам должны покупатели")" Value="@Amounts.Format(cd)" Href="reports/customer-balances" Accent="--sec-crm"
+                         Hint="@(f.OverdueAmount is > 0 ? L("просрочено по счетам: {0}", Amounts.Format(f.OverdueAmount)) : L("просроченных счетов нет"))" />
+            }
+            @if (f?.SupplierDebt is { } sd)
+            {
+                <KpiTile Label="@L("Мы должны поставщикам")" Value="@Amounts.Format(sd)" Href="reports/supplier-balances" Accent="--sec-purchases"
+                         Hint="@(f.SupplierToPay is > 0 ? L("к оплате по счетам: {0}", Amounts.Format(f.SupplierToPay)) : L("неоплаченных счетов нет"))" />
             }
         </div>
     }
 
     @if (_data.Charts.Count > 0)
     {
-        <h2 class="charts-title">@L("Динамика за 30 дней")</h2>
-        <div class="charts">
+        <h2 class="section-title">@L("Динамика за 30 дней")</h2>
+        <div class="charts charts-large">
             @foreach (var c in _data.Charts)
             {
-                <LineChart Chart="c" />
+                <LineChart Chart="c" Large="true" />
             }
         </div>
     }
 
-    <div class="dash-cols">
-        @if (_data.Month is { } m)
+    <div class="dash-grid">
+        <section class="dash-box">
+            <h2>@L("Требует внимания")</h2>
+            <ul class="attention">
+                @foreach (var t in _data.Tiles.Where(t => AttentionHrefs.Contains(t.Href)))
+                {
+                    @Attention(L(t.Title), t.Value, L(t.Hint), t.Href, null)
+                }
+                @if (f is not null)
+                {
+                    @if (f.OverdueInvoices is { } oi) { @Attention(L("Просроченные счета покупателям"), oi, L("оплата не поступила в срок"), "customer-invoices", f.OverdueAmount) }
+                    @if (f.OrdersToShip is { } os) { @Attention(L("Заказы ждут отгрузки"), os, L("подтверждены, отгружены не полностью"), "sales-orders", null) }
+                    @if (f.SupplierInvoicesToPay is { } sp) { @Attention(L("Счета поставщиков к оплате"), sp, L("не оплачены полностью"), "supplier-invoices", f.SupplierToPay) }
+                    @if (f.ReceiptsWithoutVatInvoice is { } rv) { @Attention(L("Приёмки без счёта-фактуры"), rv, L("зарегистрируйте документ поставщика"), "vat-invoices/received", null) }
+                }
+            </ul>
+        </section>
+
+        @if (f is { TopDebtors.Count: > 0 })
         {
             <section class="dash-box">
-                <h2>@L("Склад за месяц") <span class="muted">@m.From.ToString("dd.MM") – @m.To.ToString("dd.MM.yyyy")</span></h2>
+                <h2>@L("Крупнейшие должники")</h2>
                 <table class="compact">
                     <tbody>
-                        <tr><td>@L("Поступления")</td><td class="num"><a href="stock-documents?kind=1">@m.Receipts</a></td></tr>
-                        <tr><td>@L("Перемещения")</td><td class="num"><a href="stock-documents?kind=3">@m.Transfers</a></td></tr>
-                        <tr><td>@L("Списания")</td><td class="num"><a href="stock-documents?kind=2">@m.WriteOffs</a></td></tr>
-                        <tr><td>@L("Инвентаризации")</td><td class="num"><a href="inventory">@m.Inventories</a></td></tr>
+                        @foreach (var d in f.TopDebtors)
+                        {
+                            var share = f.CustomerDebt is > 0 ? (int)(d.Debt * 100 / f.CustomerDebt.Value) : 0;
+                            <tr>
+                                <td>@d.Name<div class="share"><span style="width: @(share)%"></span></div></td>
+                                <td class="num"><b>@Amounts.Format(d.Debt)</b><div class="muted">@(share)%</div></td>
+                            </tr>
+                        }
                     </tbody>
                 </table>
-                <p class="muted">@L("Проведённые документы по дате документа.") <a href="reports/turnover">@L("Обороты за месяц")</a></p>
+                <p class="muted"><a href="reports/customer-balances">@L("Все расчёты с покупателями")</a></p>
             </section>
         }
+    </div>
 
+    <div class="dash-grid">
         @if (_data.Recent.Count > 0)
         {
-            <section class="dash-box wide">
+            <section class="dash-box">
                 <h2>@L("Последние документы")</h2>
                 <table class="compact">
                     <thead><tr><th>@L("Дата")</th><th>@L("Документ")</th><th class="opt">@L("Склад")</th><th>@L("Статус")</th></tr></thead>
@@ -90,9 +137,33 @@ else
                 </table>
             </section>
         }
+
+        <section class="dash-box">
+            @if (_data.Month is { } m)
+            {
+                <h2>@L("Склад за месяц") <span class="muted">@m.From.ToString("dd.MM") – @m.To.ToString("dd.MM.yyyy")</span></h2>
+                <div class="mini-stats">
+                    <a href="stock-documents?kind=1"><b>@m.Receipts</b><span>@L("Поступления")</span></a>
+                    <a href="stock-documents?kind=3"><b>@m.Transfers</b><span>@L("Перемещения")</span></a>
+                    <a href="stock-documents?kind=2"><b>@m.WriteOffs</b><span>@L("Списания")</span></a>
+                    <a href="inventory"><b>@m.Inventories</b><span>@L("Инвентаризации")</span></a>
+                </div>
+            }
+            @{ var reference = _data.Tiles.Where(t => !AttentionHrefs.Contains(t.Href)).ToList(); }
+            @if (reference.Count > 0)
+            {
+                <h2 style="margin-top: 14px">@L("Справочно")</h2>
+                <div class="mini-stats">
+                    @foreach (var t in reference)
+                    {
+                        <a href="@t.Href" title="@L(t.Hint)"><b>@t.Value</b><span>@L(t.Title)</span></a>
+                    }
+                </div>
+            }
+        </section>
     </div>
 
-    @if (_data.Tiles.Count == 0)
+    @if (_data.Tiles.Count == 0 && f is null)
     {
         <p class="muted">@L("Для вашей роли показателей пока нет. Разделы, доступные вам, — в меню слева.")</p>
     }
@@ -101,6 +172,9 @@ else
 @code {
     [CascadingParameter]
     public CurrentAccessDto CurrentAccess { get; set; } = default!;
+
+    /// <summary>Плитки сервиса, которые означают «ждёт действия», — в блок «Требует внимания»; остальные — «Справочно».</summary>
+    private static readonly HashSet<string> AttentionHrefs = ["stock-documents?status=1", "inventory", "opening-balances"];
 
     private DashboardDto? _data;
     private string? _denied;
@@ -116,4 +190,29 @@ else
             _denied = UiErrors.Message(ex);
         }
     }
+
+    private static string Greeting(int hour) => hour switch
+    {
+        >= 5 and < 12 => L("Доброе утро"),
+        >= 12 and < 18 => L("Добрый день"),
+        >= 18 and < 23 => L("Добрый вечер"),
+        _ => L("Доброй ночи"),
+    };
+
+    private static decimal? Change(DashboardChartDto c) =>
+        c.PreviousTotal == 0 ? null : Math.Round((c.Total - c.PreviousTotal) / c.PreviousTotal * 100, 0);
+
+    /// <summary>Строка «требует внимания»: есть что делать — жёлтый знак «!» и число; нечего — зелёная галочка.</summary>
+    private RenderFragment Attention(string title, int count, string hint, string href, decimal? amount) => __builder =>
+    {
+        <li class="@(count > 0 ? "todo" : "done")">
+            <a href="@href">
+                <span class="att-mark" aria-hidden="true">@(count > 0 ? "!" : "✓")</span>
+                <span class="att-text"><span>@title</span><span class="muted">@hint</span></span>
+                <span class="att-count">@(count > 0 ? count.ToString(CultureInfo.InvariantCulture) : L("нет"))
+                    @if (amount is > 0) { <span class="muted">@Amounts.Format(amount)</span> }
+                </span>
+            </a>
+        </li>
+    };
 }

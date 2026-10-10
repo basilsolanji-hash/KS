@@ -1,32 +1,48 @@
 @using System.Globalization
-@* Линия динамики по дням: SVG без библиотек, подсказка с датой и суммой при наведении на день. *@
+@*
+    Линия динамики по дням: SVG без библиотек. Линия 2 px и заливка ~10 %, тонкая сетка на 0, середине и максимуме,
+    подписи оси — текстом поверх (SVG растягивается по ширине и текст в нём исказился бы). Наведение на день
+    подсвечивает столбик и показывает дату и сумму.
+*@
 
-<a class="chart" href="@Chart.Href">
+<a class="chart @(Large ? "chart-large" : "")" href="@Chart.Href">
     <span class="chart-head">
         <span class="tile-title">@L(Chart.Title)</span>
-        <span class="chart-change @ChangeClass">@ChangeText</span>
+        <span class="chart-change @ChangeClass" title="@L("К предыдущим 30 дням")">@ChangeText</span>
     </span>
     <span class="chart-total">@Amounts.Format(Chart.Total)</span>
-    <svg viewBox="0 0 @Width @Height" preserveAspectRatio="none" role="img" aria-label="@L(Chart.Title)">
-        <polygon class="chart-area" points="@($"0,{Height} {Line} {Width},{Height}")" />
-        <polyline class="chart-line" points="@Line" />
-        @for (var i = 0; i < Chart.Points.Count; i++)
-        {
-            var day = Chart.From.AddDays(i);
-            <rect class="chart-hit" x="@X(i - 0.5m)" y="0" width="@Num(Step)" height="@Height"><title>@day.ToString("dd.MM") — @Amounts.Format(Chart.Points[i])</title></rect>
-        }
-    </svg>
-    <span class="chart-axis"><span>@Chart.From.ToString("dd.MM")</span><span>@L("макс.") @Amounts.Format(Max)</span><span>@Chart.From.AddDays(Chart.Points.Count - 1).ToString("dd.MM")</span></span>
+    <span class="chart-plot">
+        <span class="chart-y"><span>@(Max > 0 ? Amounts.Compact(Max) : "")</span><span>@(Max > 0 ? Amounts.Compact(Max / 2) : "")</span><span>0</span></span>
+        <svg viewBox="0 0 @Width @Height" preserveAspectRatio="none" role="img" aria-label="@L(Chart.Title)">
+            <line class="chart-grid" x1="0" x2="@Width" y1="@Num(Top)" y2="@Num(Top)" />
+            <line class="chart-grid" x1="0" x2="@Width" y1="@Num((Top + Bottom) / 2)" y2="@Num((Top + Bottom) / 2)" />
+            <line class="chart-base" x1="0" x2="@Width" y1="@Num(Bottom)" y2="@Num(Bottom)" />
+            <polygon class="chart-area" points="@($"0,{Num(Bottom)} {Line} {Width},{Num(Bottom)}")" />
+            <polyline class="chart-line" points="@Line" />
+            @for (var i = 0; i < Chart.Points.Count; i++)
+            {
+                var day = Chart.From.AddDays(i);
+                <rect class="chart-hit" x="@X(i - 0.5m)" y="0" width="@Num(Step)" height="@Height"><title>@day.ToString("dd.MM.yyyy") — @Amounts.Format(Chart.Points[i])</title></rect>
+            }
+        </svg>
+    </span>
+    <span class="chart-axis"><span>@Chart.From.ToString("dd.MM")</span><span>@Chart.From.AddDays(Chart.Points.Count / 2).ToString("dd.MM")</span><span>@Chart.From.AddDays(Chart.Points.Count - 1).ToString("dd.MM")</span></span>
 </a>
 
 @code {
     private const int Width = 300;
-    private const int Height = 70;
+    private const int Height = 100;
+    private const decimal Top = 4;
+    private const decimal Bottom = Height - 2;
 
     [Parameter, EditorRequired]
     public DashboardChartDto Chart { get; set; } = default!;
 
-    private decimal Max => Chart.Points.Count == 0 ? 0 : Chart.Points.Max();
+    /// <summary>Крупный вид для главного экрана (выше область графика).</summary>
+    [Parameter]
+    public bool Large { get; set; }
+
+    private decimal Max => Chart.Points.Count == 0 ? 0 : Math.Max(0, Chart.Points.Max());
 
     private decimal Step => Chart.Points.Count > 1 ? (decimal)Width / (Chart.Points.Count - 1) : Width;
 
@@ -34,7 +50,7 @@
 
     /// <summary>Отрицательные дни (возвратов больше, чем отгрузок) прижимаются к нулю: линия показывает оборот, а не сальдо.</summary>
     private string Line => string.Join(' ', Chart.Points.Select((p, i) =>
-        $"{X(i)},{Num(Height - 4 - (Max > 0 ? Math.Max(p, 0) / Max * (Height - 8) : 0))}"));
+        $"{X(i)},{Num(Bottom - (Max > 0 ? Math.Max(p, 0) / Max * (Bottom - Top) : 0))}"));
 
     private static string Num(decimal v) => Math.Round(v, 2).ToString(CultureInfo.InvariantCulture);
 

@@ -73,6 +73,11 @@ public sealed class SalesTests(SqlTestHost host) : IClassFixture<SqlTestHost>
             Assert.Equal((DashboardService.ChartDays, Day, 56_120m, 56_120m, 0m), (sales.Points.Count, sales.From.AddDays(sales.Points.Count - 1), sales.Points[^1], sales.Total, sales.PreviousTotal));
             Assert.Equal(40_000m, charts.Single(c => c.Title == "Поступления от покупателей").Total);
             Assert.Equal(0m, charts.Single(c => c.Title == "Закупки").Total);
+
+            // Деньги на главном: долг покупателя 16 120, крупнейший должник — он же; после возврата 2 шт. заказ снова ждёт отгрузки.
+            var finance = (await s.Dashboard.GetAsync()).Finance!;
+            Assert.Equal((16_120m, 0m, 1), (finance.CustomerDebt!.Value, finance.SupplierDebt!.Value, finance.OrdersToShip!.Value));
+            Assert.Equal((f.Customer, 16_120m), (finance.TopDebtors.Single().Id, finance.TopDebtors.Single().Debt));
         }
 
         await using (var s = host.As(f.Senior, f.Org.OrganizationId))
@@ -81,6 +86,7 @@ public sealed class SalesTests(SqlTestHost host) : IClassFixture<SqlTestHost>
             Assert.Null(dto.Total);
             Assert.False(dto.CanEdit);
             Assert.Empty((await s.Dashboard.GetAsync()).Charts);
+            Assert.Null((await s.Dashboard.GetAsync()).Finance);
             await Assert.ThrowsAsync<AccessDeniedException>(() => s.Sales.BalancesAsync());
         }
 
