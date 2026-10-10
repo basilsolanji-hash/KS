@@ -962,6 +962,9 @@ internal sealed class SupplierPaymentConfiguration : IEntityTypeConfiguration<Su
         b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.CancelledByUserId).OnDelete(DeleteBehavior.Restrict);
         b.HasIndex(x => new { x.OrganizationId, x.Number }).IsUnique().HasDatabaseName("ux_supplier_payments_org_number");
+        b.Property(x => x.CashOrderNumber).HasMaxLength(30);
+        b.HasIndex(x => new { x.OrganizationId, x.CashOrderNumber }).IsUnique().HasFilter("[CashOrderNumber] IS NOT NULL")
+            .HasDatabaseName("ux_supplier_payments_org_cash_order");
         b.HasIndex(x => new { x.OrganizationId, x.SupplierId, x.PaymentDate }).HasDatabaseName("ix_supplier_payments_org_supplier_date");
     }
 }
@@ -1166,6 +1169,9 @@ internal sealed class CustomerPaymentConfiguration : IEntityTypeConfiguration<Cu
         b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.CancelledByUserId).OnDelete(DeleteBehavior.Restrict);
         b.HasIndex(x => new { x.OrganizationId, x.Number }).IsUnique().HasDatabaseName("ux_customer_payments_org_number");
+        b.Property(x => x.CashOrderNumber).HasMaxLength(30);
+        b.HasIndex(x => new { x.OrganizationId, x.CashOrderNumber }).IsUnique().HasFilter("[CashOrderNumber] IS NOT NULL")
+            .HasDatabaseName("ux_customer_payments_org_cash_order");
         b.HasIndex(x => new { x.OrganizationId, x.CustomerId, x.PaymentDate }).HasDatabaseName("ix_customer_payments_org_customer_date");
     }
 }
@@ -1459,4 +1465,55 @@ internal sealed class DataProtectionKeyConfiguration : IEntityTypeConfiguration<
 {
     public void Configure(EntityTypeBuilder<Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.DataProtectionKey> b) =>
         b.ToTable("data_protection_keys");
+}
+
+/// <summary>Разноски платежей по заказам (D85): заказ и платёж — той же организации; снятая разноска остаётся в истории.</summary>
+internal static class PaymentAllocationMapping
+{
+    public static void Map<T>(EntityTypeBuilder<T> b, string table)
+        where T : KnitErp.Domain.Finance.PaymentAllocation
+    {
+        b.ToTable(table, t =>
+        {
+            t.HasCheckConstraint($"ck_{table}_amount", "[Amount] > 0");
+            t.HasCheckConstraint($"ck_{table}_removed",
+                "([RemovedAtUtc] IS NULL AND [RemovedByUserId] IS NULL) OR ([RemovedAtUtc] IS NOT NULL AND [RemovedByUserId] IS NOT NULL)");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).UseIdentityColumn();
+        b.Property(x => x.Amount).HasColumnType("decimal(19,4)");
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.Ignore(x => x.IsActive);
+        b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<UserAccount>().WithMany().HasForeignKey(x => x.RemovedByUserId).OnDelete(DeleteBehavior.Restrict);
+
+        // Действующая разноска одного платежа по одному заказу — одна: добавка суммы заменяет её новой.
+        b.HasIndex(x => new { x.PaymentId, x.OrderId }).IsUnique().HasFilter("[RemovedAtUtc] IS NULL").HasDatabaseName($"ux_{table}_active");
+        b.HasIndex(x => new { x.OrganizationId, x.OrderId }).HasDatabaseName($"ix_{table}_org_order");
+    }
+}
+
+internal sealed class CustomerPaymentAllocationConfiguration : IEntityTypeConfiguration<KnitErp.Domain.Finance.CustomerPaymentAllocation>
+{
+    public void Configure(EntityTypeBuilder<KnitErp.Domain.Finance.CustomerPaymentAllocation> b)
+    {
+        PaymentAllocationMapping.Map(b, "customer_payment_allocations");
+        b.HasOne<CustomerPayment>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.PaymentId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict).HasConstraintName("fk_customer_payment_allocations_payment");
+        b.HasOne<SalesOrder>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.OrderId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict).HasConstraintName("fk_customer_payment_allocations_order");
+    }
+}
+
+internal sealed class SupplierPaymentAllocationConfiguration : IEntityTypeConfiguration<KnitErp.Domain.Finance.SupplierPaymentAllocation>
+{
+    public void Configure(EntityTypeBuilder<KnitErp.Domain.Finance.SupplierPaymentAllocation> b)
+    {
+        PaymentAllocationMapping.Map(b, "supplier_payment_allocations");
+        b.HasOne<SupplierPayment>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.PaymentId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict).HasConstraintName("fk_supplier_payment_allocations_payment");
+        b.HasOne<PurchaseOrder>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.OrderId })
+            .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict).HasConstraintName("fk_supplier_payment_allocations_order");
+    }
 }

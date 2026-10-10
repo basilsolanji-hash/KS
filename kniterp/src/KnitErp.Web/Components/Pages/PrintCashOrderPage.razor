@@ -1,8 +1,11 @@
 @page "/print/cash-order/{Id:long}"
+@page "/print/cash-order/{Source}/{Id:long}"
 @layout KnitErp.Web.Components.Layout.PrintLayout
 @using System.Globalization
 @using KnitErp.Application.Finance
 @inject MoneyOperationService Operations
+@inject KnitErp.Application.Sales.SalesService Sales
+@inject KnitErp.Application.Purchasing.PurchaseService Purchases
 
 @*
     Приходный (КО-1, ОКУД 0310001) и расходный (КО-2, ОКУД 0310002) кассовые ордера по формам постановления Госкомстата России
@@ -14,7 +17,7 @@
 
 <div class="print-bar">
     <button type="button" data-print>@L("Печать")</button>
-    <a href="money">@L("← К операциям")</a>
+    <a href="@BackHref">@L("← Назад")</a>
     @if (_doc is { SoleProprietor: true })
     {
         <span class="warn">@L("Индивидуальный предприниматель, который ведёт учёт доходов по НК РФ, может не оформлять кассовые ордера (п. 4.6 Указания № 3210-У).")</span>
@@ -70,7 +73,7 @@ else
             <tr><td>Сумма</td><td class="fill">@d.AmountInWords</td></tr>
             @if (!d.Expense)
             {
-                <tr><td>В том числе</td><td class="fill">без налога (НДС)</td></tr>
+                <tr><td>В том числе</td><td class="fill">@d.Vat</td></tr>
             }
             <tr><td>Приложение</td><td class="fill">@d.Comment</td></tr>
         </table>
@@ -105,7 +108,7 @@ else
                 <tr><td style="width: 150px">Принято от</td><td class="fill">@d.Party</td></tr>
                 <tr><td>Основание</td><td class="fill">@d.Basis</td></tr>
                 <tr><td>Сумма</td><td class="fill">@d.Amount.ToString("N2", Ru) (@d.AmountInWords)</td></tr>
-                <tr><td>В том числе</td><td class="fill">без налога (НДС)</td></tr>
+                <tr><td>В том числе</td><td class="fill">@d.Vat</td></tr>
             </table>
             <div class="sign">
                 <div>М. П. (штампа)</div>
@@ -120,6 +123,17 @@ else
     [Parameter]
     public long Id { get; set; }
 
+    /// <summary>Откуда ордер (D85): customer-payment — оплата покупателя в кассу, supplier-payment — оплата поставщику из кассы, иначе — денежная операция.</summary>
+    [Parameter]
+    public string? Source { get; set; }
+
+    private string BackHref => Source switch
+    {
+        "customer-payment" => "customer-payments",
+        "supplier-payment" => "supplier-payments",
+        _ => "money",
+    };
+
     private CashOrderPrintDto? _doc;
     private string? _error;
 
@@ -129,7 +143,13 @@ else
     {
         try
         {
-            _doc = await Operations.CashOrderAsync(Id);
+            _doc = Source switch
+            {
+                "customer-payment" => await Sales.PaymentCashOrderAsync(Id),
+                "supplier-payment" => await Purchases.PaymentCashOrderAsync(Id),
+                null => await Operations.CashOrderAsync(Id),
+                _ => throw new NotFoundException("Кассовый ордер"),
+            };
         }
         catch (Exception ex) when (UiErrors.IsUserFacing(ex))
         {

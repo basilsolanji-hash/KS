@@ -396,6 +396,12 @@ public sealed class CustomerPayment
     /// <summary>Расчётный счёт или касса своего юрлица, куда пришли (откуда ушли) деньги (D80).</summary>
     public long? MoneyAccountId { get; private set; }
 
+    /// <summary>
+    /// Номер кассового ордера (D85): оплата наличными через кассу получает номер из общей нумерации ПКО или РКО организации,
+    /// чтобы приходные и расходные ордера кассы шли подряд вместе с прочими кассовыми операциями.
+    /// </summary>
+    public string? CashOrderNumber { get; private set; }
+
     public string? Comment { get; private set; }
     public CustomerPaymentStatus Status { get; private set; }
     public long CreatedByUserId { get; private set; }
@@ -429,6 +435,16 @@ public sealed class CustomerPayment
             CreatedByUserId = userId,
             CreatedAtUtc = nowUtc,
         };
+    }
+
+    public void AssignCashOrderNumber(string number)
+    {
+        if (CashOrderNumber is not null)
+        {
+            throw new InvalidOperationException("Номер кассового ордера уже присвоен.");
+        }
+
+        CashOrderNumber = number;
     }
 
     public void Cancel(long userId, string? reason, DateTime nowUtc)

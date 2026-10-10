@@ -33,7 +33,7 @@ else
                 @foreach (var b in _rows)
                 {
                     <tr>
-                        <td>@b.Supplier</td>
+                        <td><a href="settlement-statement?counterparty=@b.SupplierId" title="@L("Акт сверки")">@b.Supplier</a></td>
                         <td class="num">@Amounts.Format(b.Received)</td>
                         <td class="num">@Amounts.Format(b.Returned)</td>
                         <td class="num">@Amounts.Format(b.Paid)</td>

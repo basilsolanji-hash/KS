@@ -1,0 +1,210 @@
+@using KnitErp.Application.Finance
+
+@*
+    Разноска оплаты по заказам (D85): что уже разнесено, остаток (аванс), открытые заказы контрагента с остатком к оплате.
+    «Разнести автоматически» — сначала заказы с ранним сроком; вручную — на выбранный заказ, не больше его остатка.
+    Права проверяет сервис; кнопки блокируются до ответа сервера.
+*@
+<div class="panel allocation">
+    @if (_data is null)
+    {
+        <p class="muted">@L("Загрузка…")</p>
+    }
+    else
+    {
+        <div class="page-head">
+            <h2>@L("Разноска оплаты {0}", _data.Number)</h2>
+            <button type="button" class="secondary" @onclick="Close" disabled="@_busy">@L("Закрыть")</button>
+        </div>
+        <dl class="facts">
+            <dt>@L("Контрагент")</dt><dd>@_data.Counterparty</dd>
+            <dt>@L("Сумма")</dt><dd>@Amounts.Format(_data.Amount)</dd>
+            <dt>@L("Разнесено")</dt><dd>@Amounts.Format(_data.Allocated)</dd>
+            <dt>@L("Не разнесено (аванс)")</dt><dd><b>@Amounts.Format(_data.Unallocated)</b></dd>
+        </dl>
+
+        @if (_message is not null)
+        {
+            <div class="@(_isError ? "flash error" : "flash")" role="@(_isError ? "alert" : "status")">@_message</div>
+        }
+
+        <table class="compact">
+            <thead><tr><th>@L("Заказ")</th><th class="num">@L("Сумма")</th><th class="opt">@L("Кто разнёс")</th>@if (CanEdit) { <th></th> }</tr></thead>
+            <tbody>
+                @if (_data.Allocations.Count == 0)
+                {
+                    <tr><td colspan="4" class="muted">@L("Оплата не разнесена — вся сумма считается авансом.")</td></tr>
+                }
+                @foreach (var a in _data.Allocations)
+                {
+                    <tr>
+                        <td><a href="@(OrderHref + a.OrderId)">@a.OrderNumber</a></td>
+                        <td class="num">@Amounts.Format(a.Amount)</td>
+                        <td>@a.CreatedBy</td>
+                        @if (CanEdit)
+                        {
+                            <td><ConfirmButton Class="secondary" Disabled="_busy" OnConfirm="() => RemoveAsync(a)">@L("Снять")</ConfirmButton></td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        @if (CanEdit && _data.Posted && _data.Unallocated > 0)
+        {
+            @if (_data.OpenOrders.Count == 0)
+            {
+                <p class="muted">@L("Открытых заказов с остатком к оплате нет — остаток останется авансом и зачтётся в следующий заказ.")</p>
+            }
+            else
+            {
+                <form class="inline-form" @onsubmit="AllocateAsync">
+                    <label>
+                        @L("Заказ")
+                        <select @bind="_order">
+                            @foreach (var o in _data.OpenOrders)
+                            {
+                                <option value="@o.Id">@o.Number @L("от") @o.Date.ToString("dd.MM.yyyy") — @L("к оплате") @Amounts.Format(o.Outstanding)</option>
+                            }
+                        </select>
+                    </label>
+                    <label>@L("Сумма") <input @bind="_amount" inputmode="decimal" size="12" placeholder="@Amounts.Format(Suggested())" /></label>
+                    <button type="submit" disabled="@_busy">@L("Разнести")</button>
+                    <button type="button" class="secondary" @onclick="AutoAsync" disabled="@_busy">@L("Разнести автоматически")</button>
+                </form>
+                <p class="muted small">@L("Автоматически — сначала заказы с ранним сроком оплаты (по счёту) или отгрузки, затем по дате заказа.")</p>
+            }
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public Func<Task<PaymentAllocationsDto>> Load { get; set; } = default!;
+
+    [Parameter, EditorRequired]
+    public Func<long, decimal, Task> Allocate { get; set; } = default!;
+
+    [Parameter, EditorRequired]
+    public Func<Task<decimal>> Auto { get; set; } = default!;
+
+    [Parameter, EditorRequired]
+    public Func<long, byte[], Task> Remove { get; set; } = default!;
+
+    [Parameter, EditorRequired]
+    public string OrderHref { get; set; } = string.Empty;
+
+    [Parameter]
+    public bool CanEdit { get; set; }
+
+    [Parameter]
+    public EventCallback Changed { get; set; }
+
+    [Parameter]
+    public EventCallback Closed { get; set; }
+
+    private PaymentAllocationsDto? _data;
+    private string _order = string.Empty;
+    private string _amount = string.Empty;
+    private bool _busy;
+    private string? _message;
+    private bool _isError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await ReloadAsync();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+            _isError = true;
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        _data = await Load();
+        if (_data.OpenOrders.All(o => o.Id.ToString() != _order))
+        {
+            _order = _data.OpenOrders.FirstOrDefault()?.Id.ToString() ?? string.Empty;
+        }
+    }
+
+    /// <summary>Подсказка суммы: меньшее из остатка платежа и остатка выбранного заказа.</summary>
+    private decimal Suggested()
+    {
+        var order = _data!.OpenOrders.FirstOrDefault(o => o.Id.ToString() == _order);
+        return order is null ? 0 : Math.Min(order.Outstanding, _data.Unallocated);
+    }
+
+    private Task AllocateAsync() => RunAsync(async () =>
+    {
+        if (!long.TryParse(_order, out var orderId))
+        {
+            throw new BusinessRuleException("payment.allocation.order", L("Выберите заказ."));
+        }
+
+        decimal amount;
+        if (string.IsNullOrWhiteSpace(_amount))
+        {
+            amount = Suggested();
+        }
+        else if (!Quantities.TryParse(_amount, out amount))
+        {
+            throw new BusinessRuleException("payment.allocation.amount", L("Укажите число, например 1 220,50."));
+        }
+
+        await Allocate(orderId, amount);
+        _amount = string.Empty;
+        return L("Оплата разнесена.");
+    });
+
+    private Task AutoAsync() => RunAsync(async () =>
+    {
+        var done = await Auto();
+        return done > 0 ? L("Разнесено автоматически: {0}.", Amounts.Format(done)) : L("Нечего разносить: у открытых заказов нет остатка к оплате.");
+    });
+
+    private Task RemoveAsync(PaymentAllocationDto a) => RunAsync(async () =>
+    {
+        await Remove(a.Id, a.RowVersion);
+        return L("Разноска снята — сумма вернулась в аванс.");
+    });
+
+    private Task Close() => Closed.InvokeAsync();
+
+    private async Task RunAsync(Func<Task<string>> action)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _isError = false;
+        try
+        {
+            _message = await action();
+            await Changed.InvokeAsync();
+        }
+        catch (Exception ex) when (UiErrors.IsUserFacing(ex))
+        {
+            _message = UiErrors.Message(ex);
+            _isError = true;
+        }
+        finally
+        {
+            try
+            {
+                await ReloadAsync();
+            }
+            finally
+            {
+                _busy = false;
+            }
+        }
+    }
+}

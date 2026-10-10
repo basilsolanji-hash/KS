@@ -485,6 +485,13 @@ else
                 <button type="submit" disabled="@_busy">@L("Записать оплату")</button>
             </form>
         }
+        @if (_advances > 0 && _order.Total - _order.Paid > 0)
+        {
+            <div class="flash" role="status">
+                @L("Есть аванс, не разнесённый по заказам: {0}.", Amounts.Format(_advances))
+                <button type="button" @onclick="ApplyAdvancesAsync" disabled="@_busy">@L("Зачесть в этот заказ")</button>
+            </div>
+        }
         @if (_order.Payments.Count > 0)
         {
             <table class="compact">
@@ -494,7 +501,7 @@ else
                         <tr class="@(p.Status == CustomerPaymentStatus.Cancelled ? "archived" : null)">
                             <td>@p.Number</td>
                             <td>@p.Date.ToString("dd.MM.yyyy")</td>
-                            <td class="num">@Amounts.Format(p.Amount)</td>
+                            <td class="num">@Amounts.Format(p.ToOrder ?? p.Amount)@if (p.ToOrder is { } part && part != p.Amount) { <div class="muted small">@L("из {0}", Amounts.Format(p.Amount))</div> }</td>
                             <td>@p.Comment</td>
                             <td>@(p.Status == CustomerPaymentStatus.Cancelled ? L("отменена: {0}", p.CancelReason ?? "") : "")</td>
                         </tr>
@@ -516,6 +523,7 @@ else
     private SalesOptionsDto? _options;
     private HeaderForm? _header;
     private bool _busy;
+    private decimal _advances;
     private bool _notFound;
     private string? _denied;
     private string? _message;
@@ -603,6 +611,7 @@ else
 
         _order = await Sales.GetOrderAsync(Id);
         _invoiceId = _order.CanSeePrices ? await Invoices.FindForOrderAsync(Id) : null;
+        _advances = _order.CanEdit && _order.Status is SalesOrderStatus.Confirmed or SalesOrderStatus.Closed ? await Sales.AvailableAdvancesAsync(Id) : 0;
     }
 
     /// <summary>Счёт по заказу и сразу его карточка: там печать.</summary>
@@ -804,6 +813,8 @@ else
         Quantities.TryParse(text, out var value) ? value : throw new BusinessRuleException("sales.number", L("Укажите число, например 1 220,50."));
 
     /// <summary>Одна операция за раз, затем свежий заказ: у вкладки один DbContext.</summary>
+    private Task ApplyAdvancesAsync() => RunAsync(() => Sales.ApplyAdvancesAsync(Id), L("Аванс зачтён в заказ."));
+
     private async Task RunAsync(Func<Task> action, string? success)
     {
         if (_busy)

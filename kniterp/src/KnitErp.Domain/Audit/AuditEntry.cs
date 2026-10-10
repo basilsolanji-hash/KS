@@ -94,6 +94,8 @@ public static class AuditActions
     public const string DeviceTrusted = "auth.device.trusted";
     public const string MoneyOperationCreated = "money.operation.created";
     public const string MoneyOperationCancelled = "money.operation.cancelled";
+    public const string PaymentAllocated = "payment.allocated";
+    public const string PaymentAllocationRemoved = "payment.allocation.removed";
     public const string DeviceRevoked = "auth.device.revoked";
     public const string PasswordResetRequested = "auth.password_reset.requested";
     public const string PasswordReset = "auth.password.reset";

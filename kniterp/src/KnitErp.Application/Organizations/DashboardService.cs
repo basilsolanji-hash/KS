@@ -356,8 +356,10 @@ public sealed class DashboardService(IKnitErpDbContext db, IAccessGuard guard, I
                     .Select(i => new
                     {
                         Total = i.Lines.Sum(l => l.Amount),
-                        Paid = db.CustomerPayments.Where(pay => pay.OrganizationId == org && pay.SalesOrderId == i.SalesOrderId
-                                                                && pay.Status == CustomerPaymentStatus.Posted).Sum(pay => (decimal?)pay.Amount) ?? 0m,
+                        Paid = db.CustomerPaymentAllocations.Where(a => a.OrganizationId == org && a.OrderId == i.SalesOrderId && a.RemovedAtUtc == null
+                                                                        && db.CustomerPayments.Any(pay => pay.Id == a.PaymentId
+                                                                                                          && pay.Status == CustomerPaymentStatus.Posted))
+                            .Sum(a => (decimal?)a.Amount) ?? 0m,
                     })
                     .ToListAsync(ct);
                 var late = invoices.Select(i => (i.Total, Paid: Math.Min(i.Paid, i.Total))).Where(i => i.Paid < i.Total).ToList();
@@ -430,8 +432,10 @@ public sealed class DashboardService(IKnitErpDbContext db, IAccessGuard guard, I
                     .Select(o => new
                     {
                         Total = o.Lines.Sum(l => l.Amount),
-                        Paid = db.SupplierPayments.Where(pay => pay.OrganizationId == org && pay.PurchaseOrderId == o.Id
-                                                                && pay.Status == SupplierPaymentStatus.Posted).Sum(pay => (decimal?)pay.Amount) ?? 0m,
+                        Paid = db.SupplierPaymentAllocations.Where(a => a.OrganizationId == org && a.OrderId == o.Id && a.RemovedAtUtc == null
+                                                                        && db.SupplierPayments.Any(pay => pay.Id == a.PaymentId
+                                                                                                          && pay.Status == SupplierPaymentStatus.Posted))
+                            .Sum(a => (decimal?)a.Amount) ?? 0m,
                     })
                     .Where(x => x.Total - x.Paid > 0)
                     .Select(x => x.Total - x.Paid)

@@ -19,7 +19,8 @@ public sealed record MoneyOperationCommand(
 /// </summary>
 public sealed record CashOrderPrintDto(
     bool Expense, string Number, DateOnly Date, string Organization, string? Inn, string? Kpp, bool SoleProprietor, decimal Amount, string AmountInWords,
-    string? Party, string Basis, string? Comment, string? DirectorPosition, string? DirectorName, string? AccountantName, string Cashbox, bool Cancelled);
+    string? Party, string Basis, string? Comment, string? DirectorPosition, string? DirectorName, string? AccountantName, string Cashbox, bool Cancelled,
+    string Vat = MoneyOperationService.NoVat);
 
 public sealed record MoneyOperationFilter(DateOnly? From = null, DateOnly? To = null, long? AccountId = null, bool IncludeCancelled = true);
 
@@ -89,11 +90,50 @@ public sealed class MoneyOperationService(IKnitErpDbContext db, IAccessGuard gua
             throw new BusinessRuleException("money.print.not_cash", "Кассовый ордер печатается для поступления в кассу или выдачи из кассы.");
         }
 
+        return await BuildCashOrderAsync(db, ctx.OrganizationId, op.Kind == MoneyOperationKind.Expense, op.Number, op.OperationDate, op.AccountId,
+            op.Amount, op.Party, op.Basis, op.Comment, op.Status == MoneyOperationStatus.Cancelled, NoVat, ct);
+    }
+
+    public const string NoVat = "без налога (НДС)";
+
+    /// <summary>
+    /// Строка «В том числе» ордера: одна ставка НДС во всех строках заказов оплаты — сумма налога по расчётной ставке
+    /// (ставка / (100 + ставка)); все строки без НДС — «без налога (НДС)»; разные ставки или аванс без заказа — пусто,
+    /// бухгалтер указывает сам.
+    /// </summary>
+    public static string VatText(decimal amount, IReadOnlyCollection<decimal?> lineRates)
+    {
+        if (lineRates.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        if (lineRates.All(r => r is null or 0))
+        {
+            return NoVat;
+        }
+
+        var rates = lineRates.Distinct().ToList();
+        if (rates.Count != 1)
+        {
+            return string.Empty;
+        }
+
+        var rate = rates[0]!.Value;
+        var vat = Money.Round(amount * rate / (100 + rate));
+        return string.Create(System.Globalization.CultureInfo.GetCultureInfo("ru-RU"), $"НДС {rate:0.##}% — {vat:N2} руб.");
+    }
+
+    /// <summary>Кассовый ордер по кассе своего юрлица: реквизиты юрлица, сумма прописью в валюте организации.</summary>
+    internal static async Task<CashOrderPrintDto> BuildCashOrderAsync(IKnitErpDbContext db, long org, bool expense, string number, DateOnly date,
+        long accountId, decimal amount, string? party, string basis, string? comment, bool cancelled, string vat, CancellationToken ct)
+    {
+        var cash = await db.LegalEntityAccounts.AsNoTracking().SingleAsync(a => a.Id == accountId && a.OrganizationId == org, ct);
         var entity = await db.LegalEntities.AsNoTracking().SingleAsync(e => e.Id == cash.LegalEntityId, ct);
-        var currency = await db.Organizations.AsNoTracking().Where(o => o.Id == ctx.OrganizationId).Select(o => o.CurrencyCode).SingleAsync(ct);
-        return new CashOrderPrintDto(op.Kind == MoneyOperationKind.Expense, op.Number, op.OperationDate, entity.Name, entity.Inn, entity.Kpp,
-            entity.Kind == LegalEntityKind.SoleProprietor, op.Amount, AmountInWords.Format(op.Amount, currency), op.Party, op.Basis, op.Comment,
-            entity.DirectorPosition, entity.DirectorName, entity.AccountantName, cash.BankName, op.Status == MoneyOperationStatus.Cancelled);
+        var currency = await db.Organizations.AsNoTracking().Where(o => o.Id == org).Select(o => o.CurrencyCode).SingleAsync(ct);
+        return new CashOrderPrintDto(expense, number, date, entity.Name, entity.Inn, entity.Kpp, entity.Kind == LegalEntityKind.SoleProprietor, amount,
+            AmountInWords.Format(amount, currency), party, basis, comment, entity.DirectorPosition, entity.DirectorName, entity.AccountantName, cash.BankName,
+            cancelled, vat);
     }
 
     public async Task<long> CreateAsync(MoneyOperationCommand cmd, CancellationToken ct = default)

@@ -102,9 +102,10 @@ public sealed class PrintService(IKnitErpDbContext db, IAccessGuard guard)
             .Select(c => c.CountryCode == Countries.Russia).SingleAsync(ct);
 
         // Строка 5: оплата (предоплата) до отгрузки — номер и дата платёжного документа покупателя.
+        // D85: оплаты, разнесённые на заказ этой отгрузки.
         var prepayments = await db.CustomerPayments.AsNoTracking()
-            .Where(p => p.OrganizationId == ctx.OrganizationId && p.SalesOrderId == order.Id && p.Status == CustomerPaymentStatus.Posted
-                        && p.PaymentDate <= doc.DocumentDate)
+            .Where(p => p.OrganizationId == ctx.OrganizationId && p.Status == CustomerPaymentStatus.Posted && p.PaymentDate <= doc.DocumentDate
+                        && db.CustomerPaymentAllocations.Any(a => a.PaymentId == p.Id && a.OrderId == order.Id && a.RemovedAtUtc == null))
             .OrderBy(p => p.PaymentDate).Select(p => new { p.DocumentNumber, p.PaymentDate }).ToListAsync(ct);
         var paymentDocuments = prepayments.Count == 0 ? null
             : string.Join("; ", prepayments.Select(p => $"№ {p.DocumentNumber ?? "—"} от {p.PaymentDate:dd.MM.yyyy}"));

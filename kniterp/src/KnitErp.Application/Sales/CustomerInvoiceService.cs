@@ -180,11 +180,7 @@ public sealed class CustomerInvoiceService(IKnitErpDbContext db, IAccessGuard gu
     }
 
     private async Task<Dictionary<long, decimal>> PaidAsync(AccessContext ctx, IReadOnlyCollection<long> orderIds, CancellationToken ct) =>
-        await db.CustomerPayments.AsNoTracking()
-            .Where(p => p.OrganizationId == ctx.OrganizationId && p.SalesOrderId != null && orderIds.Contains(p.SalesOrderId.Value)
-                        && p.Status == CustomerPaymentStatus.Posted)
-            .GroupBy(p => p.SalesOrderId!.Value).Select(g => new { g.Key, Sum = g.Sum(p => p.Amount) })
-            .ToDictionaryAsync(x => x.Key, x => x.Sum, ct);
+        await KnitErp.Application.Finance.PaidByOrder.SalesAsync(db, ctx.OrganizationId, orderIds, ct);
 
     private async Task<DateOnly> TodayAsync(AccessContext ctx, CancellationToken ct)
     {

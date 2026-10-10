@@ -71,4 +71,50 @@ public sealed class MigrationTests(SqlTestHost host) : IClassFixture<SqlTestHost
             await db.Database.EnsureDeletedAsync();
         }
     }
+
+    /// <summary>
+    /// D85: при обновлении прежняя привязка оплаты к заказу становится разноской на всю сумму — оплачено по заказам не меняется.
+    /// Проверка: данные создаются, миграция разносок откатывается и применяется снова.
+    /// </summary>
+    [SqlFact]
+    public async Task Upgrade_turns_payment_order_links_into_allocations()
+    {
+        long order, payment, purchase, supplierPayment;
+        long organizationId;
+        await using (var s0 = host.As(null, null))
+        {
+            var org = await s0.Organizations.CreateWithOwnerAsync(new KnitErp.Application.Organizations.CreateOrganizationCommand(
+                "Тестовая организация миграции", "Тест", "7707083893", null, false, "Europe/Moscow", $"owner-{Guid.NewGuid():N}@test.local", "Владелец", "RU"));
+            organizationId = org.OrganizationId;
+            await using var s = host.As(org.OwnerUserId, org.OrganizationId);
+            var units = await s.Catalog.ListUnitsAsync();
+            var store = await s.Warehouses.CreateWarehouseAsync("Склад", null);
+            var item = await s.Catalog.CreateItemAsync(new KnitErp.Application.Catalog.ItemCommand("СВ-1", "Свитер", KnitErp.Domain.Catalog.ItemType.Finished,
+                units.Single(u => u.Symbol == "шт").Id, null));
+            var customer = await s.Counterparties.CreateAsync(new KnitErp.Application.Catalog.CounterpartyCommand("ООО «Магазин»", null, null, false, true, null));
+            var supplier = await s.Counterparties.CreateAsync(new KnitErp.Application.Catalog.CounterpartyCommand("ООО «Пряжа»", null, null, true, false, null));
+            var day = new DateOnly(2026, 10, 9);
+            order = await s.Sales.CreateOrderAsync(new KnitErp.Domain.Sales.SalesOrderHeader(day, customer, store, null, null, true, null));
+            await s.Sales.SetOrderLineAsync(order, item, 2, 500m, 22m, (await s.Sales.GetOrderAsync(order)).RowVersion);
+            await s.Sales.ConfirmOrderAsync(order, (await s.Sales.GetOrderAsync(order)).RowVersion);
+            payment = await s.Sales.CreatePaymentAsync(day, customer, order, 700m, null);
+            purchase = await s.Purchases.CreateOrderAsync(new KnitErp.Domain.Purchasing.PurchaseOrderHeader(day, supplier, store, null, null, true, null));
+            await s.Purchases.SetOrderLineAsync(purchase, item, 1, 300m, null, (await s.Purchases.GetOrderAsync(purchase)).RowVersion);
+            await s.Purchases.ConfirmOrderAsync(purchase, (await s.Purchases.GetOrderAsync(purchase)).RowVersion);
+            supplierPayment = await s.Purchases.CreatePaymentAsync(day, supplier, purchase, 300m, null);
+        }
+
+        await using (var db = host.NewDb())
+        {
+            var migrator = db.GetService<IMigrator>();
+            await migrator.MigrateAsync("20261010201433_AddMoneyOperationsAndPurchaseLegalEntity");
+            await migrator.MigrateAsync();
+        }
+
+        await using var db2 = host.NewDb();
+        var allocation = await db2.CustomerPaymentAllocations.SingleAsync(a => a.OrganizationId == organizationId);
+        Assert.Equal((payment, order, 700m, true), (allocation.PaymentId, allocation.OrderId, allocation.Amount, allocation.IsActive));
+        var supplierAllocation = await db2.SupplierPaymentAllocations.SingleAsync(a => a.OrganizationId == organizationId);
+        Assert.Equal((supplierPayment, purchase, 300m), (supplierAllocation.PaymentId, supplierAllocation.OrderId, supplierAllocation.Amount));
+    }
 }

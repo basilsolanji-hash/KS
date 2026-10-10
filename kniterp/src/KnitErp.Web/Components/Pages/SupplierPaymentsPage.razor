@@ -57,6 +57,15 @@ else
         </div>
     }
 
+    @if (_allocating is { } pid)
+    {
+        <PaymentAllocationPanel @key="pid" Load="() => Purchases.GetPaymentAllocationsAsync(pid)"
+                                Allocate="(order, amount) => Purchases.AllocatePaymentAsync(pid, order, amount)"
+                                Auto="() => Purchases.AutoAllocatePaymentAsync(pid)"
+                                Remove="(id, version) => Purchases.RemovePaymentAllocationAsync(id, version)"
+                                OrderHref="purchase-orders/" CanEdit="CanEdit" Changed="LoadAsync" Closed="() => _allocating = null" />
+    }
+
     <form class="inline-form" @onsubmit="ReloadAsync">
         <label>@L("С") <input type="date" @bind="_from" /></label>
         <label>@L("По") <input type="date" @bind="_to" /></label>
@@ -66,27 +75,36 @@ else
 
     <div class="scroll">
         <table>
-            <thead><tr><th>@L("Номер")</th><th>@L("Дата")</th><th>@L("Поставщик")</th><th class="opt">@L("Заказ")</th><th class="num">@L("Сумма")</th><th class="opt">@L("Комментарий")</th><th>@L("Статус")</th>@if (CanEdit) { <th></th> }</tr></thead>
+            <thead><tr><th>@L("Номер")</th><th>@L("Дата")</th><th>@L("Поставщик")</th><th class="opt">@L("Заказы")</th><th class="num">@L("Сумма")</th><th class="num opt">@L("Аванс")</th><th class="opt">@L("Комментарий")</th><th>@L("Статус")</th><th></th></tr></thead>
             <tbody>
                 @if (_rows.Count == 0)
                 {
-                    <tr><td colspan="8" class="muted">@L("Оплат нет.")</td></tr>
+                    <tr><td colspan="9" class="muted">@L("Оплат нет.")</td></tr>
                 }
                 @foreach (var p in _rows)
                 {
                     var cancelled = p.Status == SupplierPaymentStatus.Cancelled;
                     <tr class="@(cancelled ? "archived" : null)">
-                        <td>@p.Number</td>
+                        <td>@p.Number @if (p.CashOrderNumber is { } ko) { <div class="muted small">@ko</div> }</td>
                         <td>@p.Date.ToString("dd.MM.yyyy")</td>
                         <td>@p.Supplier</td>
-                        <td>@if (p.OrderId is { } oid) { <a href="purchase-orders/@oid">@p.OrderNumber</a> }</td>
+                        <td>@if (p.OrderId is { } oid && p.Orders == p.OrderNumber) { <a href="purchase-orders/@oid">@p.OrderNumber</a> } else { @p.Orders }</td>
                         <td class="num">@Amounts.Format(p.Amount)</td>
+                        <td class="num">@(p.Unallocated > 0 ? Amounts.Format(p.Unallocated) : "")</td>
                         <td>@p.Comment</td>
                         <td>@(cancelled ? L("отменена: {0}", p.CancelReason ?? "") : L("проведена"))</td>
-                        @if (CanEdit)
-                        {
-                            <td>
+                        <td>
+                            <div class="row-actions">
+                                @if (p.CashOrderNumber is not null)
+                                {
+                                    <a class="button secondary" href="print/cash-order/supplier-payment/@p.Id" target="_blank" rel="noopener" title="@L("Печать кассового ордера")">РКО</a>
+                                }
                                 @if (!cancelled)
+                                {
+                                    <button type="button" class="secondary" @onclick="() => _allocating = p.Id" disabled="@_busy">@L("Разноска")</button>
+                                }
+                            </div>
+                                @if (CanEdit && !cancelled)
                                 {
                                     @if (_cancelId == p.Id)
                                     {
@@ -100,14 +118,13 @@ else
                                         <button type="button" class="secondary" @onclick="() => { _cancelId = p.Id; _reason = string.Empty; }">@L("Отменить")</button>
                                     }
                                 }
-                            </td>
-                        }
+                        </td>
                     </tr>
                 }
             </tbody>
             @if (_rows.Count > 0)
             {
-                <tfoot><tr><td colspan="4"><b>@L("Итого")</b></td><td class="num"><b>@Amounts.Format(_rows.Where(r => r.Status == SupplierPaymentStatus.Posted).Sum(r => r.Amount))</b></td><td colspan="3"></td></tr></tfoot>
+                <tfoot><tr><td colspan="4"><b>@L("Итого")</b></td><td class="num"><b>@Amounts.Format(_rows.Where(r => r.Status == SupplierPaymentStatus.Posted).Sum(r => r.Amount))</b></td><td class="num"><b>@Amounts.Format(_rows.Sum(r => r.Unallocated))</b></td><td colspan="3"></td></tr></tfoot>
             }
         </table>
     </div>
@@ -134,6 +151,7 @@ else
     private IReadOnlyList<KnitErp.Application.Finance.MoneyAccountOptionDto> _accounts = [];
     private static long? AccountId(string value) => long.TryParse(value, out var id) ? id : null;
 
+    private long? _allocating;
     private long? _cancelId;
     private string _reason = string.Empty;
 

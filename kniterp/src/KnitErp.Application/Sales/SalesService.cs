@@ -64,9 +64,18 @@ public sealed record SalesLinkedDocumentDto(long Id, string Number, StockOperati
     public string StatusName => StockDocument.StatusName(Status);
 }
 
+/// <summary>
+/// Оплата покупателя. Allocated — разнесено по заказам (D85), Orders — номера этих заказов, ToOrder — сколько из оплаты
+/// разнесено на заказ, из карточки которого смотрят; CashOrderNumber — номер ПКО, если деньги пришли в кассу.
+/// </summary>
 public sealed record CustomerPaymentDto(
     long Id, string Number, DateOnly Date, long CustomerId, string Customer, long? OrderId, string? OrderNumber, decimal Amount, string? Comment,
-    CustomerPaymentStatus Status, string? CancelReason, string CreatedBy, byte[] RowVersion);
+    CustomerPaymentStatus Status, string? CancelReason, string CreatedBy, byte[] RowVersion,
+    decimal Allocated = 0, string? Orders = null, decimal? ToOrder = null, string? CashOrderNumber = null)
+{
+    /// <summary>Не разнесено — аванс покупателя.</summary>
+    public decimal Unallocated => Status == CustomerPaymentStatus.Posted ? Amount - Allocated : 0;
+}
 
 /// <summary>Суммы по заказу: отгружено и возвращено — по ценам заказа с НДС; Debt — долг покупателя по заказу.</summary>
 public sealed record SalesOrderDto(
@@ -187,11 +196,7 @@ public sealed class SalesService(
                 .Where(i => i.OrganizationId == ctx.OrganizationId && ids.Contains(i.SalesOrderId) && i.Status == CustomerInvoiceStatus.Issued)
                 .GroupBy(i => i.SalesOrderId).Select(g => new { g.Key, Sum = g.SelectMany(i => i.Lines).Sum(l => l.Amount) })
                 .ToDictionaryAsync(x => x.Key, x => x.Sum, ct);
-            paid = await db.CustomerPayments.AsNoTracking()
-                .Where(p => p.OrganizationId == ctx.OrganizationId && p.SalesOrderId != null && ids.Contains(p.SalesOrderId.Value)
-                            && p.Status == CustomerPaymentStatus.Posted)
-                .GroupBy(p => p.SalesOrderId!.Value).Select(g => new { g.Key, Sum = g.Sum(p => p.Amount) })
-                .ToDictionaryAsync(x => x.Key, x => x.Sum, ct);
+            paid = await KnitErp.Application.Finance.PaidByOrder.SalesAsync(db, ctx.OrganizationId, ids, ct);
         }
 
         return list.Select(o => new SalesOrderRowDto(o.Id, o.Number, o.OrderDate, o.Customer, o.Warehouse, o.ShipDate, o.Status,
@@ -242,7 +247,7 @@ public sealed class SalesService(
                 l.DiscountPercent, stock.GetValueOrDefault(l.ItemId), reservedByOthers.GetValueOrDefault((order.WarehouseId, l.ItemId)));
         }).OrderBy(l => l.Code).ToList();
 
-        var payments = await PaymentsQuery(ctx, orderId: id).ToListAsync(ct);
+        var payments = await EnrichAsync(ctx, await PaymentsQuery(ctx, orderId: id).ToListAsync(ct), id, ct);
         decimal Value(StockOperationKind kind) => Money.Round(docs.Where(d => d.Kind == kind && d.Status == StockDocumentStatus.Posted)
             .SelectMany(d => d.Lines).Sum(l => l.Quantity * order.UnitCostWithVat(l.ItemId)));
 
@@ -256,7 +261,7 @@ public sealed class SalesService(
             prices ? payments : [],
             prices ? order.Total : null, prices ? order.VatTotal : null,
             prices ? Value(StockOperationKind.Shipment) : null, prices ? Value(StockOperationKind.CustomerReturn) : null,
-            prices ? payments.Where(p => p.Status == CustomerPaymentStatus.Posted).Sum(p => p.Amount) : null,
+            prices ? payments.Where(p => p.Status == CustomerPaymentStatus.Posted).Sum(p => p.ToOrder ?? 0) : null,
             canEdit, prices, canDocs, order.RowVersion,
             order.StageId is { } sid && (await StagesAsync(ctx, ct)).TryGetValue(sid, out var stage) ? stage : null,
             order.Reserve, prices ? order.DiscountTotal : null, await DetailsAsync(ctx, order, prices, ct));
@@ -551,17 +556,20 @@ public sealed class SalesService(
         var (ctx, order) = await LoadForEditAsync(id, rowVersion, ct);
         var hasDocs = await db.StockDocuments.AnyAsync(d => d.SalesOrderId == id
             && (d.Status == StockDocumentStatus.Posted || d.Status == StockDocumentStatus.Draft), ct);
-        var hasPayments = await db.CustomerPayments.AnyAsync(p => p.SalesOrderId == id && p.Status == CustomerPaymentStatus.Posted, ct);
+        await using var tx = await db.BeginTransactionAsync(ct);
+        await Allocator.LockCounterpartyAsync(ctx, order.CustomerId, ct);
+        var hasPayments = await Allocator.OrderHasAllocationsAsync(ctx, id, ct);
         if (hasDocs || hasPayments)
         {
             throw new BusinessRuleException("sales.order.in_use",
-                "По заказу есть отгрузки, возвраты или оплаты. Отмените черновики, сторнируйте проведённые документы и отмените оплаты — затем заказ.");
+                "По заказу есть отгрузки, возвраты или оплаты. Отмените черновики, сторнируйте проведённые документы и снимите разноски оплат — затем заказ.");
         }
 
         var before = SalesOrder.StatusName(order.Status);
         order.Cancel();
         Audit(ctx, AuditActions.SalesOrderCancelled, nameof(SalesOrder), id, before, "Отменён", order.Number);
         await db.SaveOrConflictAsync(ct);
+        await tx.CommitAsync(ct);
     }
 
     /// <summary>Отгрузка по заказу: черновик со всем, что ещё не отгружено. Кладовщик правит количества по факту и проводит.</summary>
@@ -605,7 +613,7 @@ public sealed class SalesService(
     {
         var ctx = await guard.DemandAsync(Permissions.SalesView, ct);
         await guard.DemandAsync(Permissions.PriceView, ct);
-        return await PaymentsQuery(ctx, from: from, to: to, search: search).ToListAsync(ct);
+        return await EnrichAsync(ctx, await PaymentsQuery(ctx, from: from, to: to, search: search).ToListAsync(ct), null, ct);
     }
 
     /// <summary>Оплата от покупателя: сразу уменьшает его долг. Заказ — по желанию, того же покупателя.</summary>
@@ -643,12 +651,29 @@ public sealed class SalesService(
 
         var account = await KnitErp.Application.Finance.MoneyService.ResolveAsync(db, ctx.OrganizationId, moneyAccountId, entityId, orderAccount, ct);
         await ClosedPeriod.EnsureOpenAsync(db, ctx.OrganizationId, date, ct);
+
+        // Проверка данных — до выдачи номеров: отказ после счётчика оставил бы его в контексте вкладки.
+        CustomerPayment.Create(ctx.OrganizationId, "—", date, customerId, orderId, amount, comment, ctx.UserId, clock.UtcNow, documentNumber, account);
+        var cash = account is { } acc && await db.LegalEntityAccounts.AsNoTracking().AnyAsync(a => a.Id == acc && a.Kind == MoneyAccountKind.Cash, ct);
         await using var tx = await db.BeginTransactionAsync(ct);
         var number = await DocumentNumbers.NextAsync(db, ctx.OrganizationId, CustomerPayment.NumberPrefix, ct);
         var payment = CustomerPayment.Create(ctx.OrganizationId, number, date, customerId, orderId, amount, comment, ctx.UserId, clock.UtcNow, documentNumber,
             account);
+
+        // D85: деньги пришли в кассу — приходный кассовый ордер в общей нумерации ПКО.
+        if (cash)
+        {
+            payment.AssignCashOrderNumber(await DocumentNumbers.NextAsync(db, ctx.OrganizationId,
+                KnitErp.Domain.Finance.MoneyOperation.PrefixFor(KnitErp.Domain.Finance.MoneyOperationKind.Income, true), ct));
+        }
+
         db.CustomerPayments.Add(payment);
         await db.SaveChangesAsync(ct);
+        if (orderId is { } allocateTo)
+        {
+            await Allocator.AllocateNewAsync(ctx, payment.Id, customerId, allocateTo, amount, ct);
+        }
+
         Audit(ctx, AuditActions.CustomerPaymentCreated, nameof(CustomerPayment), payment.Id, null, $"{payment.Amount:0.00}",
             $"{number}: {customer.Name}");
         await db.SaveChangesAsync(ct);
@@ -668,6 +693,89 @@ public sealed class SalesService(
             $"{payment.Number}: {payment.CancelReason}");
         await db.SaveOrConflictAsync(ct);
     }
+
+    /// <summary>Разноски оплаты и заказы покупателя, на которые можно разнести остаток (D85).</summary>
+    public async Task<KnitErp.Application.Finance.PaymentAllocationsDto> GetPaymentAllocationsAsync(long paymentId, CancellationToken ct = default)
+    {
+        var ctx = await guard.DemandAsync(Permissions.SalesView, ct);
+        await guard.DemandAsync(Permissions.PriceView, ct);
+        return await Allocator.GetAsync(ctx, paymentId, ct);
+    }
+
+    public async Task AllocatePaymentAsync(long paymentId, long orderId, decimal amount, CancellationToken ct = default) =>
+        await Allocator.AllocateAsync(await DemandEditAsync(ct), paymentId, orderId, amount, ct);
+
+    /// <summary>Разнести остаток оплаты по открытым заказам покупателя — сначала с ранним сроком. Возвращает разнесённую сумму.</summary>
+    public async Task<decimal> AutoAllocatePaymentAsync(long paymentId, CancellationToken ct = default) =>
+        await Allocator.AutoAllocateAsync(await DemandEditAsync(ct), paymentId, ct);
+
+    public async Task RemovePaymentAllocationAsync(long allocationId, byte[] rowVersion, CancellationToken ct = default) =>
+        await Allocator.RemoveAsync(await DemandEditAsync(ct), allocationId, rowVersion, ct);
+
+    /// <summary>Зачесть авансы покупателя (не разнесённые остатки его оплат) в заказ. Возвращает зачтённую сумму.</summary>
+    public async Task<decimal> ApplyAdvancesAsync(long orderId, CancellationToken ct = default) =>
+        await Allocator.ApplyAdvancesAsync(await DemandEditAsync(ct), orderId, ct);
+
+    /// <summary>Сколько авансов покупателя можно зачесть в заказ — подсказка в карточке заказа.</summary>
+    public async Task<decimal> AvailableAdvancesAsync(long orderId, CancellationToken ct = default)
+    {
+        var ctx = await guard.DemandAsync(Permissions.SalesView, ct);
+        await guard.DemandAsync(Permissions.PriceView, ct);
+        return await Allocator.AvailableAdvancesAsync(ctx, orderId, ct);
+    }
+
+    /// <summary>Приходный кассовый ордер (КО-1) к оплате, пришедшей в кассу (D85).</summary>
+    public async Task<KnitErp.Application.Finance.CashOrderPrintDto> PaymentCashOrderAsync(long paymentId, CancellationToken ct = default)
+    {
+        var ctx = await guard.DemandAsync(Permissions.SalesView, ct);
+        await guard.DemandAsync(Permissions.PriceView, ct);
+        var p = await db.CustomerPayments.AsNoTracking().SingleOrDefaultAsync(x => x.Id == paymentId && x.OrganizationId == ctx.OrganizationId, ct)
+                ?? throw new NotFoundException("Оплата");
+        if (p.CashOrderNumber is null || p.MoneyAccountId is null)
+        {
+            throw new BusinessRuleException("money.print.not_cash", "Кассовый ордер печатается для оплаты, принятой в кассу.");
+        }
+
+        var customer = await db.Counterparties.AsNoTracking().Where(c => c.Id == p.CustomerId).Select(c => c.Name).SingleAsync(ct);
+        var allocations = await db.CustomerPaymentAllocations.AsNoTracking()
+            .Where(a => a.OrganizationId == ctx.OrganizationId && a.PaymentId == p.Id && a.RemovedAtUtc == null)
+            .Select(a => new { a.OrderId, a.Amount }).ToListAsync(ct);
+        var orderIds = allocations.Select(a => a.OrderId).ToList();
+        var orders = await db.SalesOrders.AsNoTracking().Include(o => o.Lines).Where(o => orderIds.Contains(o.Id)).OrderBy(o => o.Number).ToListAsync(ct);
+        var basis = orders.Count == 0
+            ? "Предварительная оплата (аванс)"
+            : $"Оплата по заказ{(orders.Count == 1 ? "у" : "ам")} {string.Join(", ", orders.Select(o => $"№ {o.Number} от {o.OrderDate:dd.MM.yyyy}"))}";
+        if (orders.Count > 0 && allocations.Sum(a => a.Amount) < p.Amount)
+        {
+            basis += " и предварительная оплата (аванс)";
+        }
+
+        var vat = KnitErp.Application.Finance.MoneyOperationService.VatText(p.Amount, orders.SelectMany(o => o.Lines).Select(l => l.VatPercent).ToList());
+        return await KnitErp.Application.Finance.MoneyOperationService.BuildCashOrderAsync(db, ctx.OrganizationId, false, p.CashOrderNumber, p.PaymentDate,
+            p.MoneyAccountId.Value, p.Amount, customer, basis, p.Comment, p.Status == CustomerPaymentStatus.Cancelled, vat, ct);
+    }
+
+    /// <summary>Разноски для списка оплат: сколько разнесено, на какие заказы и сколько — на заказ из карточки.</summary>
+    private async Task<IReadOnlyList<CustomerPaymentDto>> EnrichAsync(AccessContext ctx, List<CustomerPaymentDto> list, long? orderId, CancellationToken ct)
+    {
+        var ids = list.Select(p => p.Id).ToList();
+        var rows = await db.CustomerPaymentAllocations.AsNoTracking()
+            .Where(a => a.OrganizationId == ctx.OrganizationId && a.RemovedAtUtc == null && ids.Contains(a.PaymentId))
+            .Join(db.SalesOrders.AsNoTracking(), a => a.OrderId, o => o.Id, (a, o) => new { a.PaymentId, a.OrderId, o.Number, a.Amount })
+            .ToListAsync(ct);
+        var cash = await db.CustomerPayments.AsNoTracking().Where(p => ids.Contains(p.Id) && p.CashOrderNumber != null)
+            .ToDictionaryAsync(p => p.Id, p => p.CashOrderNumber!, ct);
+        var byPayment = rows.ToLookup(r => r.PaymentId);
+        return list.Select(p => p with
+        {
+            Allocated = byPayment[p.Id].Sum(r => r.Amount),
+            Orders = byPayment[p.Id].Any() ? string.Join(", ", byPayment[p.Id].OrderBy(r => r.Number).Select(r => r.Number)) : null,
+            ToOrder = orderId is { } oid ? byPayment[p.Id].Where(r => r.OrderId == oid).Sum(r => r.Amount) : null,
+            CashOrderNumber = cash.GetValueOrDefault(p.Id),
+        }).ToList();
+    }
+
+    private KnitErp.Application.Finance.PaymentAllocator Allocator => new(db, clock, currentUser, sales: true);
 
     /// <summary>
     /// Расчёты с покупателями на дату: отгружено и возвращено по проведённым документам по заказам (по ценам заказа с НДС),
@@ -746,7 +854,7 @@ public sealed class SalesService(
                 select new { p, Customer = s.Name, Author = u.DisplayName, OrderNumber = o == null ? null : o.Number };
         if (orderId is { } oid)
         {
-            q = q.Where(x => x.p.SalesOrderId == oid);
+            q = q.Where(x => db.CustomerPaymentAllocations.Any(a => a.PaymentId == x.p.Id && a.OrderId == oid && a.RemovedAtUtc == null));
         }
 
         if (from is { } f)
@@ -762,7 +870,10 @@ public sealed class SalesService(
         if (!string.IsNullOrWhiteSpace(search))
         {
             var text = search.Trim();
-            q = q.Where(x => x.p.Number.Contains(text) || x.Customer.Contains(text) || (x.OrderNumber != null && x.OrderNumber.Contains(text)));
+            q = q.Where(x => x.p.Number.Contains(text) || x.Customer.Contains(text) || (x.OrderNumber != null && x.OrderNumber.Contains(text))
+                             || (x.p.CashOrderNumber != null && x.p.CashOrderNumber.Contains(text))
+                             || db.CustomerPaymentAllocations.Any(a => a.PaymentId == x.p.Id && a.RemovedAtUtc == null
+                                                     && db.SalesOrders.Any(o => o.Id == a.OrderId && o.Number.Contains(text))));
         }
 
         return q.OrderByDescending(x => x.p.PaymentDate).ThenByDescending(x => x.p.Id).Take(MaxRows)

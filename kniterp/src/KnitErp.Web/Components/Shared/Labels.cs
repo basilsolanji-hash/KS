@@ -21,6 +21,8 @@ public static class AuditLabels
         [AuditActions.DeviceTrusted] = "Устройство стало доверенным",
         [AuditActions.MoneyOperationCreated] = "Проведена денежная операция",
         [AuditActions.MoneyOperationCancelled] = "Отменена денежная операция",
+        [AuditActions.PaymentAllocated] = "Оплата разнесена по заказу",
+        [AuditActions.PaymentAllocationRemoved] = "Снята разноска оплаты",
         [AuditActions.DeviceRevoked] = "Доверие устройству отозвано",
         [AuditActions.PasswordResetRequested] = "Запрошена смена пароля",
         [AuditActions.PasswordReset] = "Пароль сменён по ссылке",
